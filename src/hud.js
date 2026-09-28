@@ -173,6 +173,7 @@ export class HUD {
     if (race.state === 'countdown' || !this.grid) this.grid = new Map(race.cars.map((c) => [c, c.position]));
     const fl = race.bestLapOverall?.name;
     const st = race.standings;
+    this.el.standings.classList.toggle('compact', st.length > 12); // big fields: slimmer rows
     this.el.standings.innerHTML = st.map((c, i) => {
       let gap;
       if (race.state === 'countdown') gap = '';

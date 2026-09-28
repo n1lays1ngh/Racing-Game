@@ -215,21 +215,24 @@ function computeRacingLine(t) {
   const lim = (i) => Math.max(t.hw[i] - 1.2, 0.5); // how close to the track edge the AI may go
   const o = t.ro;
   const px = new Float32Array(n), pz = new Float32Array(n);
-  for (let iter = 0; iter < 600; iter++) {
-    for (let i = 0; i < n; i++) { px[i] = t.cx[i] + t.nx[i] * o[i]; pz[i] = t.cz[i] + t.nz[i] * o[i]; }
-    for (let i = 0; i < n; i++) {
-      const a = (i - 1 + n) % n, b = (i + 1) % n;
-      const mx = (px[a] + px[b]) / 2 - t.cx[i];
-      const mz = (pz[a] + pz[b]) / 2 - t.cz[i];
-      const target = mx * t.nx[i] + mz * t.nz[i];
-      o[i] = Math.max(-lim(i), Math.min(lim(i), o[i] + (target - o[i]) * 0.9));
+  // Minimum-curvature line: straighten the path as much as the track width allows, which gives the
+  // classic outside–apex–outside line through every corner. Each point moves toward where a smooth
+  // curve through its neighbours would put it. Coarse to fine (k = spacing in samples) so long
+  // corners settle too; updated in place with a small step so it stays stable.
+  for (const [k, iters] of [[16, 120], [8, 160], [4, 200], [2, 250], [1, 300]]) {
+    for (let iter = 0; iter < iters; iter++) {
+      for (let i = 0; i < n; i++) { px[i] = t.cx[i] + t.nx[i] * o[i]; pz[i] = t.cz[i] + t.nz[i] * o[i]; }
+      for (let i = 0; i < n; i++) {
+        const a2 = (i - 2 * k + 2 * n) % n, a = (i - k + n) % n, b = (i + k) % n, b2 = (i + 2 * k) % n;
+        const tx = (-px[a2] + 4 * px[a] + 4 * px[b] - px[b2]) / 6, tz = (-pz[a2] + 4 * pz[a] + 4 * pz[b] - pz[b2]) / 6;
+        const target = (tx - t.cx[i]) * t.nx[i] + (tz - t.cz[i]) * t.nz[i];
+        o[i] = Math.max(-lim(i), Math.min(lim(i), o[i] + (target - o[i]) * 0.4));
+        px[i] = t.cx[i] + t.nx[i] * o[i]; pz[i] = t.cz[i] + t.nz[i] * o[i];
+      }
     }
   }
-  // Smooth the apex kinks into arcs (radius is in 2 m samples).
-  for (const radius of [15, 10, 6]) {
-    smoothInPlace(o, radius);
-    for (let i = 0; i < n; i++) o[i] = Math.max(-lim(i), Math.min(lim(i), o[i]));
-  }
+  smoothInPlace(o, 4); // iron out any small wiggles
+  for (let i = 0; i < n; i++) o[i] = Math.max(-lim(i), Math.min(lim(i), o[i]));
   for (let i = 0; i < n; i++) { t.rx[i] = t.cx[i] + t.nx[i] * o[i]; t.rz[i] = t.cz[i] + t.nz[i] * o[i]; }
   // Curvature from the circle through points 10 m either side (less noisy).
   const k = 5;

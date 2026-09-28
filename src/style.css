@@ -65,6 +65,9 @@ kbd {
   height: 38px; padding: 0 14px 0 10px; font-size: 18px; font-weight: 700;
 }
 #standings li:nth-child(even) { background: rgba(255, 255, 255, 0.035); }
+#standings.compact li { height: 27px; font-size: 15px; }
+#standings.compact .bar { height: 16px; }
+#standings.compact .g { font-size: 13px; }
 #standings li.me { background: #f2f3f5; color: #0b0d12; }
 #standings li.me .g, #standings li.me .p { color: #0b0d12; }
 #standings .p { font-weight: 900; text-align: right; color: var(--ink); }
@@ -81,6 +84,8 @@ kbd {
   background: conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 7px 5px;
 }
 #results .sw { width: 4px; height: 14px; border-radius: 2px; display: inline-block; }
+#results .card { max-height: 92vh; overflow-y: auto; }
+#results td { padding: 4px 6px; }
 
 /* --- lap timing (top right) --- */
 #right-top {

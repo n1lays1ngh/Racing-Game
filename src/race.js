@@ -3,22 +3,39 @@
 import { createCarState, stepCar, placeCar, CAR } from './physics.js';
 import { AIDriver, buildSpeedProfile } from './ai.js';
 
+// The grid: you plus 19 AI drivers (made-up teams). Add or remove entries to change the field size.
+// The tower shows the first three letters of each name, so keep those unique.
 export const TEAMS = [
-  { name: 'You', color: 0xe10600, accent: 0xffffff, number: 1 },
-  { name: 'Vortex', color: 0x1e41ff, accent: 0xffd400, number: 7 },
-  { name: 'Solaris', color: 0xff8000, accent: 0x111111, number: 4 },
-  { name: 'Kestrel', color: 0x00a19b, accent: 0xe8e8e8, number: 22 },
-  { name: 'Nimbus', color: 0xe8e8e8, accent: 0x0090ff, number: 11 },
-  { name: 'Ferro', color: 0x2b2b2b, accent: 0xff2d55, number: 33 },
+  { name: 'You',      color: 0xe10600, accent: 0xffffff, number: 1 },
+  { name: 'Vortex',   color: 0x1e41ff, accent: 0xffd400, number: 7 },
+  { name: 'Solaris',  color: 0xff8000, accent: 0x111111, number: 4 },
+  { name: 'Kestrel',  color: 0x00a19b, accent: 0xe8e8e8, number: 22 },
+  { name: 'Nimbus',   color: 0xe8e8e8, accent: 0x0090ff, number: 11 },
+  { name: 'Ferro',    color: 0x2b2b2b, accent: 0xff2d55, number: 33 },
+  { name: 'Aurora',   color: 0x7a2bd6, accent: 0x00e5ff, number: 16 },
+  { name: 'Titan',    color: 0x1b5e20, accent: 0xffd700, number: 14 },
+  { name: 'Zephyr',   color: 0x3fb4ff, accent: 0x0b1a3a, number: 23 },
+  { name: 'Onyx',     color: 0x121212, accent: 0xd4af37, number: 55 },
+  { name: 'Halcyon',  color: 0xff4fa3, accent: 0x1e1e1e, number: 10 },
+  { name: 'Raptor',   color: 0xc62828, accent: 0xf5f5f5, number: 31 },
+  { name: 'Cobalt',   color: 0x0d47a1, accent: 0xff6d00, number: 2 },
+  { name: 'Mistral',  color: 0x9ccc65, accent: 0x263238, number: 27 },
+  { name: 'Pulsar',   color: 0xffeb3b, accent: 0x212121, number: 44 },
+  { name: 'Ember',    color: 0xff5722, accent: 0x3e2723, number: 18 },
+  { name: 'Glacier',  color: 0xb3e5fc, accent: 0x01579b, number: 63 },
+  { name: 'Phantom',  color: 0x5d4037, accent: 0xffcc80, number: 81 },
+  { name: 'Tempest',  color: 0x00897b, accent: 0xff1744, number: 12 },
+  { name: 'Vanta',    color: 0x455a64, accent: 0xaeea00, number: 43 },
 ];
 
-// pace = how close to its limit the AI drives; grip = grip bonus over the player
-// (racing games do this so the AI can keep up with a fast human).
+// How fast the AI is. pace = how close to its own limit it drives (1 = on the limit);
+// grip = grip bonus over you (racing games do this so the AI can keep up with a fast human);
+// safety = how close to the cornering limit it plans; brakeUse = how late it brakes (1 = latest).
 export const DIFFICULTY = {
-  easy: { pace: 0.9, grip: 1.0 },
-  medium: { pace: 0.96, grip: 1.05 },
-  hard: { pace: 1.0, grip: 1.12 },
-  expert: { pace: 1.0, grip: 1.25 },
+  easy:   { pace: 0.93, grip: 1.0,  safety: 0.96, brakeUse: 0.85 },
+  medium: { pace: 0.97, grip: 1.02, safety: 0.98, brakeUse: 0.92 },
+  hard:   { pace: 1.0,  grip: 1.06, safety: 1.0,  brakeUse: 1.0 },
+  expert: { pace: 1.0,  grip: 1.15, safety: 1.0,  brakeUse: 1.0 },
 };
 
 export class Race {
@@ -31,14 +48,15 @@ export class Race {
     this.lightsOutAt = 5 + 0.4 + Math.random() * 1.2;
     this.lightsOn = 0;
     const diff = DIFFICULTY[difficulty] ?? DIFFICULTY.medium;
-    this.profile = buildSpeedProfile(track, diff.grip);
+    this.profile = buildSpeedProfile(track, diff.grip, diff.safety, diff.brakeUse);
     this.playerProfile = buildSpeedProfile(track); // for the cool-down lap
     this.cars = [];
     this.leaderTimes = new Float32Array(Math.ceil(((laps + 1) * track.length) / 10) + 10).fill(-1);
     this.events = [];             // messages for the HUD ("New best lap" etc.)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
-    const order = [1, 2, 3, 0, 4, 5]; // player starts 4th
+    // AI in team order, you at the back of the grid
+    const order = [...TEAMS.keys()].filter((k) => k !== 0).concat(0);
     order.forEach((teamIdx, slot) => {
       const team = { ...TEAMS[teamIdx] };
       if (teamIdx === 0 && playerColor != null) team.color = playerColor;
@@ -51,7 +69,7 @@ export class Race {
         position: slot + 1, gap: 0,
       };
       if (!car.isPlayer) {
-        const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.004);
+        const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.0015); // front-runners a touch quicker
         car.ai = new AIDriver(state, track, this.profile, Math.min(skill, 1.02), diff.grip);
       }
       this.cars.push(car);
@@ -81,6 +99,14 @@ export class Race {
       const input = car.ai ? car.ai.update(dt, states) : playerInput;
       stepCar(car.state, input, this.track, dt);
       this.updateLap(car);
+      if (car.ai) { // AI wedged against a wall or another car for a while: put it back on the track (like pressing R)
+        car.stuck = car.state.speed < 1.5 ? (car.stuck ?? 0) + dt : 0;
+        if (car.stuck > 2.5) {
+          const hw = this.track.hw[car.state.trackIndex] ?? 5;
+          placeCar(car.state, this.track, car.state.s, (car.id % 2 ? 1 : -1) * Math.min(2, hw - 1.5));
+          car.stuck = 0;
+        }
+      }
     }
     this.resolveContacts();
     this.updatePositions();

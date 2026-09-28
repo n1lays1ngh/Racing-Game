@@ -6,7 +6,9 @@ import { HALF_WIDTH } from './track.js';
 // Target speed at every sample: max cornering speed, then a backward pass
 // so the car brakes early enough for the next corner.
 // grip = extra grip the AI gets on this difficulty (1 = same as the player).
-export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97) {
+// grip: AI grip bonus; gripSafety: how close to the cornering limit it plans (1 = right on it);
+// brakeUse: how much of the car's braking it plans to use (1 = all of it, latest braking).
+export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97, brakeUse = 0.9) {
   const { n, ds } = track;
   const v = new Float32Array(n);
   const mu = CAR.mu * grip * gripSafety;
@@ -30,7 +32,7 @@ export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97) {
     for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n];
       const gEff = Math.max(CAR.g + vc(i) * next * next, 2);
-      let brake = 0.9 * Math.min(CAR.brake, 1.2 * mu * (gEff + CAR.downforce * next * next));
+      let brake = brakeUse * Math.min(CAR.brake, 1.2 * mu * (gEff + CAR.downforce * next * next));
       brake = Math.max(brake + CAR.g * grade(i), 5); // uphill helps, downhill hurts
       v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brake * ds));
     }
