@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apex Circuit</title>
+  <title>Apex Circuit — racing in your browser</title>
+  <meta name="description" content="Race 24 real Grand Prix circuits in your browser: real hills, banked corners and night races under floodlights." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,700;1,900&display=swap" rel="stylesheet" />
 </head>
 <body>
   <div id="app"></div>
@@ -70,31 +71,57 @@
     <div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div>
   </div>
 
-  <!-- ===== Main menu ===== -->
-  <div id="menu" class="overlay">
-    <div class="card">
-      <div class="brand"><span class="stripe"></span>APEX <b>CIRCUIT</b></div>
-      <p class="tag">Open-wheel racing in your browser</p>
+  <!-- ===== Main menu (a live AI race plays behind it, see showcase.js) ===== -->
+  <div id="menu" class="menu-screen">
+    <div id="cut-fade"></div>
+    <div class="menu-shade"></div>
+    <div class="bars"><i></i><i></i></div>
 
-      <div class="opts">
-        <label class="wide">Circuit
-          <select id="opt-track"></select>
-        </label>
+    <section class="hero">
+      <div class="live"><span class="dot"></span><span id="live-caption">Live AI race</span></div>
+      <h1 class="title"><span class="slash"></span><span class="t1">Apex</span><span class="t2">Circuit</span></h1>
+      <p class="pitch">24 real Grand Prix circuits. Real hills, banked corners and night races under the floodlights. No download, just race.</p>
+      <ul class="features">
+        <li><b>24</b><span>real circuits</span></li>
+        <li><b>102 m</b><span>of climb at Spa</span></li>
+        <li><b>6</b><span>races under lights</span></li>
+        <li><b>5</b><span>AI rivals</span></li>
+      </ul>
+    </section>
+
+    <section class="setup">
+      <div class="setup-head"><span>Race setup</span><span class="hint"><kbd>←</kbd><kbd>→</kbd> circuit</span></div>
+
+      <div class="circuit-card">
+        <div class="c-map-wrap">
+          <button type="button" class="arrow" id="c-prev" aria-label="Previous circuit">‹</button>
+          <canvas id="c-map"></canvas>
+          <button type="button" class="arrow" id="c-next" aria-label="Next circuit">›</button>
+        </div>
+        <div class="c-info">
+          <div class="c-top"><span id="c-round" class="c-round">Round 1</span><span id="c-count" class="c-count">1/24</span></div>
+          <div id="c-name" class="c-name">Circuit</div>
+          <div id="c-country" class="c-country">Country</div>
+          <div id="c-badges" class="c-badges"></div>
+          <div class="c-stats">
+            <div><b id="c-len">0.00</b><span>km lap</span></div>
+            <div><b id="c-elev">0</b><span>m of climb</span></div>
+          </div>
+        </div>
+        <select id="opt-track" class="sr-only" aria-label="Circuit"></select>
       </div>
-      <div class="opts">
-        <label>Laps
-          <select id="opt-laps">
-            <option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option>
-          </select>
-        </label>
-        <label>AI difficulty
-          <select id="opt-diff">
-            <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option><option value="expert">Expert</option>
-          </select>
-        </label>
-      </div>
+
+      <div class="seg-row"><span>Laps</span><div class="seg" data-for="opt-laps"></div></div>
+      <select id="opt-laps" class="sr-only" aria-label="Laps">
+        <option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option>
+      </select>
+      <div class="seg-row"><span>Rivals</span><div class="seg" data-for="opt-diff"></div></div>
+      <select id="opt-diff" class="sr-only" aria-label="AI difficulty">
+        <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option><option value="expert">Expert</option>
+      </select>
+
       <div class="livery">
-        <span>Livery</span>
+        <span>Your colour</span>
         <button class="swatch sel" data-color="#e10600" aria-label="Red"></button>
         <button class="swatch" data-color="#8a2be2" aria-label="Purple"></button>
         <button class="swatch" data-color="#00d26a" aria-label="Green"></button>
@@ -102,18 +129,20 @@
         <button class="swatch" data-color="#101010" aria-label="Black"></button>
       </div>
 
-      <button id="btn-start" class="primary">Start race</button>
+      <button id="btn-start" class="start"><span>Start race</span><kbd>Enter</kbd></button>
 
-      <div class="controls">
-        <div><kbd>W</kbd>/<kbd>↑</kbd> Throttle</div>
-        <div><kbd>S</kbd>/<kbd>↓</kbd>/<kbd>Space</kbd> Brake · reverse</div>
-        <div><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> Steer</div>
-        <div><kbd>C</kbd> Camera · <kbd>Q</kbd> Look back · <kbd>V</kbd> Mirror</div>
-        <div><kbd>R</kbd> Reset · <kbd>M</kbd> Mute · <kbd>Esc</kbd> Pause</div>
-        <div>🎮 Gamepad: stick steers, RT/LT throttle/brake</div>
+      <div class="keys">
+        <span><kbd>W</kbd><kbd>S</kbd> go / brake</span>
+        <span><kbd>A</kbd><kbd>D</kbd> steer</span>
+        <span><kbd>C</kbd> camera</span>
+        <span><kbd>Q</kbd> look back</span>
+        <span>🎮 gamepad</span>
       </div>
-    </div>
+    </section>
   </div>
+
+  <!-- ===== Intro (plays once on load) ===== -->
+  <div id="intro"><div class="intro-logo"><span class="slash"></span>Apex <b>Circuit</b></div></div>
 
   <!-- ===== Pause ===== -->
   <div id="pause" class="overlay hidden">
