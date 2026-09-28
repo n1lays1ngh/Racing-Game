@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apex Circuit</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- ===== In-race HUD ===== -->
+  <div id="hud" class="hidden">
+    <div class="panel top-left">
+      <div class="stat"><label>Pos</label><div id="pos" class="big">1<small>/6</small></div></div>
+      <div class="stat"><label>Lap</label><div id="lap" class="big">1<small>/3</small></div></div>
+    </div>
+
+    <div class="panel timing">
+      <div class="row"><label>Lap</label><span id="t-cur">0:00.000</span></div>
+      <div class="row"><label>Last</label><span id="t-last">--:--.---</span></div>
+      <div class="row best"><label>Best</label><span id="t-best">--:--.---</span></div>
+    </div>
+
+    <ol id="standings" class="panel"></ol>
+
+    <canvas id="minimap"></canvas>
+
+    <div class="panel speedo">
+      <div class="rev"><div id="rev-fill"></div></div>
+      <div class="speed-row">
+        <div id="gear">N</div>
+        <div class="speed-num"><span id="speed">0</span><small>km/h</small></div>
+      </div>
+    </div>
+
+    <div class="cam-hint">[C] <span id="cam-name">Chase</span> · [R] reset · [M] mute · [Esc] pause</div>
+    <div id="toast"></div>
+    <div id="wrongway">WRONG WAY</div>
+  </div>
+
+  <div id="lights">
+    <div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div>
+  </div>
+
+  <!-- ===== Main menu ===== -->
+  <div id="menu" class="overlay">
+    <div class="card">
+      <div class="brand"><span class="stripe"></span>APEX <b>CIRCUIT</b></div>
+      <p class="tag">Open-wheel racing in your browser</p>
+
+      <div class="opts">
+        <label>Laps
+          <select id="opt-laps">
+            <option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option>
+          </select>
+        </label>
+        <label>AI difficulty
+          <select id="opt-diff">
+            <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option>
+          </select>
+        </label>
+      </div>
+      <div class="livery">
+        <span>Livery</span>
+        <button class="swatch sel" data-color="#e10600" aria-label="Red"></button>
+        <button class="swatch" data-color="#8a2be2" aria-label="Purple"></button>
+        <button class="swatch" data-color="#00d26a" aria-label="Green"></button>
+        <button class="swatch" data-color="#ff4fa3" aria-label="Pink"></button>
+        <button class="swatch" data-color="#101010" aria-label="Black"></button>
+      </div>
+
+      <button id="btn-start" class="primary">Start race</button>
+
+      <div class="controls">
+        <div><kbd>W</kbd>/<kbd>↑</kbd> Throttle</div>
+        <div><kbd>S</kbd>/<kbd>↓</kbd>/<kbd>Space</kbd> Brake · reverse</div>
+        <div><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> Steer</div>
+        <div><kbd>C</kbd> Camera · <kbd>R</kbd> Reset · <kbd>M</kbd> Mute</div>
+        <div>🎮 Gamepad: stick steers, RT/LT throttle/brake</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Pause ===== -->
+  <div id="pause" class="overlay hidden">
+    <div class="card small">
+      <h2>Paused</h2>
+      <button id="btn-resume" class="primary">Resume</button>
+      <button id="btn-quit">Quit to menu</button>
+    </div>
+  </div>
+
+  <!-- ===== Results ===== -->
+  <div id="results" class="overlay hidden">
+    <div class="card">
+      <h2 id="results-title">Results</h2>
+      <table>
+        <thead><tr><th>Pos</th><th>Driver</th><th>Time</th><th>Best lap</th></tr></thead>
+        <tbody id="results-body"></tbody>
+      </table>
+      <p id="results-fl" class="tag"></p>
+      <button id="btn-again" class="primary">Race again</button>
+      <button id="btn-menu">Main menu</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

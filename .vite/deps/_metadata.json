@@ -1,0 +1,26 @@
+{
+  "hash": "45ee89ab",
+  "configHash": "685a64dd",
+  "lockfileHash": "ece13e75",
+  "browserHash": "3b4c7d8a",
+  "optimized": {
+    "three": {
+      "src": "../../node_modules/three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "0daa73e8",
+      "needsInterop": false
+    },
+    "three/examples/jsm/objects/Sky.js": {
+      "src": "../../node_modules/three/examples/jsm/objects/Sky.js",
+      "file": "three_examples_jsm_objects_Sky__js.js",
+      "fileHash": "d11fe2c5",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "three.module-Bj7iJlUn": {
+      "file": "three.module-Bj7iJlUn.js",
+      "isDynamicEntry": false
+    }
+  }
+}

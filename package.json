@@ -1,0 +1,19 @@
+{
+  "name": "apex-circuit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Browser open-wheel racing game built with Three.js and Vite",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sim": "node tools/simulate.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}
