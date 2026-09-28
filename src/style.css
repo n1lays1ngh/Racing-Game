@@ -19,61 +19,128 @@ kbd {
 }
 
 /* ---------- HUD ---------- */
+/* Broadcast-style overlay: timing tower on the left, timing / map / speed on the right.
+   --hud-scale makes everything bigger or smaller (set by screen size at the bottom of this file). */
+:root {
+  --hud-scale: 1;
+  --panel: rgba(11, 13, 19, 0.84);
+  --panel-hi: rgba(26, 29, 38, 0.92);
+  --line: rgba(255, 255, 255, 0.08);
+  --sec-purple: #b44dff; --sec-green: #1fd65f; --sec-yellow: #ffd21f;
+}
 #hud { position: fixed; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
-.panel {
-  position: absolute; background: var(--glass); border: 1px solid var(--edge);
-  border-radius: 10px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+#hud label {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
 }
-.top-left { top: 16px; left: 16px; display: flex; gap: 22px; padding: 8px 18px; }
-.stat label, .timing label {
-  display: block; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 700;
-}
-.big { font-size: 40px; font-weight: 900; line-height: 1; }
-.timing { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 16px; min-width: 220px; }
-.timing .row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 18px; font-weight: 700; }
-.timing .row label { display: inline; }
-.timing .best span { color: var(--purple); }
-
-#standings {
-  top: 16px; right: 16px; margin: 0; padding: 6px 0; list-style: none; min-width: 210px; font-size: 14px;
-}
-#standings li { display: flex; align-items: center; gap: 8px; padding: 3px 12px; }
-#standings li.me { background: rgba(225, 6, 0, 0.35); }
-#standings .p { width: 16px; font-weight: 900; text-align: right; }
-#standings .sw, #results .sw { width: 4px; height: 14px; border-radius: 2px; display: inline-block; }
-#standings .n { flex: 1; font-weight: 600; }
-#standings .g { color: var(--muted); font-size: 12px; }
-
-#minimap {
-  position: absolute; left: 16px; bottom: 16px; background: var(--glass);
-  border: 1px solid var(--edge); border-radius: 12px;
+.hud-panel {
+  position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  overflow: hidden;
 }
 
-.speedo { right: 16px; bottom: 16px; padding: 10px 16px 8px; width: 240px; }
-.rev { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.1); overflow: hidden; }
-#rev-fill {
-  height: 100%; width: 100%; transform-origin: left; transform: scaleX(0);
-  background: linear-gradient(90deg, #00d26a 0%, #ffd400 65%, var(--red) 90%);
+/* --- timing tower (left) --- */
+#tower { top: 16px; left: 16px; width: 300px; transform: scale(var(--hud-scale)); transform-origin: top left; }
+.tower-head {
+  display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
+  background: linear-gradient(90deg, #1b1e27, #12141b); border-bottom: 3px solid var(--red);
 }
-#rev-fill.redline { animation: blink 0.12s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0.35; } }
-.speed-row { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.mini-brand { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 900; letter-spacing: 0.12em; }
+.mini-brand .stripe { width: 6px; height: 20px; background: var(--red); transform: skewX(-18deg); }
+.session { font-size: 15px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.tower-sub { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
+.tower-stat { flex: 1; display: flex; align-items: baseline; gap: 6px; padding: 8px 16px; }
+.tower-stat + .tower-stat { border-left: 1px solid var(--line); }
+.tower-stat label { margin-right: 4px; }
+.tower-stat b { font-size: 30px; font-weight: 900; line-height: 1; }
+.tower-stat small { font-size: 16px; }
+.tower-mode {
+  display: flex; align-items: center; justify-content: space-between; padding: 6px 16px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+.tower-mode kbd { font-size: 10px; line-height: 14px; min-width: 18px; padding: 0 4px; }
+#standings { margin: 0; padding: 0 0 4px; list-style: none; }
+#standings li {
+  display: grid; grid-template-columns: 26px 5px 1fr 34px 76px; align-items: center; column-gap: 10px;
+  height: 38px; padding: 0 14px 0 10px; font-size: 18px; font-weight: 700;
+}
+#standings li:nth-child(even) { background: rgba(255, 255, 255, 0.035); }
+#standings li.me { background: #f2f3f5; color: #0b0d12; }
+#standings li.me .g, #standings li.me .p { color: #0b0d12; }
+#standings .p { font-weight: 900; text-align: right; color: var(--ink); }
+#standings .bar { width: 5px; height: 22px; border-radius: 2px; }
+#standings .n { letter-spacing: 0.06em; display: flex; align-items: center; gap: 8px; }
+#standings .g { text-align: right; font-size: 15px; font-weight: 600; color: #d6dae0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+#standings li.leader .g { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+#standings .chg { font-size: 11px; font-weight: 700; text-align: center; }
+#standings .chg.up { color: var(--sec-green); }
+#standings .chg.down { color: #ff4d4d; }
+#standings .fl { width: 14px; height: 14px; border-radius: 3px; background: var(--sec-purple); box-shadow: 0 0 8px rgba(180, 77, 255, 0.7); }
+#standings .chq {
+  width: 14px; height: 10px; display: inline-block;
+  background: conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 7px 5px;
+}
+#results .sw { width: 4px; height: 14px; border-radius: 2px; display: inline-block; }
+
+/* --- lap timing (top right) --- */
+#right-top {
+  position: absolute; top: 16px; right: 16px; width: 300px; display: flex; flex-direction: column; gap: 10px;
+  transform: scale(var(--hud-scale)); transform-origin: top right;
+}
+#right-top .hud-panel { position: relative; }
+#timing { padding: 12px 16px 12px; }
+.t-row { display: flex; justify-content: space-between; align-items: flex-end; }
+.t-row .t-right { text-align: right; }
+.t-big { font-size: 34px; font-weight: 900; line-height: 1.05; letter-spacing: 0.01em; }
+.t-best { font-size: 20px; font-weight: 700; color: var(--ink); }
+.t-best.overall { color: var(--sec-purple); }
+.t-row.small { margin-top: 10px; font-size: 18px; font-weight: 700; }
+#t-delta { font-weight: 900; }
+#t-delta.faster { color: var(--sec-green); }
+#t-delta.slower { color: #ff4d4d; }
+.sectors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.sec { background: var(--panel-hi); border-radius: 3px; overflow: hidden; text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.sec i { display: block; height: 5px; background: rgba(255, 255, 255, 0.12); }
+.sec span { display: block; padding: 3px 0 4px; }
+.sec.purple i { background: var(--sec-purple); } .sec.purple span { color: #e2c2ff; }
+.sec.green i { background: var(--sec-green); } .sec.green span { color: #b9f5cf; }
+.sec.yellow i { background: var(--sec-yellow); } .sec.yellow span { color: #fff1b0; }
+
+/* --- circuit map (right) --- */
+.map-head {
+  padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+}
+#minimap { display: block; margin: 6px auto 10px; }
+
+/* --- speed, gear, shift lights (bottom right) --- */
+#speedo { right: 16px; bottom: 16px; width: 300px; padding: 12px 14px 12px; transform: scale(var(--hud-scale)); transform-origin: bottom right; }
+#revlights { display: flex; justify-content: space-between; padding: 0 4px 10px; }
+#revlights span { width: 12px; height: 12px; border-radius: 50%; background: #1d2029; box-shadow: inset 0 0 3px #000; }
+#revlights span.on.g { background: #1fe05a; box-shadow: 0 0 8px #1fe05a; }
+#revlights span.on.r { background: #ff2a2a; box-shadow: 0 0 8px #ff2a2a; }
+#revlights span.on.b { background: #3d74ff; box-shadow: 0 0 8px #3d74ff; }
+.speedo-main { display: grid; grid-template-columns: 10px 76px 1fr 10px; align-items: center; column-gap: 14px; }
+.pedal { height: 70px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; position: relative; }
+.pedal > div { position: absolute; inset: 0; transform-origin: bottom; transform: scaleY(0); background: var(--sec-green); }
+.pedal.brake > div { background: #ff3b3b; }
 #gear {
-  width: 52px; height: 52px; border-radius: 10px; display: grid; place-items: center;
-  font-size: 36px; font-weight: 900; background: rgba(255,255,255,0.08);
+  height: 76px; border-radius: 6px; display: grid; place-items: center;
+  font-size: 58px; font-weight: 900; line-height: 1; background: var(--panel-hi); border: 1px solid var(--line);
 }
-.speed-num { font-size: 52px; font-weight: 900; line-height: 1; }
-.speed-num small { font-size: 14px; }
+.speed-num { font-size: 56px; font-weight: 900; line-height: 1; text-align: right; }
+.speed-num small { display: block; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; margin: 2px 0 0; }
 
+/* --- messages --- */
 .cam-hint {
-  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-  font-size: 12px; color: rgba(255,255,255,0.7); text-shadow: 0 1px 3px #000;
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  font-size: 12px; color: rgba(255, 255, 255, 0.65); text-shadow: 0 1px 3px #000; white-space: nowrap;
 }
 #toast {
-  position: absolute; top: 36%; left: 50%; transform: translate(-50%, -10px); opacity: 0;
-  font-size: 34px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase;
-  padding: 8px 26px; background: var(--glass); border-left: 5px solid var(--red); border-radius: 6px;
-  transition: opacity 0.2s, transform 0.2s;
+  position: absolute; top: 34%; left: 50%; transform: translate(-50%, -10px); opacity: 0;
+  font-size: 32px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 10px 30px 10px 26px; background: var(--panel); border-left: 6px solid var(--red); border-radius: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); transition: opacity 0.2s, transform 0.2s;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #wrongway {
@@ -82,6 +149,7 @@ kbd {
   animation: blink 0.5s steps(2) infinite;
 }
 #wrongway.show { display: block; }
+@keyframes blink { 50% { opacity: 0.35; } }
 
 #lights {
   position: fixed; top: 130px; left: 50%; transform: translateX(-50%); display: none; gap: 12px;
@@ -107,7 +175,8 @@ kbd {
 .brand b { font-weight: 900; }
 .brand .stripe { width: 8px; height: 38px; background: var(--red); transform: skewX(-16deg); }
 .tag { color: var(--muted); margin: 4px 0 20px; }
-.opts { display: flex; gap: 12px; }
+.opts { display: flex; gap: 12px; margin-bottom: 12px; }
+.opts label.wide { flex: 1 1 100%; }
 .opts label { flex: 1; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 select {
   display: block; width: 100%; margin-top: 6px; padding: 9px 10px; border-radius: 8px;
@@ -133,10 +202,11 @@ button.primary:hover { filter: brightness(1.1); }
 #results td .sw { margin-right: 8px; vertical-align: -2px; }
 #results tr.me td { background: rgba(225, 6, 0, 0.3); }
 
+/* HUD size by screen size (change these numbers to make the HUD bigger or smaller) */
+@media (min-height: 1000px) and (min-width: 1500px) { :root { --hud-scale: 1.15; } }
+@media (max-height: 860px), (max-width: 1280px) { :root { --hud-scale: 0.88; } }
+@media (max-height: 720px), (max-width: 1000px) { :root { --hud-scale: 0.74; } }
 @media (max-width: 720px) {
-  #standings { display: none; }
-  .timing { top: auto; bottom: 110px; }
-  #minimap { transform: scale(0.7); transform-origin: bottom left; }
-  .speedo { width: 180px; }
-  .speed-num { font-size: 38px; }
+  #tower, #map-panel { display: none; }
+  :root { --hud-scale: 0.62; }
 }

@@ -5,7 +5,9 @@
 //
 // Conventions: heading h = 0 faces +Z. Forward = (sin h, cos h),
 // left = (cos h, -sin h). Positive steer turns left (h increases).
-import { projectOnTrack, HALF_WIDTH, KERB_WIDTH, WALL_OFFSET } from './track.js';
+import { projectOnTrack, HALF_WIDTH, KERB_WIDTH, SURFACES } from './track.js';
+import { heightAtS } from './elevation.js';
+import { bankLift, bankRoll } from './banking.js';
 
 export const CAR = {
   // --- engine & brakes ---
@@ -13,6 +15,7 @@ export const CAR = {
   accelFade: 0.6,       // how much engine push fades toward top speed
   drag: 0.00075,        // aero drag (× v²)
   roll: 0.4,            // rolling resistance, m/s²
+  liftOff: 10,           // m/s² extra slowing when off the throttle (engine braking)
   brake: 40,            // m/s² max braking (still limited by grip)
   // --- grip ---
   mu: 1.8,              // tyre grip
@@ -39,6 +42,7 @@ export const CAR = {
 export function createCarState(x, z, heading) {
   return {
     x, z, h: heading, vx: 0, vz: 0,
+    y: 0, pitch: 0, roll: 0, // height, nose-up angle and sideways tilt from hills and banking
     steer: 0, speed: 0, vf: 0, slip: 0,
     yawRate: 0, lockF: false,
     throttle: 0, brake: 0,
@@ -48,8 +52,16 @@ export function createCarState(x, z, heading) {
   };
 }
 
-export function lateralGrip(vf, surfaceGrip = 1) {
-  return CAR.mu * surfaceGrip * (CAR.g + CAR.downforce * vf * vf);
+// Steering lock available at a given speed (the AI uses this too).
+export function steerLimit(vf) {
+  return CAR.maxSteer / (1 + Math.max(vf, 0) / CAR.steerFade);
+}
+
+// Cornering grip. vcurv > 0 in a dip (car pressed into the road = more grip),
+// < 0 over a crest (car goes light = less grip).
+export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0) {
+  const gEff = Math.max(CAR.g + vcurv * vf * vf, 2);
+  return CAR.mu * surfaceGrip * (gEff + CAR.downforce * vf * vf);
 }
 
 export function stepCar(car, input, track, dt) {
@@ -59,10 +71,19 @@ export function stepCar(car, input, track, dt) {
   const proj = projectOnTrack(track, car.x, car.z, car.trackIndex);
   car.trackIndex = proj.i; car.s = proj.s; car.lateral = proj.lateral;
   const absLat = Math.abs(proj.lateral);
+  const hw = track.hw ? track.hw[proj.i] : HALF_WIDTH, kerb = track.kerb ?? KERB_WIDTH;
   let grip = 1, extraDrag = 0;
-  if (absLat > HALF_WIDTH + KERB_WIDTH) { car.surface = 'grass'; grip = 0.5; extraDrag = 3 + 0.003 * car.vf * car.vf; }
-  else if (absLat > HALF_WIDTH) { car.surface = 'kerb'; grip = 0.93; }
+  if (absLat > hw + kerb) {
+    // Run-off: what's there depends on the circuit (see surface / gravel in the circuit file)
+    const surf = track.surfL ? (proj.lateral > 0 ? track.surfL : track.surfR)[proj.i] : SURFACES.grass;
+    if (surf === SURFACES.tarmac) { car.surface = 'runoff'; grip = 0.85; }
+    else if (surf === SURFACES.gravel) { car.surface = 'gravel'; grip = 0.35; extraDrag = 6 + 0.006 * car.vf * car.vf; }
+    else { car.surface = 'grass'; grip = 0.5; extraDrag = 3 + 0.003 * car.vf * car.vf; }
+  } else if (absLat > hw) { car.surface = 'kerb'; grip = 0.93; }
   else car.surface = 'road';
+  const grade = track.grade ? track.grade[proj.i] : 0;   // hills
+  const vcurv = track.vcurv ? track.vcurv[proj.i] : 0;
+  const bank = track.bank ? track.bank[proj.i] : 0;      // banked corners
 
   // --- Current velocity in the car's frame --------------------------------
   let fx = Math.sin(car.h), fz = Math.cos(car.h);
@@ -72,11 +93,12 @@ export function stepCar(car, input, track, dt) {
   car.throttle = thr; car.brake = brk;
 
   // --- Steering ---------------------------------------------------------
-  const steerLimit = p.maxSteer / (1 + Math.max(vf, 0) / p.steerFade);
-  const target = clamp(input.steer, -1, 1) * steerLimit;
+  const target = clamp(input.steer, -1, 1) * steerLimit(vf);
   car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
 
-  const latMax = lateralGrip(vf, grip);
+  // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
+  const bankGrip = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
+  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1), vcurv) + bankGrip, 2);
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   const latUse = Math.abs(car.yawRate * vf) / latMax;   // how much cornering grip is in use
@@ -118,8 +140,12 @@ export function stepCar(car, input, track, dt) {
       vf = Math.max(-p.reverseMax, vf - brk * 7 * dt); // reverse
     }
   }
-  const resist = (p.drag * vf * vf + p.roll + extraDrag) * dt;
+  // Engine braking: the car slows noticeably as soon as you lift off the throttle.
+  const lift = vf > 1 ? p.liftOff * (1 - thr) : 0;
+  const resist = (p.drag * vf * vf + p.roll + extraDrag + lift) * dt;
   vf = Math.abs(vf) <= resist ? 0 : vf - Math.sign(vf) * resist;
+  // Gravity along the slope: slower uphill, faster downhill (not while parked).
+  if (Math.abs(vf) > 0.5 || thr > 0) vf -= (p.g * grade / Math.sqrt(1 + grade * grade)) * dt;
 
   // --- Tyres pull the slide back in, up to the grip limit ----------------
   car.slip = car.lockF ? Math.max(Math.abs(vl), vf * 0.3) : Math.abs(vl);
@@ -133,13 +159,16 @@ export function stepCar(car, input, track, dt) {
   car.vf = vf;
   car.speed = Math.hypot(car.vx, car.vz);
   car.wheelSpin += vf * dt / 0.36;
+  car.y = (track.h ? heightAtS(track, car.s) : 0) + bankLift(track, proj.i, car.lateral);
+  car.roll = bankRoll(track, proj.i, car.lateral);
+  car.pitch = Math.atan(grade);
 
-  // --- Barriers -----------------------------------------------------------
+  // --- Barriers (distance varies around the lap, see track.js) -------------
   car.hitWall = Math.max(0, car.hitWall - dt);
   const i = car.trackIndex;
   const nx = track.nx[i], nz = track.nz[i];
   const lat = (car.x - track.cx[i]) * nx + (car.z - track.cz[i]) * nz;
-  const limit = WALL_OFFSET - 1.1;
+  const limit = (lat > 0 ? track.wallL[i] : track.wallR[i]) - 1.1;
   if (Math.abs(lat) > limit) {
     const side = Math.sign(lat);
     const push = (Math.abs(lat) - limit) * side;
@@ -164,6 +193,8 @@ export function placeCar(car, track, s, lateral = 0) {
   car.vx = car.vz = car.vf = car.speed = car.steer = car.yawRate = 0;
   car.lockF = false;
   car.trackIndex = i; car.s = s; car.lateral = lateral;
+  car.y = track.h ? track.h[i] : 0;
+  car.pitch = track.grade ? Math.atan(track.grade[i]) : 0;
 }
 
 // Simple 8-speed gearbox for the HUD and engine sound.

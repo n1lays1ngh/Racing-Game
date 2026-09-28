@@ -2,7 +2,7 @@
   "hash": "45ee89ab",
   "configHash": "685a64dd",
   "lockfileHash": "ece13e75",
-  "browserHash": "3b4c7d8a",
+  "browserHash": "698caf96",
   "optimized": {
     "three": {
       "src": "../../node_modules/three/build/three.module.js",
@@ -14,6 +14,12 @@
       "src": "../../node_modules/three/examples/jsm/objects/Sky.js",
       "file": "three_examples_jsm_objects_Sky__js.js",
       "fileHash": "d11fe2c5",
+      "needsInterop": false
+    },
+    "three/examples/jsm/utils/BufferGeometryUtils.js": {
+      "src": "../../node_modules/three/examples/jsm/utils/BufferGeometryUtils.js",
+      "file": "three_examples_jsm_utils_BufferGeometryUtils__js.js",
+      "fileHash": "cb8ca9ea",
       "needsInterop": false
     }
   },

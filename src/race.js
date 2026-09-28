@@ -12,7 +12,14 @@ export const TEAMS = [
   { name: 'Ferro', color: 0x2b2b2b, accent: 0xff2d55, number: 33 },
 ];
 
-export const DIFFICULTY = { easy: 0.9, medium: 0.96, hard: 0.99 };
+// pace = how close to its limit the AI drives; grip = grip bonus over the player
+// (racing games do this so the AI can keep up with a fast human).
+export const DIFFICULTY = {
+  easy: { pace: 0.9, grip: 1.0 },
+  medium: { pace: 0.96, grip: 1.05 },
+  hard: { pace: 1.0, grip: 1.12 },
+  expert: { pace: 1.0, grip: 1.25 },
+};
 
 export class Race {
   constructor(track, { laps = 3, difficulty = 'medium', playerColor } = {}) {
@@ -23,13 +30,14 @@ export class Race {
     this.countdown = 0;           // time since the lights sequence began
     this.lightsOutAt = 5 + 0.4 + Math.random() * 1.2;
     this.lightsOn = 0;
-    this.profile = buildSpeedProfile(track);
+    const diff = DIFFICULTY[difficulty] ?? DIFFICULTY.medium;
+    this.profile = buildSpeedProfile(track, diff.grip);
+    this.playerProfile = buildSpeedProfile(track); // for the cool-down lap
     this.cars = [];
     this.leaderTimes = new Float32Array(Math.ceil(((laps + 1) * track.length) / 10) + 10).fill(-1);
     this.events = [];             // messages for the HUD ("New best lap" etc.)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
-    const base = DIFFICULTY[difficulty] ?? DIFFICULTY.medium;
     const order = [1, 2, 3, 0, 4, 5]; // player starts 4th
     order.forEach((teamIdx, slot) => {
       const team = { ...TEAMS[teamIdx] };
@@ -43,8 +51,8 @@ export class Race {
         position: slot + 1, gap: 0,
       };
       if (!car.isPlayer) {
-        const skill = base * (0.975 + Math.random() * 0.035) * (1 - slot * 0.004);
-        car.ai = new AIDriver(state, track, this.profile, Math.min(skill, 1.02));
+        const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.004);
+        car.ai = new AIDriver(state, track, this.profile, Math.min(skill, 1.02), diff.grip);
       }
       this.cars.push(car);
     });
@@ -99,7 +107,7 @@ export class Race {
           this.state = 'finished';
           this.events.push({ type: 'finish' });
           // Hand the player's car to the AI for a cool-down lap.
-          car.ai = new AIDriver(car.state, this.track, this.profile, 0.7);
+          car.ai = new AIDriver(car.state, this.track, this.playerProfile, 0.7);
         }
       } else if (car.isPlayer && car.lapsDone === this.laps - 1 && car.lapsDone >= 1) {
         this.events.push({ type: 'finalLap' });

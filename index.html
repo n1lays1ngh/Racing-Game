@@ -13,30 +13,55 @@
 
   <!-- ===== In-race HUD ===== -->
   <div id="hud" class="hidden">
-    <div class="panel top-left">
-      <div class="stat"><label>Pos</label><div id="pos" class="big">1<small>/6</small></div></div>
-      <div class="stat"><label>Lap</label><div id="lap" class="big">1<small>/3</small></div></div>
+    <!-- Left: timing tower -->
+    <div id="tower" class="hud-panel">
+      <div class="tower-head">
+        <div class="mini-brand"><span class="stripe"></span>APEX</div>
+        <div class="session">Race</div>
+      </div>
+      <div class="tower-sub">
+        <div class="tower-stat"><label>Pos</label><b id="pos">1</b><small id="pos-total">/6</small></div>
+        <div class="tower-stat"><label>Lap</label><b id="lap">1</b><small id="lap-total">/3</small></div>
+      </div>
+      <div class="tower-mode"><span id="tower-mode">Interval</span><kbd>T</kbd></div>
+      <ol id="standings"></ol>
     </div>
 
-    <div class="panel timing">
-      <div class="row"><label>Lap</label><span id="t-cur">0:00.000</span></div>
-      <div class="row"><label>Last</label><span id="t-last">--:--.---</span></div>
-      <div class="row best"><label>Best</label><span id="t-best">--:--.---</span></div>
-    </div>
-
-    <ol id="standings" class="panel"></ol>
-
-    <canvas id="minimap"></canvas>
-
-    <div class="panel speedo">
-      <div class="rev"><div id="rev-fill"></div></div>
-      <div class="speed-row">
-        <div id="gear">N</div>
-        <div class="speed-num"><span id="speed">0</span><small>km/h</small></div>
+    <!-- Right: timing, map, speed -->
+    <div id="right-top">
+    <div id="timing" class="hud-panel">
+      <div class="t-row">
+        <div><label>Current lap</label><span id="t-cur" class="t-big">0:00.000</span></div>
+        <div class="t-right"><label>Best</label><span id="t-best" class="t-best">--:--.---</span></div>
+      </div>
+      <div class="sectors">
+        <div class="sec" id="sec1"><i></i><span>S1</span></div>
+        <div class="sec" id="sec2"><i></i><span>S2</span></div>
+        <div class="sec" id="sec3"><i></i><span>S3</span></div>
+      </div>
+      <div class="t-row small">
+        <div><label>Last</label><span id="t-last">--:--.---</span></div>
+        <div class="t-right"><label>Delta</label><span id="t-delta">--.--</span></div>
       </div>
     </div>
 
-    <div class="cam-hint">[C] <span id="cam-name">Chase</span> · [R] reset · [M] mute · [Esc] pause</div>
+    <div id="map-panel" class="hud-panel">
+      <div class="map-head"><span id="map-name">Circuit</span></div>
+      <canvas id="minimap"></canvas>
+    </div>
+    </div>
+
+    <div id="speedo" class="hud-panel">
+      <div id="revlights"></div>
+      <div class="speedo-main">
+        <div class="pedal"><div id="thr"></div></div>
+        <div id="gear">N</div>
+        <div class="speed-num"><span id="speed">0</span><small>km/h</small></div>
+        <div class="pedal brake"><div id="brk"></div></div>
+      </div>
+    </div>
+
+    <div class="cam-hint">[C] <span id="cam-name">Chase</span> · [T] tower · [Q] look back · [V] mirror · [R] reset · [M] mute · [Esc] pause</div>
     <div id="toast"></div>
     <div id="wrongway">WRONG WAY</div>
   </div>
@@ -52,6 +77,11 @@
       <p class="tag">Open-wheel racing in your browser</p>
 
       <div class="opts">
+        <label class="wide">Circuit
+          <select id="opt-track"></select>
+        </label>
+      </div>
+      <div class="opts">
         <label>Laps
           <select id="opt-laps">
             <option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option>
@@ -59,7 +89,7 @@
         </label>
         <label>AI difficulty
           <select id="opt-diff">
-            <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option>
+            <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option><option value="expert">Expert</option>
           </select>
         </label>
       </div>
@@ -78,7 +108,8 @@
         <div><kbd>W</kbd>/<kbd>↑</kbd> Throttle</div>
         <div><kbd>S</kbd>/<kbd>↓</kbd>/<kbd>Space</kbd> Brake · reverse</div>
         <div><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> Steer</div>
-        <div><kbd>C</kbd> Camera · <kbd>R</kbd> Reset · <kbd>M</kbd> Mute</div>
+        <div><kbd>C</kbd> Camera · <kbd>Q</kbd> Look back · <kbd>V</kbd> Mirror</div>
+        <div><kbd>R</kbd> Reset · <kbd>M</kbd> Mute · <kbd>Esc</kbd> Pause</div>
         <div>🎮 Gamepad: stick steers, RT/LT throttle/brake</div>
       </div>
     </div>
