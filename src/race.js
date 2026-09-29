@@ -39,7 +39,8 @@ export const DIFFICULTY = {
 };
 
 export class Race {
-  constructor(track, { laps = 3, difficulty = 'medium', playerColor } = {}) {
+  // aiCount: how many AI cars (0 = Practice, just you). playerName: shown in the tower and results.
+  constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName } = {}) {
     this.track = track;
     this.laps = laps;
     this.state = 'countdown';     // countdown → racing → finished
@@ -56,17 +57,19 @@ export class Race {
 
     // Grid: two columns, 8 m between rows, just behind the start line.
     // AI in team order, you at the back of the grid
-    const order = [...TEAMS.keys()].filter((k) => k !== 0).concat(0);
+    const n = Math.max(0, Math.min(aiCount, TEAMS.length - 1));
+    const order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).concat(0); // alone = pole position
     order.forEach((teamIdx, slot) => {
       const team = { ...TEAMS[teamIdx] };
       if (teamIdx === 0 && playerColor != null) team.color = playerColor;
+      if (teamIdx === 0 && playerName) team.name = playerName;
       const state = createCarState(0, 0, 0);
       placeCar(state, track, track.length - 10 - slot * 8, slot % 2 === 0 ? 2.8 : -2.8);
       const car = {
         id: teamIdx, team, state, isPlayer: teamIdx === 0,
         lapsDone: -1, prevS: state.s, progress: 0,
         lapStart: 0, lastLap: null, bestLap: null, finishTime: null,
-        position: slot + 1, gap: 0,
+        position: slot + 1, gap: 0, grid: slot + 1,
       };
       if (!car.isPlayer) {
         const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.0015); // front-runners a touch quicker

@@ -184,7 +184,7 @@ export class HUD {
       }
       const moved = (this.grid.get(c) ?? c.position) - c.position;
       const chg = moved > 0 ? `<span class="chg up">▲${moved}</span>` : moved < 0 ? `<span class="chg down">▼${-moved}</span>` : '<span class="chg"></span>';
-      const abbr = c.isPlayer ? 'YOU' : c.team.name.slice(0, 3).toUpperCase();
+      const abbr = c.isPlayer ? c.team.name.slice(0, 8).toUpperCase() : c.team.name.slice(0, 3).toUpperCase();
       const flag = c.finishTime != null ? '<span class="chq"></span>' : '';
       const fastest = fl === c.team.name ? '<span class="fl" title="Fastest lap"></span>' : '';
       return `<li class="${c.isPlayer ? 'me' : ''}${i === 0 ? ' leader' : ''}"><span class="p">${c.position}</span>` +
@@ -209,6 +209,9 @@ export class HUD {
     this.el.thr.style.transform = `scaleY(${(s.throttle ?? 0).toFixed(2)})`;
     this.el.brk.style.transform = `scaleY(${(s.brake ?? 0).toFixed(2)})`;
 
+    // Practice (no AI): no timing tower, the lap timing on the right says it all
+    const practice = race.cars.length === 1;
+    if (practice !== this.practice) { this.practice = practice; $('tower').classList.toggle('hidden', practice); }
     const lap = Math.min(Math.max(p.lapsDone + 1, 1), race.laps);
     this.el.lap.textContent = lap; this.el.lapTotal.textContent = '/' + race.laps;
     this.el.pos.textContent = p.position; this.el.posTotal.textContent = '/' + race.cars.length;

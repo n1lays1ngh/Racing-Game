@@ -79,7 +79,9 @@ function newRace() {
   loadTrack(trackSelect.value);
   const laps = Number(document.getElementById('opt-laps').value);
   const difficulty = document.getElementById('opt-diff').value;
-  race = new Race(track, { laps, difficulty, playerColor });
+  const aiCount = Number(document.getElementById('opt-ai').value);
+  const playerName = document.getElementById('opt-name').value.trim() || 'You';
+  race = new Race(track, { laps, difficulty, playerColor, aiCount, playerName });
   models = race.cars.map((c) => {
     const m = createCarModel(c.team, { player: c.isPlayer });
     scene.add(m); syncCarModel(m, c.state);
@@ -107,7 +109,7 @@ async function startGame() {
   audio.start();
   await carModelReady; // usually loaded long before you press Start
   menu.classList.add('hidden'); results.classList.add('hidden'); pauseEl.classList.add('hidden');
-  paused = false;
+  paused = false; document.activeElement?.blur();
   newRace();
   hud.show(true);
 }
@@ -116,6 +118,7 @@ document.getElementById('btn-again').addEventListener('click', startGame);
 document.getElementById('btn-menu').addEventListener('click', toMenu);
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-quit').addEventListener('click', toMenu);
+document.getElementById('btn-restart').addEventListener('click', () => { setPaused(false); startGame(); });
 
 function toMenu() {
   results.classList.add('hidden'); pauseEl.classList.add('hidden');
@@ -129,25 +132,52 @@ function toMenu() {
 function setPaused(v) {
   paused = v; pauseEl.classList.toggle('hidden', !v);
   v ? audio.suspend() : audio.resume();
+  if (!v) document.activeElement?.blur(); // so Space (brake) can't press a hidden button
+  if (v && race) { // where you are, shown under PAUSED
+    const p = race.player, lap = Math.min(Math.max(p.lapsDone + 1, 1), race.laps);
+    const bits = [track.name, `Lap ${lap}/${race.laps}`];
+    if (race.cars.length > 1) bits.push(`P${p.position} of ${race.cars.length}`);
+    if (p.bestLap) bits.push(`Best ${formatTime(p.bestLap)}`);
+    document.getElementById('pause-info').textContent = bits.join('  ·  ');
+    document.getElementById('btn-resume').focus({ preventScroll: true });
+  }
 }
 
+// Results: your result on the left, the full classification on the right (updates as cars finish).
 function showResults() {
-  const rows = race.standings.map((c) => {
-    const time = c.finishTime != null
-      ? (c.position === 1 ? formatTime(c.finishTime) : '+' + (c.finishTime - race.standings[0].finishTime).toFixed(3))
-      : 'Running';
-    return `<tr class="${c.isPlayer ? 'me' : ''}"><td>${c.position}</td><td>` +
-      `<span class="sw" style="background:#${c.team.color.toString(16).padStart(6, '0')}"></span>${c.team.name}</td>` +
-      `<td>${time}</td><td>${formatTime(c.bestLap)}</td></tr>`;
+  const $ = (id) => document.getElementById(id);
+  const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+  const st = race.standings, leader = st[0], p = race.player, fl = race.bestLapOverall;
+  const practice = race.cars.length === 1;
+  $('results-body').innerHTML = st.map((c) => {
+    const time = c.finishTime == null ? '<td class="r running">Running</td>'
+      : c === leader ? `<td class="r">${formatTime(c.finishTime)}</td>`
+      : `<td class="r">+${(c.finishTime - leader.finishTime).toFixed(3)}</td>`;
+    const moved = c.grid - c.position;
+    const gain = moved > 0 ? `<span class="gain up">▲${moved}</span>` : moved < 0 ? `<span class="gain down">▼${-moved}</span>` : '';
+    const fastest = fl && c.bestLap === fl.time;
+    return `<tr class="${c.isPlayer ? 'me' : ''}"><td class="p">${c.position}</td>` +
+      `<td><span class="sw" style="background:${hex(c.team.color)}"></span>${c.team.name}${c.isPlayer ? '' : '<span class="ai">AI</span>'}</td>` +
+      `<td class="c">${c.grid}${gain}</td><td class="r${fastest ? ' purple' : ''}">${formatTime(c.bestLap)}</td>${time}</tr>`;
   }).join('');
-  document.getElementById('results-body').innerHTML = rows;
-  const p = race.player.position;
-  document.getElementById('results-title').textContent =
-    p === 1 ? 'Victory!' : p <= 3 ? `Podium — P${p}` : `Finished P${p}`;
-  const fl = race.bestLapOverall;
-  document.getElementById('results-fl').textContent =
-    `${track.name} · ` + (fl ? `Fastest lap: ${fl.name} ${formatTime(fl.time)}` : '');
-  results.classList.remove('hidden');
+  const running = st.filter((c) => c.finishTime == null).length;
+  $('res-live').textContent = running ? `${running} still on track` : '';
+
+  const diff = $('opt-diff'), diffName = diff.options[diff.selectedIndex]?.textContent ?? '';
+  $('res-session').textContent = practice ? 'Practice' : 'Race result';
+  $('res-circuit').textContent = track.name;
+  $('res-sub').textContent = [getTrackDef(track.id).country, `${race.laps} lap${race.laps > 1 ? 's' : ''}`,
+    practice ? 'No AI' : `${race.cars.length - 1} AI · ${diffName}`].join('  ·  ');
+  $('res-pos').textContent = practice ? '★' : `P${p.position}`;
+  $('results-title').textContent = practice ? 'Practice complete'
+    : p.position === 1 ? 'Victory!' : p.position <= 3 ? 'Podium' : `Finished P${p.position}`;
+  const moved = p.grid - p.position;
+  $('res-gained').innerHTML = practice ? '' : moved > 0 ? `<span class="up">▲ ${moved} places</span> from P${p.grid}`
+    : moved < 0 ? `<span class="down">▼ ${-moved} places</span> from P${p.grid}` : `Started P${p.grid}`;
+  $('res-best').textContent = formatTime(p.bestLap);
+  $('results-fl').textContent = fl ? `${fl.name} ${formatTime(fl.time)}` : '--';
+  $('results-fl').classList.toggle('purple', !!fl);
+  if (results.classList.contains('hidden')) { results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true }); }
 }
 
 // ---------- camera ----------

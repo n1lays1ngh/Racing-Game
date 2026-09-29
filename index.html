@@ -115,10 +115,20 @@
       <select id="opt-laps" class="sr-only" aria-label="Laps">
         <option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option>
       </select>
-      <div class="seg-row"><span>Rivals</span><div class="seg" data-for="opt-diff"></div></div>
+      <div class="seg-row"><span>AI cars</span>
+        <div class="ai-count">
+          <input id="opt-ai" type="range" min="0" max="19" step="1" value="19" aria-label="Number of AI cars" />
+          <b id="ai-count-label">19</b>
+        </div>
+      </div>
+      <div class="seg-row" id="ai-skill-row"><span>AI skill</span><div class="seg" data-for="opt-diff"></div></div>
       <select id="opt-diff" class="sr-only" aria-label="AI difficulty">
         <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option><option value="expert">Expert</option>
       </select>
+
+      <div class="seg-row"><span>Name</span>
+        <input id="opt-name" class="name-input" type="text" maxlength="14" placeholder="You" autocomplete="off" spellcheck="false" aria-label="Your name" />
+      </div>
 
       <div class="livery">
         <span>Your colour</span>
@@ -146,24 +156,53 @@
 
   <!-- ===== Pause ===== -->
   <div id="pause" class="overlay hidden">
-    <div class="card small">
-      <h2>Paused</h2>
-      <button id="btn-resume" class="primary">Resume</button>
-      <button id="btn-quit">Quit to menu</button>
+    <div class="pause-screen">
+      <div class="pause-panel">
+        <div class="pause-title"><span class="slash"></span>Paused</div>
+        <div class="pause-info" id="pause-info"></div>
+        <nav class="pause-menu">
+          <button id="btn-resume" class="pm-btn primary"><span>Resume</span><kbd>Esc</kbd></button>
+          <button id="btn-restart" class="pm-btn"><span>Restart race</span></button>
+          <button id="btn-quit" class="pm-btn"><span>Quit to menu</span></button>
+        </nav>
+        <div class="pause-keys">
+          <span><kbd>W</kbd><kbd>S</kbd> go / brake</span><span><kbd>A</kbd><kbd>D</kbd> steer</span>
+          <span><kbd>C</kbd> camera</span><span><kbd>Q</kbd> look back</span><span><kbd>V</kbd> mirror</span>
+          <span><kbd>R</kbd> reset car</span><span><kbd>T</kbd> tower gaps</span><span><kbd>M</kbd> mute</span>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- ===== Results ===== -->
   <div id="results" class="overlay hidden">
-    <div class="card">
-      <h2 id="results-title">Results</h2>
-      <table>
-        <thead><tr><th>Pos</th><th>Driver</th><th>Time</th><th>Best lap</th></tr></thead>
-        <tbody id="results-body"></tbody>
-      </table>
-      <p id="results-fl" class="tag"></p>
-      <button id="btn-again" class="primary">Race again</button>
-      <button id="btn-menu">Main menu</button>
+    <div class="results-screen">
+      <aside class="res-side">
+        <div class="res-kicker"><span class="slash"></span><span id="res-session">Race</span></div>
+        <h2 id="res-circuit" class="res-circuit">Circuit</h2>
+        <div id="res-sub" class="res-sub"></div>
+        <div class="res-me">
+          <div id="res-pos" class="res-pos">P1</div>
+          <div class="res-verdict"><b id="results-title">Results</b><span id="res-gained"></span></div>
+        </div>
+        <div class="res-stats">
+          <div><span>Your best lap</span><b id="res-best">--:--.---</b></div>
+          <div><span>Fastest lap</span><b id="results-fl">--</b></div>
+        </div>
+        <div class="res-actions">
+          <button id="btn-again" class="res-btn primary">Race again</button>
+          <button id="btn-menu" class="res-btn">Main menu</button>
+        </div>
+      </aside>
+      <section class="res-table">
+        <div class="res-head"><span>Classification</span><span id="res-live" class="res-live"></span></div>
+        <div class="res-scroll">
+          <table>
+            <thead><tr><th>Pos</th><th>Driver</th><th class="c">Grid</th><th class="r">Best lap</th><th class="r">Time</th></tr></thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
