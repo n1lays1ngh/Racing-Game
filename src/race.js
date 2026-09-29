@@ -40,9 +40,16 @@ export const DIFFICULTY = {
 
 export class Race {
   // aiCount: how many AI cars (0 = Practice, just you). playerName: shown in the tower and results.
-  constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName } = {}) {
+  // Online races (see net/session.js) also pass:
+  //   humans: [{ id, name, color }] – everyone in the room, in grid order (they start behind the AI)
+  //   localId: which of them is you. collisions: false = cars drive through each other.
+  constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName,
+    humans = null, localId = null, collisions = true } = {}) {
     this.track = track;
     this.laps = laps;
+    this.collisions = collisions;
+    this.difficulty = difficulty;
+    this.countdownClock = null;   // online: a shared clock runs the start lights (else they count up here)
     this.state = 'countdown';     // countdown → racing → finished
     this.time = 0;                // race clock, starts at lights out
     this.countdown = 0;           // time since the lights sequence began
@@ -56,22 +63,26 @@ export class Race {
     this.events = [];             // messages for the HUD ("New best lap" etc.)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
-    // AI in team order, you at the back of the grid
+    // AI in team order, you (or everyone in an online room) at the back of the grid
     const n = Math.max(0, Math.min(aiCount, TEAMS.length - 1));
-    const order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).concat(0); // alone = pole position
-    order.forEach((teamIdx, slot) => {
+    const order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).map((k) => ({ teamIdx: k }));
+    if (humans) humans.forEach((h, k) => order.push({ teamIdx: 0, human: h, id: 100 + k }));
+    else order.push({ teamIdx: 0, human: { id: localId } }); // alone = pole position
+    order.forEach(({ teamIdx, human, id }, slot) => {
       const team = { ...TEAMS[teamIdx] };
-      if (teamIdx === 0 && playerColor != null) team.color = playerColor;
-      if (teamIdx === 0 && playerName) team.name = playerName;
+      const isPlayer = !!human && human.id === localId;
+      if (isPlayer && playerColor != null) team.color = playerColor;
+      if (isPlayer && playerName) team.name = playerName;
+      if (human?.name) { team.name = human.name; team.color = human.color ?? team.color; }
       const state = createCarState(0, 0, 0);
       placeCar(state, track, track.length - 10 - slot * 8, slot % 2 === 0 ? 2.8 : -2.8);
       const car = {
-        id: teamIdx, team, state, isPlayer: teamIdx === 0,
+        id: id ?? teamIdx, team, state, isPlayer, isHuman: !!human, humanId: human?.id ?? null,
         lapsDone: -1, prevS: state.s, progress: 0,
         lapStart: 0, lastLap: null, bestLap: null, finishTime: null,
         position: slot + 1, gap: 0, grid: slot + 1,
       };
-      if (!car.isPlayer) {
+      if (!human) {
         const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.0015); // front-runners a touch quicker
         car.ai = new AIDriver(state, track, this.profile, Math.min(skill, 1.02), diff.grip);
       }
@@ -86,19 +97,25 @@ export class Race {
 
   step(dt, playerInput) {
     if (this.state === 'countdown') {
-      this.countdown += dt;
-      this.lightsOn = Math.min(5, Math.floor(this.countdown));
+      this.countdown = this.countdownClock ? this.countdownClock() : this.countdown + dt;
+      this.lightsOn = Math.max(0, Math.min(5, Math.floor(this.countdown)));
       if (this.countdown >= this.lightsOutAt) {
-        this.state = 'racing'; this.lightsOn = 0; this.time = 0;
+        this.state = 'racing'; this.lightsOn = 0;
+        this.time = this.countdownClock ? this.countdown - this.lightsOutAt : 0;
         this.events.push({ type: 'go' });
       }
-      for (const c of this.cars) c.state.throttle = c.isPlayer ? playerInput.throttle : 0.4;
+      for (const c of this.cars) {
+        if (c.remote) c.advance?.(dt);
+        else c.state.throttle = c.isPlayer ? playerInput.throttle : 0.4;
+      }
       return;
     }
 
     this.time += dt;
-    const states = this.cars.map(c => c.state);
+    const states = this.cars.filter((c) => !c.dnf).map((c) => c.state);
     for (const car of this.cars) {
+      if (car.dnf) continue;
+      if (car.remote) { car.advance?.(dt); this.countLap(car); continue; } // driven from the network
       const input = car.ai ? car.ai.update(dt, states) : playerInput;
       stepCar(car.state, input, this.track, dt);
       this.updateLap(car);
@@ -148,8 +165,19 @@ export class Race {
     car.progress = car.lapsDone * L + s;
   }
 
+  // Online: someone else's car. Its owner times its laps; here we only count them, so it's ranked smoothly.
+  countLap(car) {
+    const L = this.track.length, s = car.state.s;
+    if (car.prevS > L * 0.75 && s < L * 0.25) { car.lapsDone++; car.lapStart = this.time; }
+    else if (car.prevS < L * 0.25 && s > L * 0.75) car.lapsDone--;
+    else if (car.net?.laps != null && s > L * 0.25 && s < L * 0.75) car.lapsDone = car.net.laps; // agree with the owner
+    car.prevS = s;
+    car.progress = car.lapsDone * L + s;
+  }
+
   updatePositions() {
     const sorted = [...this.cars].sort((a, b) => {
+      if (!!a.dnf !== !!b.dnf) return a.dnf ? 1 : -1; // retired / disconnected: bottom of the order
       if (a.finishTime != null && b.finishTime != null) return a.finishTime - b.finishTime;
       if (a.finishTime != null) return -1;
       if (b.finishTime != null) return 1;
@@ -175,11 +203,16 @@ export class Race {
 
   // Each car is two circles (front and rear). Push overlapping cars apart
   // and exchange momentum along the contact normal.
+  // Online, a car driven from the network only moves when its owner says so: the local car takes the whole push.
   resolveContacts() {
+    if (!this.collisions) return;
     const r = CAR.radius, cars = this.cars;
     for (let a = 0; a < cars.length; a++) {
       for (let b = a + 1; b < cars.length; b++) {
-        const A = cars[a].state, B = cars[b].state;
+        const ca = cars[a], cb = cars[b];
+        if (ca.dnf || cb.dnf || (ca.remote && cb.remote)) continue;
+        const wa = ca.remote ? 0 : cb.remote ? 1 : 0.5, wb = cb.remote ? 0 : ca.remote ? 1 : 0.5; // share of the push
+        const A = ca.state, B = cb.state;
         if ((A.x - B.x) ** 2 + (A.z - B.z) ** 2 > 64) continue;
         for (const oa of [1.4, -1.4]) {
           for (const ob of [1.4, -1.4]) {
@@ -189,14 +222,14 @@ export class Race {
             const d = Math.hypot(dx, dz);
             if (d >= 2 * r || d < 1e-4) continue;
             dx /= d; dz /= d;
-            const push = (2 * r - d) / 2;
-            A.x -= dx * push; A.z -= dz * push;
-            B.x += dx * push; B.z += dz * push;
+            const push = 2 * r - d;
+            A.x -= dx * push * wa; A.z -= dz * push * wa;
+            B.x += dx * push * wb; B.z += dz * push * wb;
             const rel = (B.vx - A.vx) * dx + (B.vz - A.vz) * dz;
             if (rel < 0) {
-              const j = -rel * 0.6; // mostly inelastic
-              A.vx -= dx * j; A.vz -= dz * j;
-              B.vx += dx * j; B.vz += dz * j;
+              const j = -rel * 1.2; // mostly inelastic
+              A.vx -= dx * j * wa; A.vz -= dz * j * wa;
+              B.vx += dx * j * wb; B.vz += dz * j * wb;
               if (cars[a].isPlayer || cars[b].isPlayer) {
                 const p = cars[a].isPlayer ? A : B;
                 p.hitWall = Math.max(p.hitWall, Math.min(1, -rel / 10));

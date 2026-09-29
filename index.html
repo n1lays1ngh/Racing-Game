@@ -85,7 +85,8 @@
         <li><b>24</b><span>real circuits</span></li>
         <li><b>102 m</b><span>of climb at Spa</span></li>
         <li><b>6</b><span>races under lights</span></li>
-        <li><b>5</b><span>AI rivals</span></li>
+        <li><b>19</b><span>AI rivals</span></li>
+        <li><b>10</b><span>friends online</span></li>
       </ul>
     </section>
 
@@ -140,6 +141,7 @@
       </div>
 
       <button id="btn-start" class="start"><span>Start race</span><kbd>Enter</kbd></button>
+      <button id="btn-mp" class="mp-open" type="button"><span class="mp-ico"><i></i><i></i></span><span class="mp-txt"><b>Multiplayer</b><small>Race your friends online</small></span><span class="mp-go">›</span></button>
 
       <div class="keys">
         <span><kbd>W</kbd><kbd>S</kbd> go / brake</span>
@@ -148,6 +150,67 @@
         <span><kbd>Q</kbd> look back</span>
         <span>🎮 gamepad</span>
       </div>
+    </section>
+  </div>
+
+  <!-- ===== Multiplayer lobby (lobby.js); the live race keeps playing behind it ===== -->
+  <div id="lobby" class="menu-screen lobby hidden" data-view="start">
+    <div class="menu-shade"></div>
+
+    <section class="hero lb-hero">
+      <div class="live"><span class="dot"></span><span>Multiplayer</span></div>
+      <div class="lb-intro">
+        <h1 class="title"><span class="slash"></span><span class="t1">Race</span><span class="t2">friends</span></h1>
+        <p class="pitch">Open a room, send your friends the code and race wheel to wheel. Up to 10 drivers, AI to fill the grid if you want them. Nothing to install.</p>
+        <ol class="lb-steps">
+          <li><b>1</b><span>One of you creates a room</span></li>
+          <li><b>2</b><span>Everyone else joins with the code</span></li>
+          <li><b>3</b><span>The host picks the circuit and starts</span></li>
+        </ol>
+      </div>
+      <div class="lb-room">
+        <div class="lb-code-label">Room code</div>
+        <div class="lb-code-row">
+          <div id="lb-code" class="lb-code">----</div>
+          <button id="lb-copy" class="lb-copy" type="button">Copy invite link</button>
+        </div>
+        <div class="lb-drivers-head"><span>Drivers</span><span id="lb-count">1 / 10</span></div>
+        <ul id="lb-players" class="lb-players"></ul>
+      </div>
+    </section>
+
+    <section class="setup lb-panel">
+      <div class="setup-head"><span id="lb-head">Multiplayer</span><button id="lb-back" class="lb-back" type="button">‹ Menu</button></div>
+
+      <div class="lb-start">
+        <div class="seg-row"><span>Name</span>
+          <input id="lb-name" class="name-input" type="text" maxlength="14" placeholder="Your name" autocomplete="off" spellcheck="false" aria-label="Your name" />
+        </div>
+        <button id="lb-create" class="start lb-create" type="button"><span>Create a room</span></button>
+        <div class="lb-or"><span>or join a friend's room</span></div>
+        <div class="lb-join">
+          <input id="lb-code-in" class="lb-code-in" type="text" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code" />
+          <button id="lb-join" class="lb-join-btn" type="button">Join</button>
+        </div>
+      </div>
+
+      <div class="lb-settings">
+        <div class="lb-circuit">
+          <button type="button" class="lb-arrow" id="lb-prev" aria-label="Previous circuit">‹</button>
+          <div class="lb-track-box"><div id="lb-track" class="lb-track">Circuit</div><div id="lb-track-sub" class="lb-track-sub"></div></div>
+          <button type="button" class="lb-arrow" id="lb-next" aria-label="Next circuit">›</button>
+        </div>
+        <div class="seg-row"><span>Laps</span><div class="lb-seg" id="lb-laps"></div></div>
+        <div class="seg-row"><span>AI cars</span>
+          <div class="ai-count"><input id="lb-ai" type="range" min="0" max="19" step="1" value="0" aria-label="Number of AI cars" /><b id="lb-ai-label">None</b></div>
+        </div>
+        <div class="seg-row" id="lb-skill-row"><span>AI skill</span><div class="lb-seg" id="lb-diff"></div></div>
+        <div class="seg-row"><span>Contact</span><div class="lb-seg" id="lb-coll"></div></div>
+        <button id="lb-go" class="start lb-go" type="button"><span>Start race</span></button>
+        <div id="lb-wait" class="lb-wait hidden"></div>
+      </div>
+
+      <div id="lb-status" class="lb-status"></div>
     </section>
   </div>
 

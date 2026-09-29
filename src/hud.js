@@ -80,10 +80,18 @@ export class HUD {
     const g = this.mapCtx, dpr = this.dpr;
     g.clearRect(0, 0, this.map.width, this.map.height);
     g.drawImage(this.mapBg, 0, 0);
-    const cars = [...race.cars].sort((a, b) => (a.isPlayer ? 1 : 0) - (b.isPlayer ? 1 : 0)); // player on top
+    const rank = (c) => (c.isPlayer ? 2 : c.isHuman ? 1 : 0);
+    const cars = race.cars.filter((c) => !c.dnf).sort((a, b) => rank(a) - rank(b)); // you on top, then friends
     for (const car of cars) {
       const [x, y] = this.toMap(car.state.x, car.state.z);
-      if (car.isPlayer) { // glowing marker with your position
+      if (car.isHuman && !car.isPlayer) { // a friend online: bigger dot with a white ring and their name
+        g.beginPath(); g.arc(x, y, 6.5 * dpr, 0, Math.PI * 2); g.fillStyle = hex(car.team.color); g.fill();
+        g.lineWidth = 2 * dpr; g.strokeStyle = '#fff'; g.stroke();
+        g.font = `900 ${9.5 * dpr}px 'Titillium Web', sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+        g.lineWidth = 3 * dpr; g.strokeStyle = 'rgba(0,0,0,0.85)';
+        const tag = car.team.name.slice(0, 3).toUpperCase();
+        g.strokeText(tag, x + 9 * dpr, y); g.fillStyle = '#fff'; g.fillText(tag, x + 9 * dpr, y);
+      } else if (car.isPlayer) { // glowing marker with your position
         g.beginPath(); g.arc(x, y, 11 * dpr, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fill();
         g.beginPath(); g.arc(x, y, 8 * dpr, 0, Math.PI * 2); g.fillStyle = '#e10600'; g.fill();
         g.lineWidth = 2 * dpr; g.strokeStyle = '#fff'; g.stroke();
@@ -176,7 +184,8 @@ export class HUD {
     this.el.standings.classList.toggle('compact', st.length > 12); // big fields: slimmer rows
     this.el.standings.innerHTML = st.map((c, i) => {
       let gap;
-      if (race.state === 'countdown') gap = '';
+      if (c.dnf) gap = 'DNF';
+      else if (race.state === 'countdown') gap = '';
       else if (i === 0) gap = this.showLeaderGap ? 'Leader' : 'Interval';
       else {
         const v = this.showLeaderGap ? c.gap : c.gap - st[i - 1].gap;
@@ -184,10 +193,11 @@ export class HUD {
       }
       const moved = (this.grid.get(c) ?? c.position) - c.position;
       const chg = moved > 0 ? `<span class="chg up">▲${moved}</span>` : moved < 0 ? `<span class="chg down">▼${-moved}</span>` : '<span class="chg"></span>';
-      const abbr = c.isPlayer ? c.team.name.slice(0, 8).toUpperCase() : c.team.name.slice(0, 3).toUpperCase();
+      const abbr = c.isHuman ? c.team.name.slice(0, 8).toUpperCase() : c.team.name.slice(0, 3).toUpperCase(); // people: full name
       const flag = c.finishTime != null ? '<span class="chq"></span>' : '';
       const fastest = fl === c.team.name ? '<span class="fl" title="Fastest lap"></span>' : '';
-      return `<li class="${c.isPlayer ? 'me' : ''}${i === 0 ? ' leader' : ''}"><span class="p">${c.position}</span>` +
+      const cls = [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : ''].join(' ');
+      return `<li class="${cls}"><span class="p">${c.position}</span>` +
         `<span class="bar" style="background:${hex(c.team.color)}"></span><span class="n">${abbr}${fastest}</span>` +
         `${chg}<span class="g">${flag}${gap}</span></li>`;
     }).join('');

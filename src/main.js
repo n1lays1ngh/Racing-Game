@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import './style.css';
 import { buildTrack, getTrackDef, TRACKS } from './track.js';
 import { buildWorld, buildCircuit, disposeCircuit } from './scenery.js';
-import { createCarModel, syncCarModel, loadCarModel, carCams } from './carModel.js';
+import { createCarModel, loadCarModel, carCams } from './carModel.js';
 import { GRAPHICS } from './settings.js';
 import { Showcase } from './showcase.js';
 import { setupMenu } from './menu.js';
@@ -13,6 +13,10 @@ import { EngineAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { RearView } from './rearview.js';
 import { applyTimeOfDay } from './lighting.js';
+import { Lobby } from './lobby.js';
+import { NameTags } from './nametags.js';
+import { createRemoteModel, syncModels } from './carLod.js';
+import { keepTicking, stopTicking } from './net/background.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -73,21 +77,30 @@ let shake = 0;
 let resultsTimer = 0;
 let cams = null; // onboard camera positions for the player's car model (from carModel.js)
 
-function newRace() {
-  showcase.stop();
+// Race settings from the menu (online races get theirs from the host, see lobby.js)
+function soloConfig() {
+  const $ = (id) => document.getElementById(id);
+  return {
+    track: trackSelect.value, laps: Number($('opt-laps').value), difficulty: $('opt-diff').value,
+    aiCount: Number($('opt-ai').value), playerName: $('opt-name').value.trim() || 'You', playerColor,
+  };
+}
+
+function newRace(cfg = soloConfig()) {
   for (const m of models) scene.remove(m);
-  loadTrack(trackSelect.value);
-  const laps = Number(document.getElementById('opt-laps').value);
-  const difficulty = document.getElementById('opt-diff').value;
-  const aiCount = Number(document.getElementById('opt-ai').value);
-  const playerName = document.getElementById('opt-name').value.trim() || 'You';
-  race = new Race(track, { laps, difficulty, playerColor, aiCount, playerName });
+  if (trackSelect.value !== cfg.track) trackSelect.value = cfg.track;
+  loadTrack(cfg.track);
+  showcase.stop();
+  race = new Race(track, cfg);
+  lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
   models = race.cars.map((c) => {
-    const m = createCarModel(c.team, { player: c.isPlayer });
-    scene.add(m); syncCarModel(m, c.state);
+    const m = c.isHuman && !c.isPlayer ? createRemoteModel(c.team) : createCarModel(c.team, { player: c.isPlayer });
+    scene.add(m);
     return m;
   });
+  syncModels(models, race.cars, camera);
   cams = carCams(models[race.cars.indexOf(race.player)]);
+  nameTags.setup(race);
   snapCamera();
   clearPressed();
 }
@@ -102,36 +115,71 @@ document.querySelectorAll('.swatch').forEach((el) => {
 });
 
 menuUI = setupMenu({ tracks: TRACKS, onStart: () => startGame() });
+const nameTags = new NameTags(); // names over friends' cars online
+
+// Multiplayer lobby (lobby.js) and the online race (net/session.js)
+const lobby = new Lobby({
+  tracks: TRACKS,
+  previewTrack: (id) => { if (trackSelect.value !== id) { trackSelect.value = id; trackSelect.dispatchEvent(new Event('change')); } },
+  onStart: (cfg) => startGame(cfg),
+  onEnd: () => { if (race) { exitRace(); lobby.show(); } },  // the host ended the race
+  onClosed: () => { exitRace(); menu.classList.add('hidden'); }, // the room is gone: the lobby says why
+  onDnf: (car) => hud.toast(`${car.team.name} is out`, 2.5),
+  onSession: (on) => (on ? keepTicking(tick) : stopTicking()), // keep racing in a background tab
+});
+window.addEventListener('pagehide', () => lobby.session?.leave());
 loadTrack(trackSelect.value);                               // first circuit + live race behind the menu
 carModelReady.then(() => { if (!race) showcase.start(track); }); // swap in the RB19 once it has loaded
 
-async function startGame() {
+// cfg: race settings (solo: from the menu; online: from the host)
+async function startGame(cfg) {
   audio.start();
   await carModelReady; // usually loaded long before you press Start
-  menu.classList.add('hidden'); results.classList.add('hidden'); pauseEl.classList.add('hidden');
+  menu.classList.add('hidden'); lobby.hide(); results.classList.add('hidden'); pauseEl.classList.add('hidden');
   paused = false; document.activeElement?.blur();
-  newRace();
+  newRace(cfg);
+  onlineLabels();
   hud.show(true);
 }
-document.getElementById('btn-start').addEventListener('click', startGame);
-document.getElementById('btn-again').addEventListener('click', startGame);
+const online = () => !!lobby.session;
+document.getElementById('btn-start').addEventListener('click', () => startGame());
+document.getElementById('btn-again').addEventListener('click', () => (online() ? toLobby() : startGame()));
 document.getElementById('btn-menu').addEventListener('click', toMenu);
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-quit').addEventListener('click', toMenu);
-document.getElementById('btn-restart').addEventListener('click', () => { setPaused(false); startGame(); });
+document.getElementById('btn-restart').addEventListener('click', () => { setPaused(false); online() ? toLobby() : startGame(); });
 
-function toMenu() {
+// Clear the race away; the live race plays behind the menus again
+function exitRace() {
   results.classList.add('hidden'); pauseEl.classList.add('hidden');
-  menu.classList.remove('hidden'); hud.show(false);
+  hud.show(false); nameTags.clear();
   paused = false; audio.suspend(); rearView.hide();
   for (const m of models) scene.remove(m);
   models = [];
-  race = null;
-  showcase.start(track);
+  if (race) { race = null; showcase.start(track); }
+}
+function toMenu() {
+  lobby.leave(); lobby.hide(); // online: leaving the menu means leaving the room
+  exitRace();
+  menu.classList.remove('hidden');
+}
+// Online: the host ends the race for everyone; anyone else just leaves it (and retires if still going)
+function toLobby() {
+  lobby.session?.endRace();
+  exitRace();
+  lobby.show();
+}
+// Buttons on the pause and results screens say what they do online
+function onlineLabels() {
+  const s = lobby.session, set = (sel, on, off) => { document.querySelector(sel).textContent = s ? on : off; };
+  set('#btn-again', 'Back to lobby', 'Race again');
+  set('#btn-menu', 'Leave room', 'Main menu');
+  set('#btn-restart span', s?.isHost ? 'End race · back to lobby' : 'Retire · back to lobby', 'Restart race');
+  set('#btn-quit span', 'Leave room', 'Quit to menu');
 }
 function setPaused(v) {
   paused = v; pauseEl.classList.toggle('hidden', !v);
-  v ? audio.suspend() : audio.resume();
+  if (!online()) v ? audio.suspend() : audio.resume(); // online the race carries on behind the menu
   if (!v) document.activeElement?.blur(); // so Space (brake) can't press a hidden button
   if (v && race) { // where you are, shown under PAUSED
     const p = race.player, lap = Math.min(Math.max(p.lapsDone + 1, 1), race.laps);
@@ -146,28 +194,36 @@ function setPaused(v) {
 // Results: your result on the left, the full classification on the right (updates as cars finish).
 function showResults() {
   const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`); // names typed by people
   const hex = (c) => '#' + c.toString(16).padStart(6, '0');
   const st = race.standings, leader = st[0], p = race.player, fl = race.bestLapOverall;
   const practice = race.cars.length === 1;
   $('results-body').innerHTML = st.map((c) => {
-    const time = c.finishTime == null ? '<td class="r running">Running</td>'
+    const time = c.dnf ? '<td class="r running">DNF</td>'
+      : c.finishTime == null ? '<td class="r running">Running</td>'
       : c === leader ? `<td class="r">${formatTime(c.finishTime)}</td>`
       : `<td class="r">+${(c.finishTime - leader.finishTime).toFixed(3)}</td>`;
     const moved = c.grid - c.position;
     const gain = moved > 0 ? `<span class="gain up">▲${moved}</span>` : moved < 0 ? `<span class="gain down">▼${-moved}</span>` : '';
     const fastest = fl && c.bestLap === fl.time;
     return `<tr class="${c.isPlayer ? 'me' : ''}"><td class="p">${c.position}</td>` +
-      `<td><span class="sw" style="background:${hex(c.team.color)}"></span>${c.team.name}${c.isPlayer ? '' : '<span class="ai">AI</span>'}</td>` +
+      `<td><span class="sw" style="background:${hex(c.team.color)}"></span>${esc(c.team.name)}${c.isHuman ? '' : '<span class="ai">AI</span>'}</td>` +
       `<td class="c">${c.grid}${gain}</td><td class="r${fastest ? ' purple' : ''}">${formatTime(c.bestLap)}</td>${time}</tr>`;
   }).join('');
-  const running = st.filter((c) => c.finishTime == null).length;
+  const running = st.filter((c) => c.finishTime == null && !c.dnf).length;
   $('res-live').textContent = running ? `${running} still on track` : '';
 
-  const diff = $('opt-diff'), diffName = diff.options[diff.selectedIndex]?.textContent ?? '';
-  $('res-session').textContent = practice ? 'Practice' : 'Race result';
+  const diff = $('opt-diff'), diffKey = race.difficulty ?? diff.value;
+  const diffName = [...diff.options].find((o) => o.value === diffKey)?.textContent ?? '';
+  $('res-session').textContent = practice ? 'Practice' : online() ? 'Online race result' : 'Race result';
+  if (online()) { // the host may still be waiting for friends out on track
+    const out = st.filter((c) => c.isHuman && !c.isPlayer && c.finishTime == null && !c.dnf).length;
+    $('btn-again').textContent = !lobby.session.isHost ? 'Back to lobby' : out ? `End race (${out} still racing)` : 'Back to lobby';
+  }
   $('res-circuit').textContent = track.name;
+  const people = st.filter((c) => c.isHuman).length, ai = st.length - people;
   $('res-sub').textContent = [getTrackDef(track.id).country, `${race.laps} lap${race.laps > 1 ? 's' : ''}`,
-    practice ? 'No AI' : `${race.cars.length - 1} AI · ${diffName}`].join('  ·  ');
+    people > 1 ? `${people} drivers online` : null, practice ? 'No AI' : ai ? `${ai} AI · ${diffName}` : null].filter(Boolean).join('  ·  ');
   $('res-pos').textContent = practice ? '★' : `P${p.position}`;
   $('results-title').textContent = practice ? 'Practice complete'
     : p.position === 1 ? 'Victory!' : p.position <= 3 ? 'Podium' : `Finished P${p.position}`;
@@ -211,12 +267,18 @@ function snapCamera() {
 }
 
 // ---------- main loop ----------
-const timer = new THREE.Timer();
-timer.connect(document); // pauses cleanly when the tab is hidden
+const IDLE = { throttle: 0, brake: 0, steer: 0 };
+let lastTime = null;
 function frame(timestamp) {
   requestAnimationFrame(frame);
-  timer.update(timestamp);
-  const dt = Math.min(timer.getDelta(), 0.1);
+  tick(timestamp);
+}
+// One step of the game. Normally once per animation frame; online it also runs from a background
+// timer while the tab is hidden (see net/background.js), just without drawing anything.
+function tick(timestamp) {
+  const dt = lastTime == null ? 0 : Math.min(Math.max((timestamp - lastTime) / 1000, 0), 0.1);
+  lastTime = timestamp;
+  const drawing = !document.hidden;
   pollPad(); // controller buttons → the same shortcuts as the keyboard
   world.sky.material.uniforms.time.value += dt;
 
@@ -227,7 +289,8 @@ function frame(timestamp) {
       world.sun.position.set(t.x + world.sunDir.x * 150, (t.y ?? 0) + world.sunDir.y * 150, t.z + world.sunDir.z * 150);
       world.sun.target.position.set(t.x, t.y ?? 0, t.z);
     }
-    renderer.render(scene, camera); return;
+    if (drawing) renderer.render(scene, camera);
+    return;
   }
 
   if (wasPressed('Escape') || wasPressed('KeyP')) setPaused(!paused);
@@ -236,10 +299,11 @@ function frame(timestamp) {
   if (wasPressed('KeyR') && race.state === 'racing' && race.player.finishTime == null) race.resetPlayer();
 
   const input = readInput(dt);
-  if (!paused) {
+  const session = lobby.session;
+  if (!paused || session) { // online the race doesn't stop for the pause menu: your car coasts
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
     const steps = Math.ceil(dt / (1 / 120));
-    for (let i = 0; i < steps; i++) race.step(dt / steps, input);
+    for (let i = 0; i < steps; i++) race.step(dt / steps, paused ? IDLE : input);
     for (const e of race.takeEvents()) {
       if (e.type === 'go') hud.toast('GO! GO! GO!', 1.2);
       if (e.type === 'bestLap') hud.toast(`Personal best  ${formatTime(e.time)}`);
@@ -252,7 +316,8 @@ function frame(timestamp) {
     }
   }
 
-  race.cars.forEach((c, i) => syncCarModel(models[i], c.state));
+  session?.tick(dt, timestamp); // online: swap car positions with the others
+  syncModels(models, race.cars, camera); // friends' cars: full RB19 only for the nearest few
 
   // Start lights on the gantry
   for (const l of circuit.lights) l.mat.emissiveIntensity = race.state === 'countdown' && l.index < race.lightsOn ? 4 : 0;
@@ -269,6 +334,7 @@ function frame(timestamp) {
   camera.lookAt(camLook);
   const fov = 62 + Math.min(ps.speed, 95) * 0.14;
   camera.fov += (fov - camera.fov) * Math.min(1, dt * 4); camera.updateProjectionMatrix();
+  nameTags.update(camera);
 
   // Shadows follow the player so they stay sharp.
   world.sun.position.set(ps.x + world.sunDir.x * 150, ps.y + world.sunDir.y * 150, ps.z + world.sunDir.z * 150);
@@ -281,13 +347,14 @@ function frame(timestamp) {
     slip: ps.slip, surface: ps.surface, speed: ps.speed, hit: ps.hitWall,
     gear: gb.gear, brake: ps.brake,
   });
-  audio.updateTraffic(race.cars, race.player, camera); // AI engines around you, with Doppler
+  audio.updateTraffic(race.cars.filter((c) => !c.dnf), race.player, camera); // engines around you, with Doppler
   if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip }); // controller rumble
 
   hud.update(race, dt);
   // Keep the results table live while the rest of the field crosses the line.
   resultsTimer -= dt;
   if (!results.classList.contains('hidden') && resultsTimer <= 0) { showResults(); resultsTimer = 0.5; }
+  if (!drawing) return;
   renderer.render(scene, camera);
   rearView.render(scene, ps); // mirror strip at the top of the screen
 }

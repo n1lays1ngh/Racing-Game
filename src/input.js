@@ -8,7 +8,7 @@
 //   Driving:  left stick steer · RT throttle · LT brake · A throttle · X brake
 //   Race:     Y camera · B (hold) look back · LB mirror · RB tower gaps · View/Share reset · Menu/Options pause
 //   Pause:    A resume · Y restart · B quit
-//   Menus:    D-pad or LB/RB change circuit · A start · B back
+//   Menus:    D-pad or LB/RB change circuit · A start · Y multiplayer · Menu/Options (lobby host) start race
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
 // Switch Pro and most others in Chrome, Edge, Firefox and Safari).
 export const PAD = {
@@ -70,13 +70,15 @@ const $ = (id) => document.getElementById(id);
 const visible = (id) => { const el = $(id); return el && !el.classList.contains('hidden'); };
 function screen() {
   if (visible('menu')) return 'menu';
+  if (visible('lobby')) return 'lobby';
   if (visible('results')) return 'results';
   if (visible('pause')) return 'pause';
   return 'race';
 }
 // button index (standard layout) → what it does on each screen: a key code, or 'click:<button id>'
 const MAP = {
-  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight' },
+  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 3: 'click:btn-mp' },
+  lobby:   { 9: 'click:lb-go' },
   race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 5: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM' },
   pause:   { 9: 'Escape', 0: 'click:btn-resume', 3: 'click:btn-restart', 1: 'click:btn-quit' },
   results: { 0: 'click:btn-again', 1: 'click:btn-menu', 9: 'click:btn-again' },

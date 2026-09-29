@@ -6,8 +6,8 @@ banked corners (Zandvoort, Jeddah), grandstands, pit buildings and gravel traps.
 (Monaco, Singapore, Baku, Las Vegas…) have concrete walls close to the track and a city around them.
 Night races (Bahrain, Jeddah, Singapore, Las Vegas, Qatar) run under floodlights, and Abu Dhabi starts at sunset.
 Every circuit is one file in `src/circuits/`, so you can add, remove or fine-tune tracks yourself.
-5 AI rivals, start lights, lap timing, live standings, a minimap, four camera views, a rear-view
-mirror, synthesised engine sound and gamepad support.
+Up to 19 AI rivals, online multiplayer for up to 10 friends, start lights, lap timing, live standings,
+a minimap, four camera views, a rear-view mirror, synthesised engine sound and gamepad support.
 
 ## Requirements
 
@@ -30,6 +30,9 @@ Vite opens http://localhost:5173 for you. Saved edits hot-reload in the browser.
 | `npm run build`   | Production build into `dist/` (static files you can host anywhere) |
 | `npm run preview` | Serve the production build locally                    |
 | `npm run sim`     | Headless race sim in Node: `npm run sim -- 3 hard monza` (laps, difficulty, circuit id or `all`) |
+
+`npm run dev` also serves the multiplayer room server, and prints a **Network** address (like
+`http://192.168.1.20:5173`) that friends on the same Wi-Fi can open to join your rooms.
 
 ## Scaffolding from scratch
 
@@ -57,13 +60,64 @@ npm run dev
 | R                    | Reset onto the track           |
 | M                    | Mute                           |
 | Esc / P              | Pause                          |
-| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · View reset · Menu pause. In menus: D-pad/LB/RB circuit, A start, B back. Mapping and rumble settings in `src/input.js` |
+| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · View reset · Menu pause. In menus: D-pad/LB/RB circuit, A start, Y multiplayer; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
+
+## Multiplayer
+
+Menu → **Multiplayer**. One person creates a room and gets a 4-letter code (or an invite link);
+everyone else types the code. The host picks the circuit, laps, how many AI cars (none by default),
+AI skill and whether cars collide, then starts. Up to 10 people; everyone drives the RB19 and gets
+their own colour for the tower, the map and the name tag over their car. People start at the back
+of the grid in random order, behind any AI. Anyone who drops out mid-race gets a DNF.
+
+**How it works.** The host's browser is the referee: it runs the AI and sends every car's position
+to everyone 20 times a second. Each player drives their own car on their own computer (no input lag)
+and sends it to the host 30 times a second; other cars are drawn where they are *now*, predicted
+from their last speed and turn. Lap times are measured by whoever drives the car, on a clock shared
+with the host, so everyone sees the same order and times. The browsers connect directly to each
+other (WebRTC); the small room server (`api/room.js`) only swaps the connection details when
+someone joins. No game data goes through it.
+
+Keep the host's tab open until the race ends: if the host leaves, the room closes. Tabs in the
+background keep racing (just without drawing).
+
+**Running it**
+
+- `npm run dev` or `npm run preview`: rooms work straight away (kept in memory by the dev server).
+  Friends on your Wi-Fi open the Network address it prints.
+- **Vercel:** rooms are kept in Upstash Redis (free tier is plenty). In the Vercel dashboard open
+  your project → **Storage** → **Create / Connect** → **Upstash for Redis** (free plan) → connect it
+  to the project, then **redeploy**. That adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`, which is
+  all `api/room.js` needs. Without it, *Create a room* says multiplayer isn't set up.
+- **Relay server (recommended).** Home and phone connections usually connect directly, but office,
+  college and some mobile networks block that (also two laptops on the same office/college Wi-Fi).
+  A relay (TURN) server passes the race data along instead; the game only uses it when it has to.
+  Cloudflare's is free up to 1,000 GB a month (a race uses a few MB):
+  1. Cloudflare dashboard → **Realtime** → **TURN Server** → **Create**. Copy the *Turn Token ID* and *API Token*.
+  2. For `npm run dev`: make a file called `.env.local` in the project folder (it's in `.gitignore`, so it
+     never gets committed) and restart `npm run dev`:
+     ```
+     TURN_KEY_ID=your-turn-token-id
+     TURN_KEY_API_TOKEN=your-api-token
+     ```
+  3. For Vercel: project → **Settings** → **Environment Variables** → add the same two (Production and
+     Preview) → redeploy.
+
+  Any other TURN server works too: set `TURN_URLS` (comma separated), `TURN_USERNAME` and `TURN_CREDENTIAL` instead.
+  To check the relay works, open the game with `?relay` at the end of the address (e.g.
+  `http://localhost:5173/?relay`) in both windows: everything then goes through the relay.
+
+**Tuning:** update rates are `RATE` in `src/net/session.js`; smoothing of other people's cars is
+`SMOOTH` in `src/net/remote.js`; when friends' cars switch to the light model is `LOD` in `src/carLod.js` (how many friends get the full RB19 at once, and within what distance);
+name tag size and range are `TAGS` in `src/nametags.js`; max players is `NET.maxPlayers` in `src/net/peer.js`.
 
 ## Project layout
 
 ```
 index.html          HUD, menus and overlays (plain HTML)
-vite.config.js
+vite.config.js      Also runs the room server during npm run dev
+api/room.js         Vercel Function: room codes for multiplayer
+server/rooms.js     Room code + connection swap logic (used by api/room.js and vite.config.js)
 src/
   main.js           Renderer, game loop, cameras, menus
   circuits/         One file per circuit (layout, width, walls, run-off, stands, elevation…)
@@ -84,6 +138,15 @@ src/
   hud.js            Speedo, timing, standings, minimap
   input.js          Keyboard and gamepad
   audio.js          Web Audio engine, tyre and wind sound
+  lobby.js          Multiplayer lobby screen: create / join a room, drivers, race settings
+  nametags.js       Names over friends' cars
+  carLod.js         Friends' RB19s swap to a light model further away
+  net/
+    peer.js         Browser-to-browser connections (WebRTC) and the room server calls
+    session.js      Online room: lobby, start, keeping everyone's race in step
+    remote.js       Drawing other people's cars smoothly between updates
+    protocol.js     The binary car-position packets
+    background.js   Keeps an online race running in a background tab
   style.css
 tools/simulate.mjs  Runs a whole race headless
 ```
@@ -170,7 +233,7 @@ can be shrunk without visible loss using glTF-Transform:
 - Tyre wear and pit stops
 - A track editor that lets you drag the spline points
 - Rain with lower grip, spray particles and a wet sky
-- Online multiplayer with WebSockets (Colyseus or Socket.IO) that syncs car states at about 20 Hz
+- Spectating: watch friends' onboard cameras after you finish
 - Touch controls for mobile
 - Post-processing with `EffectComposer`: bloom and motion blur
 
