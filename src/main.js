@@ -8,7 +8,7 @@ import { Showcase } from './showcase.js';
 import { setupMenu } from './menu.js';
 import { Race, formatTime } from './race.js';
 import { gearbox } from './physics.js';
-import { readInput, wasPressed, clearPressed } from './input.js';
+import { readInput, wasPressed, clearPressed, pollPad, padFeedback } from './input.js';
 import { EngineAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { RearView } from './rearview.js';
@@ -187,6 +187,7 @@ function frame(timestamp) {
   requestAnimationFrame(frame);
   timer.update(timestamp);
   const dt = Math.min(timer.getDelta(), 0.1);
+  pollPad(); // controller buttons → the same shortcuts as the keyboard
   world.sky.material.uniforms.time.value += dt;
 
   if (!race) { // menu: live AI race filmed like TV
@@ -251,6 +252,7 @@ function frame(timestamp) {
     gear: gb.gear, brake: ps.brake,
   });
   audio.updateTraffic(race.cars, race.player, camera); // AI engines around you, with Doppler
+  if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip }); // controller rumble
 
   hud.update(race, dt);
   // Keep the results table live while the rest of the field crosses the line.

@@ -122,6 +122,8 @@ export class EngineAudio {
   start() {
     if (this.ctx) { this.ctx.resume(); return; }
     const ctx = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Started from a controller? Browsers only unlock sound on a click or key press, so resume on the next one.
+    if (ctx.state === 'suspended') for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => ctx.resume(), { once: true });
     // master: gentle compressor so everything sits together without clipping
     this.comp = ctx.createDynamicsCompressor();
     this.comp.threshold.value = -16; this.comp.ratio.value = 4; this.comp.attack.value = 0.004; this.comp.release.value = 0.2;
