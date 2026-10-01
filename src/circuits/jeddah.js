@@ -31,7 +31,7 @@ export default {
 
   // ---- Shape ----
   banking: [
-    { at: 2290, len: 200, deg: 12, name: "Turn 13" },
+    // { at: 2290, len: 200, deg: 12, name: "Turn 13" },
   ],
   // Road height (m) every ~20 m round the lap from points[0].
   // From the official F1 timing data (2025 qualifying, car positions incl. height). Range 2.3 m.

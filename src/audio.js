@@ -28,13 +28,14 @@ export const ENGINES = {
 };
 
 export const SOUND = {
-  engineType: 'v6',   // 'v6' turbo hybrid (today), 'v8' (2006–13), 'v10' (2000–05 scream)
+  engineType: 'v10',   // 'v6' turbo hybrid (today), 'v8' (2006–13), 'v10' (2000–05 scream)
   volume: 0.8,
   engine: 0.55,        // your engine
   traffic: 0.7,        // other cars
   turbo: 0.018,        // turbo whistle (only on the V6)
   hybrid: 0.012,       // electric whine (only on the V6)
   tyres: 0.22,
+  kerbs: 1.0,          // kerb rumble (it's mixed to be heard over the engine; lower it if it's too much)
   wind: 0.12,
   aiVoices: 3,         // how many AI engines you can hear at once
 };
@@ -164,11 +165,16 @@ export class EngineAudio {
     const wob = ctx.createOscillator(); wob.frequency.value = 7; const wobG = this.gain(120);
     wob.connect(wobG).connect(b1.frequency); wob.start();
     this.squealGain.connect(out);
-    // kerbs: low rumble chopped at the stripe rate
+    // kerbs: a deep rumble chopped at the stripe rate, plus a rasping buzz from the ridges in the kerb
+    // (in the mid range, so you hear it on laptop speakers too, not just headphones)
     this.kerbGain = this.gain(); this.kerbChop = this.gain(0.5);
     this.kerbLfo = ctx.createOscillator(); this.kerbLfo.type = 'square'; const lfoAmt = this.gain(0.5);
     this.kerbLfo.connect(lfoAmt).connect(this.kerbChop.gain); this.kerbLfo.start();
-    this.noise().connect(this.filter('lowpass', 220, 2)).connect(this.kerbChop).connect(this.kerbGain).connect(out);
+    this.noise().connect(this.filter('lowpass', 320, 1.5)).connect(this.gain(1.6)).connect(this.kerbChop);
+    this.kerbBuzz = ctx.createOscillator(); this.kerbBuzz.type = 'sawtooth';
+    this.kerbBuzz.connect(this.filter('bandpass', 420, 0.9)).connect(this.gain(0.9)).connect(this.kerbChop); this.kerbBuzz.start();
+    this.noise().connect(this.filter('bandpass', 900, 1.2)).connect(this.gain(0.8)).connect(this.kerbChop);
+    this.kerbChop.connect(this.kerbGain).connect(out);
     // grass and gravel: crunchy noise
     this.offGain = this.gain(); this.offFilter = this.filter('bandpass', 700, 0.7);
     this.noise().connect(this.offFilter).connect(this.offGain).connect(out);
@@ -225,7 +231,8 @@ export class EngineAudio {
     const squeal = smooth(1.3, 5, slip) * (speed > 5 ? 1 : 0);
     this.squealGain.gain.setTargetAtTime(SOUND.tyres * squeal, t, 0.05);
     this.kerbLfo.frequency.setTargetAtTime(Math.max(speed / 1.75, 1), t, 0.02);
-    this.kerbGain.gain.setTargetAtTime(surface === 'kerb' && speed > 3 ? 0.9 : 0, t, 0.03);
+    this.kerbBuzz.frequency.setTargetAtTime(Math.min(60 + speed * 5, 480), t, 0.02); // ridges go by faster
+    this.kerbGain.gain.setTargetAtTime(surface === 'kerb' && speed > 3 ? SOUND.kerbs * (0.9 + 0.8 * smooth(5, 60, speed)) : 0, t, 0.02);
     const off = surface === 'grass' || surface === 'gravel' || surface === 'runoff';
     this.offFilter.frequency.setTargetAtTime(surface === 'gravel' ? 2600 : 500, t, 0.05);
     this.offGain.gain.setTargetAtTime(off && speed > 2 ? Math.min(0.5, speed * 0.012) : 0, t, 0.05);

@@ -348,7 +348,9 @@ function tick(timestamp) {
     gear: gb.gear, brake: ps.brake,
   });
   audio.updateTraffic(race.cars.filter((c) => !c.dnf), race.player, camera); // engines around you, with Doppler
-  if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip }); // controller rumble
+  if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip, // controller rumble
+    throttle: ps.throttle, brake: ps.brake, lock: ps.lockF, rpm: gb.rpm, gear: gb.gear });
+  if (!paused) circuit.marks?.update(ps); // your tyres leave rubber on the track (tyreMarks.js)
 
   hud.update(race, dt);
   // Keep the results table live while the rest of the field crosses the line.

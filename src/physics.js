@@ -15,7 +15,7 @@ export const CAR = {
   accelFade: 0.6,       // how much engine push fades toward top speed
   drag: 0.00075,        // aero drag (× v²)
   roll: 0.4,            // rolling resistance, m/s²
-  liftOff: 10,           // m/s² extra slowing when off the throttle (engine braking)
+  liftOff: 11.5,           // m/s² extra slowing when off the throttle (engine braking)
   brake: 40,            // m/s² max braking (still limited by grip)
   // --- grip ---
   mu: 1.8,              // tyre grip
@@ -23,13 +23,13 @@ export const CAR = {
   downforce: 0.0016,    // extra grip per v² (more grip in fast corners)
   // --- steering & handling feel ---
   wheelbase: 3.6,
-  maxSteer: 0.36,       // steering lock at low speed
+  maxSteer: 0.42,       // steering lock at low speed
   steerFade: 32,        // lock reduces with speed (higher = more lock at speed)
   steerRate: 2.0,       // how fast the front wheels turn
-  yawResponse: 8,       // how quickly the car rotates (lower = heavier, higher = sharper)
+  yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
   slideAllowance: 1.2,  // how far the car can rotate past grip → small controllable slide
   trailBrake: 0.15,     // extra rotation while braking into a corner
-  powerRotation: 0.1,   // extra rotation on throttle in slow corners
+  powerRotation: 0.3,   // extra rotation on throttle in slow corners
   stability: 2.5,       // how strongly slides straighten out (higher = safer, lower = driftier)
   // --- lock-ups ---
   lockThreshold: 1.25,  // brake + cornering needed to lock the fronts (higher = harder to lock)
@@ -38,6 +38,7 @@ export const CAR = {
   reverseMax: 12,
   radius: 1.25,         // collision circle radius (two circles per car)
 };
+
 
 export function createCarState(x, z, heading) {
   return {
@@ -175,10 +176,22 @@ export function stepCar(car, input, track, dt) {
     car.x -= nx * push; car.z -= nz * push;
     const vn = (car.vx * nx + car.vz * nz) * side; // speed into the wall
     if (vn > 0) {
-      car.vx -= nx * side * vn * 1.3; car.vz -= nz * side * vn * 1.3;
-      car.vx *= 0.8; car.vz *= 0.8;
-      car.yawRate *= 0.5;
-      car.hitWall = Math.min(1, vn / 15 + 0.2);
+      // Bounce off a little (30%) and scrape along the wall: the speed lost along the wall is limited by
+      // how hard the car hit it, so a glancing touch costs a little and a head-on crash costs a lot.
+      // (Taking 20% off all the speed on every touch used to leave a car stuck against the wall.)
+      const e = 0.3, mu = 0.45, tx = track.tx[i], tz = track.tz[i];
+      car.vx -= nx * side * vn * (1 + e); car.vz -= nz * side * vn * (1 + e);
+      const vt = car.vx * tx + car.vz * tz, dv = Math.min(Math.abs(vt), mu * (1 + e) * vn) * Math.sign(vt);
+      car.vx -= tx * dv; car.vz -= tz * dv;
+      if (vn > 2) { car.yawRate *= 0.5; car.hitWall = Math.min(1, vn / 15 + 0.2); } // a real hit, not a brush
+      // Turn the nose away from the wall: a share of the angle on impact, then steadily while you keep
+      // pushing into it, so the car slides along and drives off instead of pinning itself.
+      const into = (Math.sin(car.h) * nx + Math.cos(car.h) * nz) * side;      // > 0: nose points at the wall
+      if (into > 0.02) {
+        const turnAway = -Math.sign((Math.cos(car.h) * nx - Math.sin(car.h) * nz) * side) || 1; // which way lowers `into`
+        const angle = Math.asin(Math.min(1, into));
+        car.h += turnAway * Math.min(angle, angle * 0.35 * Math.min(1, vn / 12) + 1.2 * dt);
+      }
     }
   }
 }
