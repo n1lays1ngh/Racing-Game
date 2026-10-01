@@ -15,10 +15,10 @@ import * as THREE from 'three';
 
 export const MARKS = {
   enabled: true,
-  lap: 0.09,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
+  lap: 0.15,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
   slide: 0.7,       // extra when sliding or locking up (skid marks)
-  darkness: 0.5,    // how dark a fully rubbered strip is (0.5 = half as bright)
-  tyre: 0.38,       // tyre width, metres
+  darkness: 0.7,    // how dark a fully rubbered strip is (0.5 = half as bright)
+  tyre: 0.45,       // tyre width, metres
   keep: true,       // keep the marks in the browser between visits (false = fresh track every time)
   saveEvery: 8,     // seconds between saves while you're driving
 };
