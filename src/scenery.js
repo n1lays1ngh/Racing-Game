@@ -1,7 +1,7 @@
 // Everything you see that isn't a car.
 //   buildWorld()   – sky, sun, lights, ground: built once.
-//   buildCircuit() – tarmac, kerbs, gravel, start gantry, grandstands, pit buildings and trees for one
-//                    circuit, plus the barriers (barriers.js) and city buildings (buildings.js).
+//   buildCircuit() – tarmac, kerbs, gravel, start gantry and trees for one circuit, plus the barriers
+//                    (barriers.js), grandstands and pit building (venue.js) and city buildings (buildings.js).
 //                    Rebuilt whenever you pick a different track.
 // Tarmac, grass and gravel are photo scans from public/textures/ (see photoTextures() below), with the
 // rubbered racing line, edge lines, skid marks and mowing stripes painted on top in the shaders.
@@ -9,13 +9,14 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { sampleAt, SURFACES } from './track.js';
+import { SURFACES } from './track.js';
 import { buildSpeedProfile } from './ai.js';
 import { buildTerrain } from './terrain.js';
 import { bankLift } from './banking.js';
 import { TIMES, buildFloodlights, darkenAwayFromTrack, withLightPools, setLightPools } from './lighting.js';
 import { buildBarriers } from './barriers.js';
 import { buildCity, setWindowLights } from './buildings.js';
+import { buildGrandstands, buildPits, setVenueLights } from './venue.js';
 import { GRAPHICS } from './settings.js';
 import { TyreMarks, MARKS, MARK_GRID } from './tyreMarks.js';
 
@@ -338,24 +339,6 @@ function roadMaterial(asphalt) {
   return m;
 }
 
-function crowdTexture() {
-  const w = 512, h = 128, c = document.createElement('canvas'); c.width = w; c.height = h;
-  const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#2f333a'); g.addColorStop(1, '#23262b'); x.fillStyle = g; x.fillRect(0, 0, w, h);
-  const shirts = ['#e10600', '#e10600', '#ffffff', '#1e41ff', '#ff8000', '#ffd400', '#00a19b', '#111111', '#e8e8e8', '#6b2fb3', '#1b5e20', '#ff4fa3', '#0a2a66'];
-  const skin = ['#f1c9a5', '#e0ac85', '#c68e62', '#8d5a3b', '#5a3a26'];
-  seed = 5;
-  for (let r = 0; r < 4; r++) for (let col = 0; col < 72; col++) {
-    if (rand() < 0.12) continue; // empty seat
-    const px = col * 7.1 + rand() * 2, py = r * 32 + 8 + rand() * 3;
-    x.fillStyle = shirts[(rand() * shirts.length) | 0]; x.fillRect(px, py + 7, 6, 12);
-    x.fillStyle = skin[(rand() * skin.length) | 0]; x.beginPath(); x.arc(px + 3, py + 4, 3, 0, Math.PI * 2); x.fill();
-    if (rand() < 0.2) { x.fillStyle = rand() < 0.5 ? '#111' : '#f5f5f5'; x.fillRect(px, py, 6, 2.5); } // cap
-    if (rand() < 0.06) { x.fillStyle = '#6b6b6b'; x.fillRect(px + 6, py - 12, 1, 18); x.fillStyle = shirts[(rand() * shirts.length) | 0]; x.fillRect(px + 7, py - 12, 9, 6); } // flag
-  }
-  return tex(c);
-}
-
 let MATS = null;
 function materials() {
   if (MATS) return MATS;
@@ -380,12 +363,6 @@ function materials() {
       x.fillStyle = (i + j) % 2 ? '#111' : '#f5f5f5'; x.fillRect(i * s, j * s, s, s);
     }
   }, false);
-  const garage = canvasTexture(256, 128, (x, w, h) => {
-    x.fillStyle = '#e4e7eb'; x.fillRect(0, 0, w, h);
-    x.fillStyle = '#20242b'; for (let i = 0; i < 4; i++) x.fillRect(8 + i * 62, 60, 50, 68); // garage doors
-    x.fillStyle = '#6fa8dc'; x.fillRect(0, 14, w, 26);                                   // windows
-    x.fillStyle = 'rgba(255,255,255,0.35)'; for (let i = 0; i < w; i += 16) x.fillRect(i, 14, 2, 26);
-  });
   const sand = canvasTexture(512, 512, (x, w, h) => noise(x, w, h, '#cdb58a', 0.16, 50000, 2));
   const asphalt = photoTextures('asphalt'), grass = photoTextures('grass'), gravel = photoTextures('gravel');
 
@@ -401,10 +378,6 @@ function materials() {
     gravel: withLightPools(worldMaterial({ ...gravel, tile: LOOK.gravelTile, patch: 0.15, mix2: true })),
     checker: std({ map: checker, roughness: 0.8 }),
     steel: std({ color: 0x2a2d33, metalness: 0.7, roughness: 0.4 }),
-    concrete: std({ color: 0xb4b8be, roughness: 0.85 }),
-    crowd: std({ map: crowdTexture(), roughness: 0.9 }),
-    roof: std({ color: 0xa9b1bb, metalness: 0.5, roughness: 0.45, side: THREE.DoubleSide }),
-    garage: std({ map: garage, roughness: 0.6 }),
   };
   MATS.terrains = { // scenery.ground in the circuit file
     grass: MATS.grass,
@@ -522,13 +495,6 @@ function roadGeometry(track, y) {
   return g;
 }
 
-// Box with its UVs stretched so a texture repeats every `tile` metres along X.
-function box(w, h, d, tile = 0) {
-  const g = new THREE.BoxGeometry(w, h, d);
-  if (tile) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * (w / tile)); }
-  return g;
-}
-
 function nearestTrack(track, x, z) {
   let best = Infinity, bi = 0;
   for (let i = 0; i < track.n; i += 3) {
@@ -557,14 +523,6 @@ function footprintClear(track, m, halfLen, depth, i, minDist) {
     if (near.d < track.hw[near.i] + track.kerb + 2) return false;
   }
   return true;
-}
-
-function mergedMesh(list, material, shadows = true) {
-  if (!list.length) return null;
-  const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
-  const mesh = new THREE.Mesh(mergeGeometries(geos), material);
-  mesh.castShadow = shadows; mesh.receiveShadow = true;
-  return mesh;
 }
 
 // ---------- trees: broadleaf trees and pines, palms at desert circuits, woods further out ----------
@@ -937,56 +895,12 @@ export function buildCircuit(track) {
   }
   group.add(gantry);
 
-  // Grandstands at their real corners (positions in the circuit file), curving with the track
-  const crowdG = [], concreteG = [], roofG = [];
-  const blocked = []; // keep trees away from buildings
-  for (const st of track.stands) {
-    const chunks = Math.max(1, Math.round(st.len / 12));
-    const clen = st.len / chunks;
-    const rows = st.len >= 100 ? 9 : 6;
-    for (let c = 0; c < chunks; c++) {
-      const i = sampleAt(track, st.s - st.len / 2 + (c + 0.5) * clen);
-      const wall = st.side > 0 ? track.wallL[i] : track.wallR[i];
-      const m = sideFrame(track, i, st.side, wall + 3);
-      const depth = rows * 1.5 + 1;
-      if (!footprintClear(track, m, clen / 2, depth, i, wall + 4)) continue;
-      for (let r = 0; r < rows; r++) {
-        const h = 0.6 + r * 0.75;
-        const g = box(clen + 0.4, h, 1.5, 4); g.translate(0, h / 2, r * 1.5 + 0.75); g.applyMatrix4(m); crowdG.push(g);
-      }
-      const back = box(clen + 0.4, rows * 0.75 + 3.5, 0.6); back.translate(0, (rows * 0.75 + 3.5) / 2, rows * 1.5 + 0.3); back.applyMatrix4(m); concreteG.push(back);
-      if (st.len >= 70) {
-        const roof = box(clen + 0.4, 0.25, rows * 1.5 + 2); roof.rotateX(-0.08);
-        roof.translate(0, rows * 0.75 + 4, (rows * 1.5) / 2); roof.applyMatrix4(m); roofG.push(roof);
-        for (const lx of [-clen / 2, clen / 2]) {
-          const col = box(0.3, rows * 0.75 + 4, 0.3); col.translate(lx, (rows * 0.75 + 4) / 2, rows * 1.5 + 0.2); col.applyMatrix4(m); concreteG.push(col);
-        }
-      }
-      const e = new THREE.Vector3(0, 0, depth / 2).applyMatrix4(m); blocked.push([e.x, e.z, clen + depth]);
-      // On a raised banked corner, stand the grandstand on a concrete base
-      const lift = e.y - terrain.heightAt(e.x, e.z);
-      if (lift > 0.6) { const base = box(clen + 0.4, lift + 0.5, depth); base.translate(0, -(lift + 0.5) / 2 + 0.2, depth / 2); base.applyMatrix4(m); concreteG.push(base); }
-    }
-  }
-
-  // Pit buildings on the infield side
-  const garageG = [];
-  for (const pit of track.pits) {
-    const chunks = Math.max(1, Math.round(pit.len / 14)), clen = pit.len / chunks;
-    for (let c = 0; c < chunks; c++) {
-      const i = sampleAt(track, pit.s + (c + 0.5) * clen);
-      const wall = track.infield > 0 ? track.wallL[i] : track.wallR[i];
-      const m = sideFrame(track, i, track.infield, wall + 6);
-      if (!footprintClear(track, m, clen / 2, 18, i, wall + 6)) continue;
-      const b = box(clen + 0.3, 9, 18, 14); b.translate(0, 4.5, 9); b.applyMatrix4(m); garageG.push(b);
-      const roof = box(clen + 0.3, 0.4, 22); roof.translate(0, 9.2, 8); roof.applyMatrix4(m); roofG.push(roof);
-      const e = new THREE.Vector3(0, 0, 9).applyMatrix4(m); blocked.push([e.x, e.z, clen + 20]);
-    }
-  }
-  add(mergedMesh(crowdG, M.crowd));
-  add(mergedMesh(concreteG, M.concrete));
-  add(mergedMesh(roofG, M.roof));
-  add(mergedMesh(garageG, M.garage));
+  // Grandstands and the pit building with its pit lane (venue.js); before the trees and city buildings,
+  // which keep clear of them through `blocked`
+  const blocked = [];
+  const venue = { sideFrame, footprintClear, heightAt: terrain.heightAt, blocked, ribbon, pitLane: M.runoffTarmac };
+  group.add(buildGrandstands(track, venue));
+  group.add(buildPits(track, venue));
 
   // Trees (instanced: hundreds for the cost of two draw calls)
   const TREES = Math.round((track.scenery.trees ?? 350) * GRAPHICS.trees);   // GRAPHICS in settings.js
@@ -1013,6 +927,7 @@ export function buildCircuit(track) {
   // Dusk and night races: floodlights, lit windows, and dark surroundings away from the track (lighting.js)
   const T = TIMES[track.time] ?? TIMES.day;
   setWindowLights(T.windows);
+  setVenueLights(T.windows);                              // stand, garage and glass-floor lights
   const flood = track.time === 'dusk' || track.time === 'night' ? add(buildFloodlights(track, terrain.heightAt)) : null;
   setLightPools(flood?.userData.pools, T.pools ?? 0);      // pools of light on the track under the floodlights
   if (track.time === 'night') {
