@@ -1,6 +1,6 @@
 // Graphics settings. If the game lags, lower these (roughly in order of how much they help).
 export const GRAPHICS = {
-  pixelRatio: 1.5,        // render resolution on high-DPI (Retina) screens: 2 = sharpest, 1 = fastest
+  pixelRatio: 1.25,        // render resolution on high-DPI (Retina) screens: 2 = sharpest, 1 = fastest
   shadows: true,          // car and scenery shadows
   shadowMapSize: 1024,    // shadow sharpness: 512 = faster, 2048 = sharper
   antialias: true,        // smooth edges (needs a page reload to change)

@@ -1,7 +1,8 @@
 // Trackside barriers like the ones at a modern F1 circuit: a solid barrier about a metre high with a
 // rounded top, wrapped in a sponsor's livery (long runs of one sponsor, the logo repeating every 4 m),
 // and a tall debris fence standing just behind it on steel posts.
-//   buildBarriers(track) → a THREE.Group that scenery.js adds to the circuit
+//   buildBarriers(track) → a THREE.Group that scenery.js adds to the circuit (with the pit wall and the
+//                          barrier along the pit lane, from track.pitLane: see pitlane.js)
 //
 // On street circuits ('concrete') some stretches are bare concrete instead. The sponsors are made up.
 // Everything is drawn in code when the game starts (no image files).
@@ -211,46 +212,78 @@ function materials() {
 // ---------- geometry ----------
 // The barrier along one side. off(i) = lateral position of the wall line (positive = left of the track).
 // Two smooth-shaded skins: the wrapped face (group 0) and the back (group 1).
-function barrierGeometry(track, off) {
+// include (optional): the samples it runs past; where a run stops (the pit lane) its end is closed off.
+// shift: added to the distance along, so a separate run gets its own sponsors.
+function barrierGeometry(track, off, include = null, shift = 0) {
   const { n, ds } = track, B = BARRIER, pos = [], uv = [], idx = [], g = new THREE.BufferGeometry();
+  const seg = (k) => !include || !!(include[k % n] && include[(k + 1) % n]); // barrier from sample k to k + 1?
+  const used = (k) => (k < n && seg(k)) || (k > 0 && seg(k - 1));
+  const point = (i, o, sgn, p) => {
+    const lat = o + sgn * p[0];
+    const y = p[1] < 0 ? p[1] + hAt(track, i, 0) : p[1] + hAt(track, i, lat); // the foot reaches the ground on banking
+    return [track.cx[i] + track.nx[i] * lat, y, track.cz[i] + track.nz[i] * lat];
+  };
   const skin = (P, wrapped) => {
-    const base = pos.length / 3, C = P.length;
+    const C = P.length, row = new Int32Array(n + 1).fill(-1);
     const len = [0]; for (let j = 1; j < C; j++) len.push(len[j - 1] + Math.hypot(P[j][0] - P[j - 1][0], Math.max(0, P[j][1]) - Math.max(0, P[j - 1][1])));
     for (let k = 0; k <= n; k++) {
-      const i = k % n, o = off(i), sgn = Math.sign(o) || 1, along = k * ds;
+      if (!used(k)) continue;
+      row[k] = pos.length / 3;
+      const i = k % n, o = off(i), sgn = Math.sign(o) || 1, along = k * ds + shift;
       for (let j = 0; j < C; j++) {
-        const lat = o + sgn * P[j][0];
-        const y = P[j][1] < 0 ? P[j][1] + hAt(track, i, 0) : P[j][1] + hAt(track, i, lat); // the foot reaches the ground on banking
-        pos.push(track.cx[i] + track.nx[i] * lat, y, track.cz[i] + track.nz[i] * lat);
+        pos.push(...point(i, o, sgn, P[j]));
         // wrapped face: U runs left-to-right as you look at it from the track (so logos read properly), V = metres up
         uv.push(wrapped ? (sgn > 0 ? along : -along) : along / B.block, wrapped ? len[j] : len[j] / H);
       }
     }
     const start = idx.length;
-    for (let k = 0; k < n; k++) for (let j = 0; j < C - 1; j++) {
-      const a = base + k * C + j, b = a + 1, c = a + C, d = c + 1;
-      if (Math.sign(off(k)) > 0) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c); // faces point out
+    for (let k = 0; k < n; k++) {
+      if (!seg(k)) continue;
+      for (let j = 0; j < C - 1; j++) {
+        const a = row[k] + j, b = a + 1, c = row[k + 1] + j, d = c + 1;
+        if (Math.sign(off(k)) > 0) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c); // faces point out
+      }
     }
     g.addGroup(start, idx.length - start, wrapped ? 0 : 1);
   };
   skin(FACE, true);
   skin(BACK, false);
+  if (include) { // close the ends of each run with a plain cap (both ways round, so it shows from either side)
+    const start = idx.length, P = [...FACE, ...BACK.slice(1)];
+    const cap = (i) => {
+      const o = off(i), sgn = Math.sign(o) || 1;
+      for (const flip of [false, true]) {
+        const base = pos.length / 3;
+        for (const p of P) { pos.push(...point(i, o, sgn, p)); uv.push(0, 0); }
+        for (let j = 1; j < P.length - 1; j++) flip ? idx.push(base, base + j + 1, base + j) : idx.push(base, base + j, base + j + 1);
+      }
+    };
+    for (let k = 0; k < n; k++) {
+      if (!seg(k)) continue;
+      if (!seg((k + n - 1) % n)) cap(k);
+      if (!seg((k + 1) % n)) cap((k + 1) % n);
+    }
+    if (idx.length > start) g.addGroup(start, idx.length - start, 1);
+  }
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
 
-// The debris fence: straight up from the ground just behind the barrier.
-function fenceGeometry(track, at) {
-  const { n, ds } = track, B = BARRIER, pos = [], uv = [], idx = [];
+// The debris fence: straight up from the ground just behind the barrier (include: as above).
+function fenceGeometry(track, at, include = null) {
+  const { n, ds } = track, B = BARRIER, pos = [], uv = [], idx = [], row = new Int32Array(n + 1).fill(-1);
+  const seg = (k) => !include || !!(include[k % n] && include[(k + 1) % n]);
   for (let k = 0; k <= n; k++) {
+    if (!((k < n && seg(k)) || (k > 0 && seg(k - 1)))) continue;
+    row[k] = pos.length / 3;
     const i = k % n, lat = at(i), y = hAt(track, i, lat);
     pos.push(track.cx[i] + track.nx[i] * lat, y - 0.1, track.cz[i] + track.nz[i] * lat);
     pos.push(track.cx[i] + track.nx[i] * lat, y + B.fence, track.cz[i] + track.nz[i] * lat);
     uv.push((k * ds) / B.block, 0, (k * ds) / B.block, 1);
   }
-  for (let k = 0; k < n; k++) { const a = k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  for (let k = 0; k < n; k++) { if (!seg(k)) continue; const a = row[k], c = row[k + 1]; idx.push(a, c, a + 1, a + 1, c, c + 1); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -259,16 +292,32 @@ function fenceGeometry(track, at) {
 }
 
 export function buildBarriers(track) {
-  const M = materials(), B = BARRIER, group = new THREE.Group();
+  const M = materials(), B = BARRIER, group = new THREE.Group(), n = track.n, lane = track.pitLane;
   M.shared.uBare.value = B.bare[track.barrier] ?? 0;
+  // Runs of barrier: [wall line (signed, metres from the centreline), the samples it runs past (null = the
+  // whole lap), shift (its own sponsors)]. Along the pit lane (pitlane.js) the barrier on that side gives way
+  // to the pit wall between the track and the lane, and a barrier along the far side of the lane (none in
+  // front of the garages); that one reaches a sample further each end, to meet the barrier it carries on from.
+  const runs = [];
+  for (const side of [1, -1]) {
+    const W = side > 0 ? track.wallL : track.wallR;
+    runs.push([(i) => side * W[i], lane && lane.side === side ? lane.range.map((v) => 1 - v) : null, 0]);
+  }
+  if (lane) {
+    const s = lane.side, W = s > 0 ? track.wallL : track.wallR;
+    const grown = lane.range.map((v, i) => (v || lane.range[(i + 1) % n] || lane.range[(i + n - 1) % n] ? 1 : 0));
+    runs.push([(i) => s * (lane.wall[i] || W[i]), lane.wall.map((v) => (v > 0 ? 1 : 0)), 3000]);
+    runs.push([(i) => s * (lane.outer[i] || W[i]), grown.map((v, i) => (v && !lane.building[i] ? 1 : 0)), 6000]);
+  }
   const posts = [];
-  for (const off of [(i) => track.wallL[i], (i) => -track.wallR[i]]) {
-    const wall = new THREE.Mesh(barrierGeometry(track, off), [M.face, M.back]);
+  for (const [off, include, shift] of runs) {
+    const wall = new THREE.Mesh(barrierGeometry(track, off, include, shift), [M.face, M.back]);
     wall.castShadow = true; wall.receiveShadow = true;
     group.add(wall);
     const fenceAt = (i) => off(i) + (Math.sign(off(i)) || 1) * (B.depth + B.fenceGap);
-    group.add(new THREE.Mesh(fenceGeometry(track, fenceAt), M.fence));
-    for (let i = 0; i < track.n; i++) { // a post every 4 m
+    group.add(new THREE.Mesh(fenceGeometry(track, fenceAt, include), M.fence));
+    for (let i = 0; i < n; i++) { // a post every 4 m
+      if (include && !include[i]) continue;
       if (Math.floor((i * track.ds) / B.block) === Math.floor(((i - 1) * track.ds) / B.block)) continue;
       const lat = fenceAt(i) + (Math.sign(off(i)) || 1) * 0.07;
       posts.push([track.cx[i] + track.nx[i] * lat, hAt(track, i, lat) - 0.1, track.cz[i] + track.nz[i] * lat]);

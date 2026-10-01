@@ -1,13 +1,15 @@
 // Keyboard + gamepad input.
-//   readInput() → { throttle, brake, steer } for driving (steer: +1 = left, −1 = right, like physics.js)
+//   readInput() → { throttle, brake, steer, boost } for driving (steer: +1 = left, −1 = right, like
+//                 physics.js; boost: the ERS button is held, see ers.js)
 //   pollPad()   → call every frame: turns controller buttons into the same key presses the
 //                 keyboard makes, so every menu and shortcut works with a controller too.
 //   padFeedback() → controller rumble: engine, braking and lock-ups, kerbs, grass and gravel, slides,
 //                   gear changes and crashes (plus trigger resistance on a DualSense: dualsense.js).
 //
 // Controller layout (Xbox names; PlayStation: A = ✕, B = ○, X = □, Y = △):
-//   Driving:  left stick steer · RT throttle · LT brake · A throttle · X brake
-//   Race:     Y camera · B (hold) look back · LB mirror · RB tower gaps · View/Share reset · Menu/Options pause
+//   Driving:  left stick steer · RT throttle · LT brake · A throttle · X brake · RB / R1 (hold) ERS boost
+//   Race:     Y camera · B (hold) look back · LB mirror · D-pad down tower gaps · D-pad up mute
+//             View/Share reset · Menu/Options pause
 //   Pause:    A resume · Y restart · B quit
 //   Menus:    D-pad or LB/RB change circuit · A start · Y multiplayer · Menu/Options (lobby host) start race
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
@@ -42,7 +44,7 @@ const keys = new Set();
 const pressedOnce = new Set();
 
 window.addEventListener('keydown', (e) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
   if (!keys.has(e.code)) pressedOnce.add(e.code);
   keys.add(e.code);
 });
@@ -63,6 +65,7 @@ export function readInput(dt) {
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
   const right = keys.has('KeyD') || keys.has('ArrowRight');
   const keySteer = (left ? 1 : 0) - (right ? 1 : 0);
+  let boost = keys.has('ShiftLeft') || keys.has('ShiftRight');          // ERS (ers.js)
 
   // Keyboards are digital, so ramp steering in/out for smoother lines.
   const rate = keySteer === 0 ? 4 : Math.sign(keySteer) !== Math.sign(steerSmooth) ? 6 : 2.2;
@@ -82,8 +85,9 @@ export function readInput(dt) {
     brake = Math.max(brake, lt);
     if (pad.buttons[0]?.pressed) throttle = Math.max(throttle, PAD.throttle.max); // A / ✕: full throttle
     if (pad.buttons[2]?.pressed) brake = Math.max(brake, PAD.brake.max);         // X / □: full brake
+    if (pad.buttons[5]?.pressed) boost = true;                                    // RB / R1: ERS boost
   }
-  return { throttle, brake, steer };
+  return { throttle, brake, steer, boost };
 }
 
 // ---------- controller buttons → key presses ----------
@@ -100,7 +104,7 @@ function screen() {
 const MAP = {
   menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 3: 'click:btn-mp' },
   lobby:   { 9: 'click:lb-go' },
-  race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 5: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM' },
+  race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM' }, // RB (5): ERS, read in readInput
   pause:   { 9: 'Escape', 0: 'click:btn-resume', 3: 'click:btn-restart', 1: 'click:btn-quit' },
   results: { 0: 'click:btn-again', 1: 'click:btn-menu', 9: 'click:btn-again' },
 };

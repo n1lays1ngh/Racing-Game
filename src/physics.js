@@ -8,6 +8,8 @@
 import { projectOnTrack, HALF_WIDTH, KERB_WIDTH, SURFACES } from './track.js';
 import { heightAtS } from './elevation.js';
 import { bankLift, bankRoll } from './banking.js';
+import { PITLANE, pitBounds, onPitLane, pitSpeedLimit } from './pitlane.js';
+import { ersStep } from './ers.js';
 
 export const CAR = {
   // --- engine & brakes ---
@@ -15,7 +17,7 @@ export const CAR = {
   accelFade: 0.6,       // how much engine push fades toward top speed
   drag: 0.00075,        // aero drag (× v²)
   roll: 0.4,            // rolling resistance, m/s²
-  liftOff: 11.5,           // m/s² extra slowing when off the throttle (engine braking)
+  liftOff: 5,           // m/s² extra slowing when off the throttle (engine braking)
   brake: 40,            // m/s² max braking (still limited by grip)
   // --- grip ---
   mu: 1.8,              // tyre grip
@@ -23,13 +25,13 @@ export const CAR = {
   downforce: 0.0016,    // extra grip per v² (more grip in fast corners)
   // --- steering & handling feel ---
   wheelbase: 3.6,
-  maxSteer: 0.42,       // steering lock at low speed
+  maxSteer: 0.36,       // steering lock at low speed
   steerFade: 32,        // lock reduces with speed (higher = more lock at speed)
   steerRate: 2.0,       // how fast the front wheels turn
-  yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
+  yawResponse: 8,       // how quickly the car rotates (lower = heavier, higher = sharper)
   slideAllowance: 1.2,  // how far the car can rotate past grip → small controllable slide
   trailBrake: 0.15,     // extra rotation while braking into a corner
-  powerRotation: 0.3,   // extra rotation on throttle in slow corners
+  powerRotation: 0.1,   // extra rotation on throttle in slow corners
   stability: 2.5,       // how strongly slides straighten out (higher = safer, lower = driftier)
   // --- lock-ups ---
   lockThreshold: 1.25,  // brake + cornering needed to lock the fronts (higher = harder to lock)
@@ -38,7 +40,6 @@ export const CAR = {
   reverseMax: 12,
   radius: 1.25,         // collision circle radius (two circles per car)
 };
-
 
 export function createCarState(x, z, heading) {
   return {
@@ -82,6 +83,7 @@ export function stepCar(car, input, track, dt) {
     else { car.surface = 'grass'; grip = 0.5; extraDrag = 3 + 0.003 * car.vf * car.vf; }
   } else if (absLat > hw) { car.surface = 'kerb'; grip = 0.93; }
   else car.surface = 'road';
+  if (onPitLane(track, proj.i, proj.lateral)) { car.surface = 'road'; grip = 1; extraDrag = 0; } // pit lane tarmac
   const grade = track.grade ? track.grade[proj.i] : 0;   // hills
   const vcurv = track.vcurv ? track.vcurv[proj.i] : 0;
   const bank = track.bank ? track.bank[proj.i] : 0;      // banked corners
@@ -94,7 +96,7 @@ export function stepCar(car, input, track, dt) {
   car.throttle = thr; car.brake = brk;
 
   // --- Steering ---------------------------------------------------------
-  const target = clamp(input.steer, -1, 1) * steerLimit(vf);
+  const target = clamp(input.steer, -1, 1) * steerLimit(vf) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
   car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
 
   // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
@@ -141,12 +143,18 @@ export function stepCar(car, input, track, dt) {
       vf = Math.max(-p.reverseMax, vf - brk * 7 * dt); // reverse
     }
   }
+  // ERS (ers.js): extra electric push while you deploy, and braking charges the battery.
+  vf += ersStep(car, { boost: input.boost, throttle: thr, brake: brk }, vf, dt) * dt;
   // Engine braking: the car slows noticeably as soon as you lift off the throttle.
   const lift = vf > 1 ? p.liftOff * (1 - thr) : 0;
   const resist = (p.drag * vf * vf + p.roll + extraDrag + lift) * dt;
   vf = Math.abs(vf) <= resist ? 0 : vf - Math.sign(vf) * resist;
   // Gravity along the slope: slower uphill, faster downhill (not while parked).
   if (Math.abs(vf) > 0.5 || thr > 0) vf -= (p.g * grade / Math.sqrt(1 + grade * grade)) * dt;
+  // Pit lane speed limiter (pitlane.js): holds you at the limit, and slows you down to it if you come in fast.
+  const pitLimit = pitSpeedLimit(car, track);
+  car.pitLimiter = pitLimit > 0;
+  if (pitLimit && vf > pitLimit) vf = Math.max(pitLimit, vf - PITLANE.slowdown * dt);
 
   // --- Tyres pull the slide back in, up to the grip limit ----------------
   car.slip = car.lockF ? Math.max(Math.abs(vl), vf * 0.3) : Math.abs(vl);
@@ -164,34 +172,41 @@ export function stepCar(car, input, track, dt) {
   car.roll = bankRoll(track, proj.i, car.lateral);
   car.pitch = Math.atan(grade);
 
-  // --- Barriers (distance varies around the lap, see track.js) -------------
+  // --- Barriers (distance varies around the lap, see track.js), and the pit wall (pitlane.js) ---------
   car.hitWall = Math.max(0, car.hitWall - dt);
   const i = car.trackIndex;
   const nx = track.nx[i], nz = track.nz[i];
   const lat = (car.x - track.cx[i]) * nx + (car.z - track.cz[i]) * nz;
-  const limit = (lat > 0 ? track.wallL[i] : track.wallR[i]) - 1.1;
-  if (Math.abs(lat) > limit) {
-    const side = Math.sign(lat);
-    const push = (Math.abs(lat) - limit) * side;
-    car.x -= nx * push; car.z -= nz * push;
-    const vn = (car.vx * nx + car.vz * nz) * side; // speed into the wall
-    if (vn > 0) {
-      // Bounce off a little (30%) and scrape along the wall: the speed lost along the wall is limited by
-      // how hard the car hit it, so a glancing touch costs a little and a head-on crash costs a lot.
-      // (Taking 20% off all the speed on every touch used to leave a car stuck against the wall.)
-      const e = 0.3, mu = 0.45, tx = track.tx[i], tz = track.tz[i];
-      car.vx -= nx * side * vn * (1 + e); car.vz -= nz * side * vn * (1 + e);
-      const vt = car.vx * tx + car.vz * tz, dv = Math.min(Math.abs(vt), mu * (1 + e) * vn) * Math.sign(vt);
-      car.vx -= tx * dv; car.vz -= tz * dv;
-      if (vn > 2) { car.yawRate *= 0.5; car.hitWall = Math.min(1, vn / 15 + 0.2); } // a real hit, not a brush
-      // Turn the nose away from the wall: a share of the angle on impact, then steadily while you keep
-      // pushing into it, so the car slides along and drives off instead of pinning itself.
-      const into = (Math.sin(car.h) * nx + Math.cos(car.h) * nz) * side;      // > 0: nose points at the wall
-      if (into > 0.02) {
-        const turnAway = -Math.sign((Math.cos(car.h) * nx - Math.sin(car.h) * nz) * side) || 1; // which way lowers `into`
-        const angle = Math.asin(Math.min(1, into));
-        car.h += turnAway * Math.min(angle, angle * 0.35 * Math.min(1, vn / 12) + 1.2 * dt);
-      }
+  const side = Math.sign(lat) || 1, d = Math.abs(lat);
+  const pit = pitBounds(car, track, i, lat);    // next to or in the pit lane: the pit wall and the lane's barriers
+  const limit = pit ? pit.hi : (lat > 0 ? track.wallL[i] : track.wallR[i]) - 1.1;
+  if (d > limit) hitBarrier(car, track, i, side, d - limit, dt);                  // the barrier on the outside
+  else if (pit && d < pit.lo) hitBarrier(car, track, i, -side, pit.lo - d, dt);  // the pit wall, from the pit lane
+}
+
+// Push the car out of a barrier and bounce it off. side: which way the barrier is (+1 = towards the car's
+// left of the track's normal, −1 = the other way), pen: how far the car is into it.
+function hitBarrier(car, track, i, side, pen, dt) {
+  const nx = track.nx[i], nz = track.nz[i];
+  const push = pen * side;
+  car.x -= nx * push; car.z -= nz * push;
+  const vn = (car.vx * nx + car.vz * nz) * side; // speed into the wall
+  if (vn > 0) {
+    // Bounce off a little (30%) and scrape along the wall: the speed lost along the wall is limited by
+    // how hard the car hit it, so a glancing touch costs a little and a head-on crash costs a lot.
+    // (Taking 20% off all the speed on every touch used to leave a car stuck against the wall.)
+    const e = 0.3, mu = 0.45, tx = track.tx[i], tz = track.tz[i];
+    car.vx -= nx * side * vn * (1 + e); car.vz -= nz * side * vn * (1 + e);
+    const vt = car.vx * tx + car.vz * tz, dv = Math.min(Math.abs(vt), mu * (1 + e) * vn) * Math.sign(vt);
+    car.vx -= tx * dv; car.vz -= tz * dv;
+    if (vn > 2) { car.yawRate *= 0.5; car.hitWall = Math.min(1, vn / 15 + 0.2); } // a real hit, not a brush
+    // Turn the nose away from the wall: a share of the angle on impact, then steadily while you keep
+    // pushing into it, so the car slides along and drives off instead of pinning itself.
+    const into = (Math.sin(car.h) * nx + Math.cos(car.h) * nz) * side;      // > 0: nose points at the wall
+    if (into > 0.02) {
+      const turnAway = -Math.sign((Math.cos(car.h) * nx - Math.sin(car.h) * nz) * side) || 1; // which way lowers `into`
+      const angle = Math.asin(Math.min(1, into));
+      car.h += turnAway * Math.min(angle, angle * 0.35 * Math.min(1, vn / 12) + 1.2 * dt);
     }
   }
 }
@@ -204,7 +219,7 @@ export function placeCar(car, track, s, lateral = 0) {
   car.z = track.cz[i] + track.nz[i] * lateral;
   car.h = Math.atan2(track.tx[i], track.tz[i]);
   car.vx = car.vz = car.vf = car.speed = car.steer = car.yawRate = 0;
-  car.lockF = false;
+  car.lockF = false; car.inPitLane = false; car.pitLimiter = false;
   car.trackIndex = i; car.s = s; car.lateral = lateral;
   car.y = track.h ? track.h[i] : 0;
   car.pitch = track.grade ? Math.atan(track.grade[i]) : 0;

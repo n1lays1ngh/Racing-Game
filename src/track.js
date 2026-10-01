@@ -5,6 +5,7 @@ import { CatmullRomCurve3, Vector3 } from 'three';
 import { CIRCUITS } from './circuits/index.js';
 import { applyElevation } from './elevation.js';
 import { applyBanking } from './banking.js';
+import { layoutPitLane } from './pitlane.js';
 
 export const TRACKS = CIRCUITS;
 export const HALF_WIDTH = 7;     // default half-width (permanent circuits are 14 m wide)
@@ -153,6 +154,7 @@ export function buildTrack(circuit = TRACKS[0], spacing = 2) {
     return { s, len: st.len, side, name: st.name };
   });
   t.pits = def.pits.map((p) => ({ s: toS(p.from), len: mod(p.to - p.from, length) || length }));
+  t.pitLane = layoutPitLane(t, def, toS);    // the pit lane alongside the main pit building (pitlane.js)
   return t;
 }
 

@@ -9,10 +9,10 @@ import * as THREE from 'three';
 
 export const MARKS = {
   enabled: true,
-  lap: 0.09,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
+  lap: 0.30,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
   slide: 0.7,       // extra when sliding or locking up (skid marks)
-  darkness: 0.5,    // how dark a fully rubbered strip is (0.5 = half as bright)
-  tyre: 0.38,       // tyre width, metres
+  darkness: 0.7,    // how dark a fully rubbered strip is (0.5 = half as bright)
+  tyre: 0.40,       // tyre width, metres
 };
 
 // Texture layout, shared with the road shader. One texel is 0.25 m along the lap and 0.125 m across,

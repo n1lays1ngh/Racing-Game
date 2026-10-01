@@ -16,7 +16,7 @@ import { bankLift } from './banking.js';
 import { TIMES, buildFloodlights, darkenAwayFromTrack, withLightPools, setLightPools } from './lighting.js';
 import { buildBarriers } from './barriers.js';
 import { buildCity, setWindowLights } from './buildings.js';
-import { buildGrandstands, buildPits, setVenueLights } from './venue.js';
+import { buildGrandstands, buildPits, buildPitLane, setVenueLights } from './venue.js';
 import { GRAPHICS } from './settings.js';
 import { TyreMarks, MARKS, MARK_GRID } from './tyreMarks.js';
 
@@ -895,12 +895,13 @@ export function buildCircuit(track) {
   }
   group.add(gantry);
 
-  // Grandstands and the pit building with its pit lane (venue.js); before the trees and city buildings,
-  // which keep clear of them through `blocked`
+  // Grandstands, the pit building and the pit lane's tarmac and lines (venue.js; the lane's layout is in
+  // pitlane.js); before the trees and city buildings, which keep clear of them through `blocked`
   const blocked = [];
   const venue = { sideFrame, footprintClear, heightAt: terrain.heightAt, blocked, ribbon, pitLane: M.runoffTarmac };
   group.add(buildGrandstands(track, venue));
   group.add(buildPits(track, venue));
+  group.add(buildPitLane(track, venue));
 
   // Trees (instanced: hundreds for the cost of two draw calls)
   const TREES = Math.round((track.scenery.trees ?? 350) * GRAPHICS.trees);   // GRAPHICS in settings.js

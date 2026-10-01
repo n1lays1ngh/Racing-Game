@@ -446,8 +446,12 @@ export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodli
   let side = 1;
   for (let s = 0; s < track.length; s += spacing, side = -side) {
     const i = Math.floor(s / track.ds) % track.n;
-    const wall = side > 0 ? track.wallL[i] : track.wallR[i];
-    const off = wall + 3;
+    const wall = side > 0 ? track.wallL[i] : track.wallR[i], lane = track.pitLane;
+    let off = wall + 3;
+    if (lane && lane.side === side && lane.range[i]) {   // the pit lane (pitlane.js): behind it, none at the garages
+      if (lane.building[i]) continue;
+      off = lane.outer[i] + 3;
+    }
     const x = track.cx[i] + track.nx[i] * side * off, z = track.cz[i] + track.nz[i] * side * off;
     const near = nearest(x, z);                       // not in the middle of another part of the circuit
     if (near.i >= 0 && near.d < Math.max(track.wallL[near.i], track.wallR[near.i]) + 2) continue;

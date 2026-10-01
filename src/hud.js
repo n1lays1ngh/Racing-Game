@@ -1,10 +1,11 @@
 // In-race HUD (HTML overlay), laid out like a TV/game broadcast:
 //   left  – timing tower: position, lap, every car with interval or gap to leader (T switches)
-//   right – lap timing with sectors and live delta, circuit map, speed/gear/shift lights
+//   right – lap timing with sectors and live delta, circuit map, speed/gear/shift lights, ERS battery
 // Sector colours: purple = fastest of anyone, green = your personal best, yellow = slower.
 import { formatTime } from './race.js';
 import { gearbox } from './physics.js';
 import { wasPressed } from './input.js';
+import { PITLANE } from './pitlane.js';
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -30,6 +31,46 @@ export class HUD {
     this.frame = 0;
     this.showLeaderGap = false; // T toggles interval ↔ gap to leader
     this.setupMinimap(track);
+    this.setupErs();
+  }
+
+  // ---------- ERS battery (ers.js) ----------
+  // A charge bar under the speed: green when charged, blue while braking charges it, yellow while you
+  // deploy. When the battery is full (and you're racing) a reminder to deploy flashes above it.
+  setupErs() {
+    const row = document.createElement('div');
+    Object.assign(row.style, { display: 'grid', gridTemplateColumns: 'auto 1fr 46px', alignItems: 'center', columnGap: '10px', marginTop: '12px' });
+    row.innerHTML = `<span style="font-size:12px;font-weight:900;letter-spacing:0.14em;color:#ffd400">⚡ ERS</span>
+      <div style="position:relative;height:12px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden">
+        <div data-fill style="position:absolute;inset:0;transform-origin:left;background:#1fe05a;transition:background-color 0.15s"></div>
+        <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 2px),rgba(11,13,19,0.9) calc(10% - 2px) 10%)"></div>
+      </div>
+      <b data-pct style="font-size:15px;font-weight:900;text-align:right">100%</b>
+      <span data-mode style="grid-column:1/-1;margin-top:4px;font-size:10px;font-weight:700;letter-spacing:0.18em;color:var(--muted);height:12px"></span>`;
+    $('speedo').appendChild(row);
+    const remind = document.createElement('div');
+    remind.textContent = '⚡ BATTERY FULL · HOLD SHIFT / R1 TO DEPLOY';
+    Object.assign(remind.style, { position: 'absolute', left: '50%', bottom: '31%', transform: 'translateX(-50%)', padding: '7px 18px',
+      background: 'rgba(11,13,19,0.86)', border: '1px solid #ffd400', color: '#ffd400', borderRadius: '6px', whiteSpace: 'nowrap',
+      font: "900 15px 'Titillium Web', sans-serif", letterSpacing: '0.12em', boxShadow: '0 0 18px rgba(255,212,0,0.35)', display: 'none' });
+    this.el.hud.appendChild(remind);
+    this.ers = { fill: row.querySelector('[data-fill]'), pct: row.querySelector('[data-pct]'), mode: row.querySelector('[data-mode]'), remind, full: 0 };
+  }
+
+  updateErs(race, s, dt) {
+    const E = this.ers, charge = s.ers ?? 1, pct = Math.round(charge * 100), full = charge >= 0.995;
+    const mode = s.ersMode === 'deploy' || s.ersMode === 'harvest' ? s.ersMode : full ? 'full' : '';
+    if (pct !== E.pctShown) { E.pctShown = pct; E.fill.style.transform = `scaleX(${charge.toFixed(3)})`; E.pct.textContent = pct + '%'; }
+    if (mode !== E.modeShown) {
+      E.modeShown = mode;
+      const [colour, label] = { deploy: ['#ffd400', 'DEPLOYING'], harvest: ['#3d9bff', 'CHARGING'], full: ['#1fe05a', 'FULL'], '': ['#1fe05a', ''] }[mode];
+      E.fill.style.background = colour; E.mode.textContent = label; E.mode.style.color = colour;
+    }
+    // Full battery while racing on the move (not finished, not in the pit lane): after a second, flash the reminder
+    const racing = race.state === 'racing' && race.player.finishTime == null;
+    E.full = full && racing && !s.pitLimiter && s.speed > 15 ? E.full + dt : 0;
+    const show = E.full > 1 && (this.frame >> 4) % 3 !== 2;
+    if (show !== E.showing) { E.showing = show; E.remind.style.display = show ? 'block' : 'none'; }
   }
 
   // ---------- minimap ----------
@@ -59,6 +100,16 @@ export class HUD {
       }
     };
     path(0, track.n); g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 10 * dpr; g.stroke();
+    const lane = track.pitLane;   // the pit lane (pitlane.js), a thin line beside the track
+    if (lane) {
+      g.beginPath();
+      for (let k = 0; k <= lane.steps; k += 2) {
+        const i = (lane.i0 + k) % track.n, lat = lane.side * (lane.inner[i] + lane.out[i]) / 2;
+        const [px, py] = this.toMap(track.cx[i] + track.nx[i] * lat, track.cz[i] + track.nz[i] * lat);
+        k === 0 ? g.moveTo(px, py) : g.lineTo(px, py);
+      }
+      g.strokeStyle = 'rgba(200,208,218,0.7)'; g.lineWidth = 1.6 * dpr; g.stroke();
+    }
     const third = Math.floor(track.n / 3), secCol = ['#e9ecef', '#c9d1db', '#e9ecef'];
     for (let k = 0; k < 3; k++) {
       path(k * third, k === 2 ? track.n : (k + 1) * third + 2);
@@ -244,6 +295,19 @@ export class HUD {
     const t = race.track, i = Math.max(0, s.trackIndex);
     const facing = Math.sin(s.h) * t.tx[i] + Math.cos(s.h) * t.tz[i];
     this.el.wrong.classList.toggle('show', race.state === 'racing' && facing < -0.3 && s.speed > 4);
+
+    // Pit lane speed limiter (pitlane.js): a flashing badge while it's holding you
+    if (s.pitLimiter && !this.el.limiter) {
+      const b = this.el.limiter = document.createElement('div');
+      b.textContent = `PIT LIMITER  ${PITLANE.limit} km/h`;
+      Object.assign(b.style, { position: 'absolute', left: '50%', bottom: '24%', transform: 'translateX(-50%)', padding: '6px 16px',
+        background: '#ffd400', color: '#111', font: "900 18px 'Titillium Web', sans-serif", letterSpacing: '0.12em',
+        borderRadius: '6px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', pointerEvents: 'none', display: 'none' });
+      this.el.hud.appendChild(b);
+    }
+    if (this.el.limiter) this.el.limiter.style.display = s.pitLimiter && (this.frame >> 4) % 4 !== 3 ? 'block' : 'none';
+
+    this.updateErs(race, s, dt);
 
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) this.el.toast.classList.remove('show'); }
     this.drawMinimap(race);

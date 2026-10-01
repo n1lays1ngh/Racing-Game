@@ -1,6 +1,7 @@
 // Grandstands and the pit building, built in code at real size (no model files).
 //   buildGrandstands(track, kit) → THREE.Group   (positions and lengths come from the circuit file)
 //   buildPits(track, kit)        → THREE.Group
+//   buildPitLane(track, kit)     → THREE.Group: the pit lane's tarmac and white lines (its layout: pitlane.js)
 //   setVenueLights(v)            → lights under the grandstand roofs, in the garages and on the glass floors
 //                                  (scenery.js passes TIMES[time].windows: 0 by day, about 1 at night)
 // kit, from scenery.js: sideFrame(track, i, side, offset) → Matrix4 (local X along the track, Z away from
@@ -21,6 +22,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { sampleAt } from './track.js';
+import { PITLANE } from './pitlane.js';
+import { withLightPools } from './lighting.js';
+import { bankLift } from './banking.js';
 
 export const VENUE = {
   stand: {
@@ -37,7 +41,8 @@ export const VENUE = {
     roofHeight: 5,         // roof height above the top row at the back (metres)
   },
   pits: {
-    front: 12,             // width of the pit lane: barrier (pit wall) to the garage fronts (metres)
+    front: 12,             // barrier to garage fronts for a pit building with no pit lane in front (the pit lane's
+                           // own width is in pitlane.js)
     depth: 26,             // depth of the building
     garage: 6, garageDepth: 13,
     floors: [              // the floors above the garages: height, and how far each steps back (balconies)
@@ -306,8 +311,9 @@ export function buildGrandstands(track, { sideFrame, footprintClear, heightAt, b
     }
     p ??= profile('compact');
     const J = joins(spots.map((s) => s.m), clen / 2);
+    const lane = track.pitLane, onLane = (i) => lane && lane.side === st.side && lane.range[i];
     spots.forEach(({ i, off, m }, c) => {
-      if (!footprintClear(track, m, clen / 2, p.back + 2, i, off)) return;
+      if (onLane(i) || !footprintClear(track, m, clen / 2, p.back + 2, i, off)) return;   // (not on the pit lane)
       const mid = new THREE.Vector3(0, 0, p.back / 2).applyMatrix4(m);
       const bottom = -4 - 2 * Math.max(0, mid.y - heightAt(mid.x, mid.z));  // deeper footings on a raised (banked) corner
       const piece = byMaterial();
@@ -358,25 +364,27 @@ const WHITE = [0.92, 0.93, 0.95];
 export function buildPits(track, { sideFrame, footprintClear, blocked, ribbon, pitLane }) {
   const mat = materials(), P = VENUE.pits, parts = byMaterial(), group = new THREE.Group();
   const side = track.infield, wallOf = (i) => (side > 0 ? track.wallL[i] : track.wallR[i]);
+  const pl = track.pitLane, onLane = (i) => !!(pl && pl.side === side && pl.range[i]);
+  const front = (i) => (pl && pl.side === side && pl.building[i] ? pl.out[i] : wallOf(i) + P.front); // garages on the pit lane's edge
   let bays = 0, tower = P.raceControl;
   for (const pit of [...track.pits].sort((a, b) => b.len - a.len)) {   // race control on the longest building
     const chunks = Math.max(1, Math.round(pit.len / 14)), clen = pit.len / chunks;
     const spots = Array.from({ length: chunks }, (_, c) => {
-      const i = sampleAt(track, pit.s + (c + 0.5) * clen), off = wallOf(i) + P.front;
+      const i = sampleAt(track, pit.s + (c + 0.5) * clen), off = front(i);
       return { i, off, m: sideFrame(track, i, side, off), from: sampleAt(track, pit.s + c * clen) };
     });
     const J = joins(spots.map((s) => s.m), clen / 2);
     const lane = new Uint8Array(track.n), steps = Math.round(clen / track.ds);
     spots.forEach(({ i, off, m, from }, c) => {
       if (!footprintClear(track, m, clen / 2, P.depth, i, off)) return;
-      for (let k = 0; k <= steps; k++) lane[(from + k) % track.n] = 1;
+      for (let k = 0; k <= steps; k++) if (!onLane((from + k) % track.n)) lane[(from + k) % track.n] = 1;
       const piece = byMaterial();
       pitPiece(piece.add, mat, clen, J[c], c, () => TEAM_COLOURS[Math.floor(bays++ / 3) % TEAM_COLOURS.length]);
       if (tower && c === Math.floor(chunks / 2)) { raceControl(piece.add, mat, clen); tower = false; }
       place(piece, parts, m, J[c], clen / 2);
       const e = new THREE.Vector3(0, 0, P.depth / 2).applyMatrix4(m); blocked.push([e.x, e.z, clen + P.depth]);
     });
-    // the pit lane: tarmac from the pit wall to the garages
+    // a building away from the pit lane (a second pit building): tarmac in front of it
     if (ribbon && pitLane && lane.some((v) => v)) {
       const g = ribbon(track, (i) => side * (wallOf(i) + 1.2), (i) => side * (wallOf(i) + P.front + 1), 0.02, 12, lane);
       const mesh = new THREE.Mesh(g, pitLane); mesh.receiveShadow = true; group.add(mesh);
@@ -432,4 +440,79 @@ function raceControl(add, mat, L) {
   const yr = y0 + 2 * h;
   block(add(mat.roof), L + 1, 0.5, D - z0, 0, yr + 0.05, z0 - 1.5 + (D - z0) / 2);
   plane(add(mat.signA), L, 1.2, 0, yr + 0.05, z0 - 1.52, 'track', [0, L / 24]);
+}
+
+// ---------- the pit lane (where it runs: pitlane.js) ----------
+// Tarmac from the pit wall to the garages, and the white lines: where the lane leaves and rejoins the
+// track, along its outer edge, between the fast lane and the working lane, across it where the speed
+// limit starts and ends, and a box in front of every garage. Adds the lane to `blocked` (no trees or
+// buildings on it).
+let LINE = null;
+export function buildPitLane(track, { ribbon, pitLane, blocked }) {
+  const p = track.pitLane, group = new THREE.Group();
+  if (!p || !ribbon) return group;
+  const { n, ds } = track, s = p.side, line = (LINE ??= withLightPools(new THREE.MeshStandardMaterial({
+    color: 0xeeeeea, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+  // samples where `test` holds, trimmed by one at each end (a strip only covers steps with both ends inside)
+  const mask = (test) => {
+    const m = new Uint8Array(n);
+    for (let k = 0; k <= p.steps; k++) { const i = (p.i0 + k) % n; m[i] = test(i) ? 1 : 0; }
+    return m.map((v, i) => (v && m[(i + 1) % n] && m[(i + n - 1) % n] ? 1 : 0));
+  };
+  const strip = (from, to, where, y, mat) => {
+    if (!where.some((v) => v)) return;
+    const mesh = new THREE.Mesh(ribbon(track, (i) => s * from(i), (i) => s * to(i), y, 12, where), mat);
+    mesh.receiveShadow = true; group.add(mesh);
+  };
+  // the tarmac: from under the pit wall (or the track edge, where it opens onto the track) to under the garages
+  if (pitLane) strip((i) => p.wall[i] || p.inner[i] - 0.3, (i) => p.out[i] + 0.6, mask((i) => p.range[i]), 0.035, pitLane);
+  // white lines (15 cm)
+  const w = 0.075, y = 0.05;
+  strip((i) => p.inner[i] + 0.1 - w, (i) => p.inner[i] + 0.1 + w, mask((i) => p.range[i] && !p.wall[i]), y, line);   // lane / track
+  strip((i) => p.out[i] - 0.3 - w, (i) => p.out[i] - 0.3 + w, mask((i) => p.range[i] && !p.building[i]), y, line);  // outer edge
+  const fast = (i) => p.inner[i] + PITLANE.fastLane;
+  strip((i) => fast(i) - w, (i) => fast(i) + w, mask((i) => p.limit[i]), y, line);                                // fast | working lane
+  // flat quads on the ground: `along` metres either way of distance d round the lap, between lat0 and lat1
+  const pos = [], idx = [];
+  const quad = (d, along, lat0, lat1) => {
+    d = ((d % track.length) + track.length) % track.length;
+    const i = Math.floor(d / ds) % n, t0 = d - i * ds, base = pos.length / 3;   // the sample, and how far past it
+    for (const [u, l] of [[-along, lat0], [along, lat0], [-along, lat1], [along, lat1]]) {
+      const lat = s * l, t = t0 + u;
+      pos.push(track.cx[i] + track.nx[i] * lat + track.tx[i] * t, (track.h ? track.h[i] : 0) + bankLift(track, i, lat) + y,
+        track.cz[i] + track.nz[i] * lat + track.tz[i] * t);
+    }
+    idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+  };
+  // the limiter lines, 60 cm wide, across the lane
+  const lim = [];
+  for (let k = 0; k <= p.steps; k++) { const i = (p.i0 + k) % n; if (p.limit[i]) lim.push(k); }
+  for (const k of lim.length ? [lim[0], lim[lim.length - 1]] : []) {
+    const i = (p.i0 + k) % n;
+    quad(i * ds + ds / 2, 0.3, p.inner[i], p.out[i]);
+  }
+  // a box in front of every garage (two per 14 m of building, as in buildPits), in the working lane
+  const chunks = Math.max(1, Math.round(p.pit.len / 14)), clen = p.pit.len / chunks;
+  for (let c = 0; c < chunks * 2; c++) {
+    const d = p.pit.s + (c + 0.5) * (clen / 2), i = sampleAt(track, d);
+    if (!p.building[i]) continue;
+    const a = fast(i) + 0.6, b = p.out[i] - 0.6, half = Math.min(2.8, clen / 4 - 0.6);
+    if (b - a < 2) continue;
+    quad(d - half, w, a, b); quad(d + half, w, a, b);        // the two ends
+    quad(d, half, a, a + 2 * w); quad(d, half, b - 2 * w, b); // the two sides
+  }
+  if (idx.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx); g.computeVertexNormals();
+    // faces must point up: flip if this side's winding points down
+    if (g.attributes.normal.getY(0) < 0) { const ix = g.index.array; for (let k = 0; k < ix.length; k += 3) [ix[k + 1], ix[k + 2]] = [ix[k + 2], ix[k + 1]]; g.computeVertexNormals(); }
+    const mesh = new THREE.Mesh(g, line); mesh.receiveShadow = true; group.add(mesh);
+  }
+  // keep trees and city buildings off the lane
+  for (let k = 0; k <= p.steps; k += 4) {
+    const i = (p.i0 + k) % n, mid = s * (p.inner[i] + p.out[i]) / 2;
+    blocked?.push([track.cx[i] + track.nx[i] * mid, track.cz[i] + track.nz[i] * mid, (p.out[i] - p.inner[i]) / 2 + 3]);
+  }
+  return group;
 }
