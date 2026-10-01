@@ -3,17 +3,59 @@
 // skid mark straight away. Only your car lays rubber, so it's your line you see.
 //
 // The marks live in a texture laid out along the track (distance round the lap × distance across it),
-// which the road shader in scenery.js reads. One per circuit; the marks stay until you change circuit.
-// main.js calls update() once a frame with your car.
+// which the road shader in scenery.js reads. One per circuit. main.js calls update() once a frame with
+// your car.
+//
+// The marks are kept in the browser (IndexedDB, compressed; localStorage is too small for them), one copy
+// per circuit, so they're still on the track after a reload and they build up over every session you
+// drive there. Saved every few seconds while you drive, when you switch tab or circuit, and when the page
+// closes. To wipe them, type clearTyreMarks() in the browser console (every circuit), or call
+// circuit.marks.clear() for the circuit you're on.
 import * as THREE from 'three';
 
 export const MARKS = {
   enabled: true,
-  lap: 0.30,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
+  lap: 0.09,        // how much darker a tyre makes the track each time it rolls over it (1 = fully rubbered)
   slide: 0.7,       // extra when sliding or locking up (skid marks)
-  darkness: 0.7,    // how dark a fully rubbered strip is (0.5 = half as bright)
-  tyre: 0.40,       // tyre width, metres
+  darkness: 0.5,    // how dark a fully rubbered strip is (0.5 = half as bright)
+  tyre: 0.38,       // tyre width, metres
+  keep: true,       // keep the marks in the browser between visits (false = fresh track every time)
+  saveEvery: 8,     // seconds between saves while you're driving
 };
+
+// ---------- storage in the browser (IndexedDB) ----------
+const DB = 'apex-circuit-marks', STORE = 'marks';
+let dbOpen = null;
+function db() {
+  dbOpen ??= new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbOpen;
+}
+async function store(mode, run) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE, mode), req = run(tx.objectStore(STORE));
+    tx.oncomplete = () => resolve(req?.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+// Mostly empty track compresses to a small fraction (gzip, where the browser has it).
+const canZip = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+const zip = (bytes) => new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+const unzip = async (blob) => new Uint8Array(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+
+// Wipe the marks of every circuit: the saved ones and the ones on screen now.
+const live = new Set();
+export function clearTyreMarks() {
+  for (const m of live) m.clear();
+  return store('readwrite', (st) => st.clear()).catch(() => {});
+}
+if (typeof window !== 'undefined') window.clearTyreMarks = clearTyreMarks;   // handy from the browser console
 
 // Texture layout, shared with the road shader. One texel is 0.25 m along the lap and 0.125 m across,
 // covering 10 m either side of the centre line. The lap is cut into strips (rows), and four strips share
@@ -40,6 +82,41 @@ export class TyreMarks {
     this.dims = new THREE.Vector4(this.rows, this.strips, this.width, this.rows); // for the shader
     this.prev = [null, null, null, null];
     this.dirty = new Set();
+    // the marks saved last time on this circuit (same layout only: a changed circuit file starts fresh)
+    this.key = track.id;
+    this.layout = `${this.width}x${this.rows}:${Math.round(track.length)}`;
+    this.unsaved = false; this.lastSave = performance.now();
+    live.add(this);
+    if (MARKS.keep) {
+      this.loaded = this.load();
+      this.onHide = () => { if (document.visibilityState === 'hidden') this.save(); };
+      document.addEventListener('visibilitychange', this.onHide);
+      window.addEventListener('pagehide', this.onHide);
+    }
+  }
+
+  async load() {
+    try {
+      const rec = await store('readonly', (st) => st.get(this.key));
+      if (!rec || rec.layout !== this.layout) return;
+      const saved = rec.zipped ? await unzip(rec.data) : new Uint8Array(rec.data);
+      if (saved.length !== this.data.length) return;
+      const d = this.data;   // anything already driven since the page loaded stays too
+      for (let k = 0; k < d.length; k++) if (saved[k] > d[k]) d[k] = saved[k];
+      this.texture.clearUpdateRanges(); this.texture.needsUpdate = true; // send the whole texture
+    } catch (err) { console.warn('Tyre marks: could not load the saved marks', err); }
+  }
+
+  async save() {
+    if (!MARKS.keep || !this.unsaved || this.saving || this.cantSave) return;
+    this.unsaved = false; this.lastSave = performance.now();
+    this.saving = true;
+    try {
+      await this.loaded;     // don't overwrite the saved marks before they've been read
+      const data = canZip ? await zip(this.data) : this.data.slice().buffer;   // (a copy: driving carries on)
+      await store('readwrite', (st) => st.put({ layout: this.layout, zipped: canZip, data, saved: Date.now() }, this.key));
+    } catch (err) { this.cantSave = true; console.warn('Tyre marks: could not save (private window?), they won\'t be kept', err); }
+    this.saving = false;
   }
 
   // Call once a frame with your car's state (from physics.js).
@@ -69,6 +146,7 @@ export class TyreMarks {
       }
     }
     this.upload();
+    if (this.unsaved && performance.now() - this.lastSave > MARKS.saveEvery * 1000) this.save();
   }
 
   // Add rubber to the texels under one tyre at one spot.
@@ -84,6 +162,7 @@ export class TyreMarks {
       this.data[j] = Math.min(255, this.data[j] + Math.round(amount * 255 * cover));
     }
     this.dirty.add(row * this.groups + group);
+    this.unsaved = true;
   }
 
   // Send only the changed rows to the graphics card.
@@ -97,6 +176,21 @@ export class TyreMarks {
     this.texture.needsUpdate = true;
   }
 
-  clear() { this.data.fill(0); this.prev.fill(null); this.texture.needsUpdate = true; }
-  dispose() { this.texture.dispose(); }
+  // A clean track again: here and in the saved copy.
+  clear() {
+    this.data.fill(0); this.prev.fill(null); this.unsaved = false;
+    this.texture.clearUpdateRanges(); this.texture.needsUpdate = true;
+    if (MARKS.keep) store('readwrite', (st) => st.delete(this.key)).catch(() => {});
+  }
+
+  // Switching circuit: save what's new, then free the texture.
+  dispose() {
+    live.delete(this);
+    if (this.onHide) {
+      document.removeEventListener('visibilitychange', this.onHide);
+      window.removeEventListener('pagehide', this.onHide);
+    }
+    this.save();             // (works from its own copy of the data, so freeing the texture is fine)
+    this.texture.dispose();
+  }
 }
