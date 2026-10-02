@@ -13,29 +13,29 @@ import { ersStep } from './ers.js';
 
 export const CAR = {
   // --- engine & brakes ---
-  accel: 16,            // m/s² engine push at low speed
+  accel: 17,            // m/s² engine push at low speed
   accelFade: 0.6,       // how much engine push fades toward top speed
   drag: 0.00075,        // aero drag (× v²)
   roll: 0.4,            // rolling resistance, m/s²
   liftOff: 11.5,           // m/s² extra slowing when off the throttle (engine braking)
   brake: 40,            // m/s² max braking (still limited by grip)
   // --- grip ---
-  mu: 1.8,              // tyre grip
+  mu: 1.9,              // tyre grip
   g: 9.81,
-  downforce: 0.0019,    // extra grip per v² (more grip in fast corners)
+  downforce: 0.0022,    // extra grip per v² (more grip in fast corners)
   // --- steering & handling feel ---
   wheelbase: 3.6,
   maxSteer: 0.36,       // steering lock at low speed
-  steerFade: 40,        // lock reduces with speed (higher = more lock at speed)
+  steerFade: 32,        // lock reduces with speed (higher = more lock at speed)
   steerRate: 2.3,       // how fast the front wheels turn
-  yawResponse: 8,       // how quickly the car rotates (lower = heavier, higher = sharper)
-  slideAllowance: 1.25,  // how far the car can rotate past grip → small controllable slide
+  yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
+  slideAllowance: 1.10,  // how far the car can rotate past grip → small controllable slide
   trailBrake: 0.15,     // extra rotation while braking into a corner
-  powerRotation: 0.15,   // extra rotation on throttle in slow corners
+  powerRotation: 0.20,   // extra rotation on throttle in slow corners
   stability: 2,       // how strongly slides straighten out (higher = safer, lower = driftier)
   // --- lock-ups ---
   lockThreshold: 1.25,  // brake + cornering needed to lock the fronts (higher = harder to lock)
-  lockSteer: 0.35,      // steering left while locked (lock-up understeer)
+  lockSteer: 0.30,      // steering left while locked (lock-up understeer)
   lockBrake: 0.8,       // braking left while locked
   reverseMax: 12,
   radius: 1.25,         // collision circle radius (two circles per car)
