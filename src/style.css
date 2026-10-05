@@ -584,3 +584,18 @@ button.lb-arrow:hover { background: var(--red); border-color: var(--red); }
   #tower, #map-panel { display: none; }
   :root { --hud-scale: 0.62; }
 }
+/* ---------- Graphics presets (settings.js, main.js) ---------- */
+.seg-row.gfx-row > span { width: auto; min-width: 64px; }
+.gfx-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.gfx-note:empty { display: none; }
+.pause-gfx { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+.pause-gfx > span { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+/* frame rate counter (F) */
+#fps {
+  position: fixed; left: 12px; bottom: 12px; z-index: 30; pointer-events: none;
+  padding: 4px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.65); color: #fff;
+  font-family: 'Titillium Web', system-ui, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+/* Low and Medium: no frosted-glass blur behind panels (it's worked out again every frame over the moving 3D view) */
+body.gfx-noblur *, body.gfx-noblur *::before, body.gfx-noblur *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }

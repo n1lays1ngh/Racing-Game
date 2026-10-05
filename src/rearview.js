@@ -4,16 +4,17 @@
 // Self-contained: main.js calls render() after drawing each frame and asks
 // lookBackTarget() for the camera while Q is held.
 import * as THREE from 'three';
+import { GRAPHICS } from './settings.js';
 
 export class RearView {
   constructor(renderer) {
     this.renderer = renderer;
-    this.enabled = true;   // mirror strip on/off (V)
+    this.enabled = GRAPHICS.mirror ?? true; // mirror strip on/off (V); the graphics preset sets it at the start
     this.lookBack = false; // Q held
     this.visible = false;
 
     this.cam = new THREE.PerspectiveCamera(55, 4, 0.3, 4000);
-    this.target = new THREE.WebGLRenderTarget(4, 1, { samples: 4 });
+    this.target = new THREE.WebGLRenderTarget(4, 1, { samples: GRAPHICS.mirrorSamples ?? 4 });
     // The mirror image is drawn as a flipped quad over the top of the screen.
     this.hudScene = new THREE.Scene();
     this.hudCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -22,6 +23,7 @@ export class RearView {
     }));
     quad.scale.x = -1; // mirrors swap left and right
     this.hudScene.add(quad);
+    this.quad = quad;
 
     // Frame drawn around the mirror, and a rule that moves the lap timer below it.
     this.frame = document.createElement('div');
@@ -49,8 +51,8 @@ export class RearView {
     const w = Math.round(Math.min(520, W * 0.36)), h = Math.round(w / 4);
     this.rect = { x: Math.round((W - w) / 2), y: 12, w, h };
     Object.assign(this.frame.style, { left: `${this.rect.x - 4}px`, top: `${this.rect.y - 4}px`, width: `${w + 8}px`, height: `${h + 8}px` });
-    const dpr = this.renderer.getPixelRatio();
-    this.target.setSize(Math.round(w * dpr), Math.round(h * dpr));
+    const dpr = this.renderer.getPixelRatio() * (GRAPHICS.mirrorScale ?? 1); // lower = cheaper mirror
+    this.target.setSize(Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr)));
     this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
     this.css.textContent = `body.mirror-on .timing { top: ${h + 26}px; } body.mirror-on #lights { top: ${h + 130}px; }`;
   }
@@ -62,6 +64,19 @@ export class RearView {
   }
 
   hide() { this.setVisible(false); }
+
+  // A graphics preset was picked (settings.js): mirror on/off, its resolution and edge smoothing.
+  applyGraphics() {
+    this.enabled = GRAPHICS.mirror ?? true;
+    const samples = GRAPHICS.mirrorSamples ?? 4;
+    if (this.target.samples !== samples) { // edge smoothing is part of the render target: make a new one
+      this.target.dispose();
+      this.target = new THREE.WebGLRenderTarget(4, 1, { samples });
+      this.quad.material.map = this.target.texture; this.quad.material.needsUpdate = true;
+    }
+    this.cam.far = Math.min(4000, GRAPHICS.viewDistance ?? 4000); this.cam.updateProjectionMatrix();
+    this.size = ''; // size it again on the next frame (resolution may have changed)
+  }
 
   // Draw the mirror for this car (call after the main render each frame).
   render(scene, state) {

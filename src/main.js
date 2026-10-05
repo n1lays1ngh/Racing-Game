@@ -3,7 +3,7 @@ import './style.css';
 import { buildTrack, getTrackDef, TRACKS } from './track.js';
 import { buildWorld, buildCircuit, disposeCircuit } from './scenery.js';
 import { createCarModel, loadCarModel, carCams } from './carModel.js';
-import { GRAPHICS } from './settings.js';
+import { GRAPHICS, PRESET_ORDER, PRESET_NAMES, setGraphicsPreset } from './settings.js';
 import { Showcase } from './showcase.js';
 import { setupMenu } from './menu.js';
 import { Race, formatTime } from './race.js';
@@ -12,7 +12,7 @@ import { readInput, wasPressed, clearPressed, pollPad, padFeedback } from './inp
 import { EngineAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { RearView } from './rearview.js';
-import { applyTimeOfDay } from './lighting.js';
+import { applyTimeOfDay, TIMES } from './lighting.js';
 import { Lobby } from './lobby.js';
 import { NameTags } from './nametags.js';
 import { createRemoteModel, syncModels } from './carLod.js';
@@ -48,13 +48,129 @@ function loadTrack(id) {
   if (track && track.id === id) return;
   if (circuit) disposeCircuit(circuit);
   track = buildTrack(getTrackDef(id));
-  circuit = buildCircuit(track);
-  scene.add(circuit.group);
-  applyTimeOfDay(world, track); // day, dusk or night (set in the circuit file)
+  showCircuit();
   if (hud) hud.setupMinimap(track); else hud = new HUD(track);
   menuUI?.setTrackInfo(track);
   if (!race) showcase.start(track); // restart the live race on the new circuit
 }
+
+// The scenery for the current circuit (built again when a graphics preset changes how many trees
+// or buildings there are).
+function showCircuit() {
+  circuit = buildCircuit(track);
+  scene.add(circuit.group);
+  applyTimeOfDay(world, track); // day, dusk or night (set in the circuit file)
+  circuitBuiltWith = sceneryKey();
+  applyViewDistance();
+  applyShadowCasters();
+}
+
+// ---------- graphics presets: Low / Medium / High (settings.js) ----------
+const startedWithAA = GRAPHICS.antialias; // edge smoothing is fixed when the page loads
+let circuitBuiltWith = null;              // the tree / building counts the current circuit was built with
+const sceneryKey = () => [GRAPHICS.trees, GRAPHICS.forest, GRAPHICS.buildings, GRAPHICS.floodlightSpacing].join('|');
+
+// How far the camera sees. The haze is pulled in to end before that, so nothing pops in or out.
+function applyViewDistance() {
+  camera.far = GRAPHICS.viewDistance; camera.updateProjectionMatrix();
+  const T = TIMES[track?.time] ?? TIMES.day;
+  scene.fog.far = Math.min(T.fogFar, GRAPHICS.viewDistance * 0.9);
+  scene.fog.near = Math.min(T.fogNear, scene.fog.far * 0.5);
+}
+
+// Which scenery casts shadows (the cars always do): 'all', 'noTrees' or 'cars'. Shadows are drawn
+// every frame, and trees and buildings are instanced over the whole circuit, so they cost a lot.
+// tick() runs this again every second, because city buildings are swapped in once their models load.
+function applyShadowCasters() {
+  if (!circuit) return;
+  const mode = GRAPHICS.shadowCasters;
+  circuit.group.traverse((o) => {
+    if (!o.isMesh) return;
+    o.userData.castShadow0 ??= o.castShadow; // as the circuit built it
+    const tree = !!o.parent?.userData.trees;  // the trees group (scenery.js)
+    o.castShadow = o.userData.castShadow0 && (mode === 'all' || (mode === 'noTrees' && !tree));
+  });
+}
+
+// Apply GRAPHICS to everything that's already built.
+function applyGraphics() {
+  const G = GRAPHICS, sun = world.sun;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, G.pixelRatio));
+  if (renderer.shadowMap.enabled !== G.shadows) { // shaders have to be rebuilt for this one
+    renderer.shadowMap.enabled = G.shadows;
+    scene.traverse((o) => { for (const m of [].concat(o.material ?? [])) m.needsUpdate = true; });
+  }
+  sun.castShadow = G.shadows;
+  if (sun.shadow.mapSize.x !== G.shadowMapSize) {
+    sun.shadow.mapSize.set(G.shadowMapSize, G.shadowMapSize);
+    sun.shadow.map?.dispose(); sun.shadow.map = null; // made again at the new size
+  }
+  applyViewDistance();
+  applyShadowCasters();
+  rearView.applyGraphics();
+  document.body.classList.toggle('gfx-noblur', !G.blur);
+  if (circuit && circuitBuiltWith !== sceneryKey()) { disposeCircuit(circuit); showCircuit(); } // trees, buildings
+  drawGraphicsButtons();
+}
+
+// Switch preset. Returns true if part of it (edge smoothing) only changes once the page reloads.
+function choosePreset(name) {
+  if (name === GRAPHICS.preset || !setGraphicsPreset(name)) return false;
+  applyGraphics();
+  const needsReload = GRAPHICS.antialias !== startedWithAA;
+  if (needsReload && !race && !menu.classList.contains('hidden')) { // on the main menu: reload now
+    setGraphicsNote('Reloading to change edge smoothing…');
+    setTimeout(() => location.reload(), 250);
+    return false;
+  }
+  setGraphicsNote(needsReload ? 'Edge smoothing changes the next time the page loads.' : '');
+  return needsReload;
+}
+
+// The Low / Medium / High buttons (main menu and pause menu, see index.html)
+function drawGraphicsButtons() {
+  for (const box of document.querySelectorAll('[data-gfx]')) {
+    box.innerHTML = PRESET_ORDER.map((k) =>
+      `<button type="button" class="${k === GRAPHICS.preset ? 'on' : ''}" data-v="${k}">${PRESET_NAMES[k]}</button>`).join('');
+  }
+}
+function setGraphicsNote(text) { for (const el of document.querySelectorAll('[data-gfx-note]')) el.textContent = text; }
+document.querySelectorAll('[data-gfx]').forEach((box) => box.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  b.blur(); // so Enter / Space don't press it again
+  choosePreset(b.dataset.v);
+}));
+function cyclePreset() { // G during a race
+  const next = PRESET_ORDER[(PRESET_ORDER.indexOf(GRAPHICS.preset) + 1) % PRESET_ORDER.length];
+  const later = choosePreset(next);
+  hud.toast(`Graphics: ${PRESET_NAMES[next]}${later ? ' · edge smoothing after a reload' : ''}`, 2);
+}
+
+// Frame rate counter (F): frames per second, milliseconds per frame and the preset. Remembered.
+const fpsEl = document.createElement('div');
+fpsEl.id = 'fps';
+document.body.appendChild(fpsEl);
+let fpsOn = false, fpsFrames = 0, fpsFrom = null;
+try { fpsOn = localStorage.getItem('apex-circuit:fps') === '1'; } catch { /* private mode */ }
+fpsEl.classList.toggle('hidden', !fpsOn);
+function toggleFps() {
+  fpsOn = !fpsOn; fpsFrames = 0; fpsFrom = null;
+  fpsEl.textContent = '… fps';
+  fpsEl.classList.toggle('hidden', !fpsOn);
+  try { localStorage.setItem('apex-circuit:fps', fpsOn ? '1' : '0'); } catch { /* private mode */ }
+}
+function countFrame(now) { // once per frame actually drawn
+  if (!fpsOn) return;
+  fpsFrom ??= now; fpsFrames++;
+  const span = now - fpsFrom;
+  if (span < 500) return;
+  fpsEl.textContent = `${Math.round((fpsFrames * 1000) / span)} fps · ${(span / fpsFrames).toFixed(1)} ms · ${PRESET_NAMES[GRAPHICS.preset]}`;
+  fpsFrames = 0; fpsFrom = now;
+}
+const typing = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+
+applyGraphics(); // the saved preset (or the default) for this page
 
 // ---------- menus ----------
 const menu = document.getElementById('menu');
@@ -269,6 +385,7 @@ function snapCamera() {
 // ---------- main loop ----------
 const IDLE = { throttle: 0, brake: 0, steer: 0 };
 let lastTime = null;
+let shadowSweep = 0;
 function frame(timestamp) {
   requestAnimationFrame(frame);
   tick(timestamp);
@@ -281,6 +398,9 @@ function tick(timestamp) {
   const drawing = !document.hidden;
   pollPad(); // controller buttons → the same shortcuts as the keyboard
   world.sky.material.uniforms.time.value += dt;
+  if (wasPressed('KeyF') && !typing()) toggleFps();
+  shadowSweep += dt;
+  if (shadowSweep > 1) { shadowSweep = 0; applyShadowCasters(); } // scenery that loaded since (see applyShadowCasters)
 
   if (!race) { // menu: live AI race filmed like TV
     showcase.update(dt);
@@ -289,11 +409,12 @@ function tick(timestamp) {
       world.sun.position.set(t.x + world.sunDir.x * 150, (t.y ?? 0) + world.sunDir.y * 150, t.z + world.sunDir.z * 150);
       world.sun.target.position.set(t.x, t.y ?? 0, t.z);
     }
-    if (drawing) renderer.render(scene, camera);
+    if (drawing) { renderer.render(scene, camera); countFrame(timestamp); }
     return;
   }
 
   if (wasPressed('Escape') || wasPressed('KeyP')) setPaused(!paused);
+  if (wasPressed('KeyG')) cyclePreset(); // graphics: Low → Medium → High
   if (wasPressed('KeyC')) { camMode = (camMode + 1) % CAMERAS.length; hud.setCamera(CAMERAS[camMode]); snapCamera(); }
   if (wasPressed('KeyM')) audio.setMuted(!audio.muted);
   if (wasPressed('KeyR') && race.state === 'racing' && race.player.finishTime == null) race.resetPlayer();
@@ -359,6 +480,7 @@ function tick(timestamp) {
   if (!drawing) return;
   renderer.render(scene, camera);
   rearView.render(scene, ps); // mirror strip at the top of the screen
+  countFrame(timestamp);
 }
 hud.show(false);
 hud.setCamera(CAMERAS[camMode]);

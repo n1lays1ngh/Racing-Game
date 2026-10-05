@@ -3,9 +3,10 @@
 // to the light built-in car in the same dark-blue colours (at that distance you can't tell).
 import * as THREE from 'three';
 import { createCarModel, syncCarModel } from './carModel.js';
+import { GRAPHICS } from './settings.js';
 
 export const LOD = {
-  maxDetailed: 3, // at most this many friends' cars in full detail at once (raise on a fast computer)
+  maxDetailed: 3, // at most this many friends' cars in full detail at once (the graphics preset's detailedCars wins)
   near: 50,       // metres: closer than this can switch to full detail…
   far: 60,        // …and further than this switches back (the gap stops flickering)
   farLivery: { color: 0x1b2448, accent: 0xd8141d },
@@ -38,7 +39,7 @@ export function syncModels(models, cars, camera) {
   friends.sort((a, b) => key(a[0].userData.lod) - key(b[0].userData.lod));
   friends.forEach(([m, c], rank) => {
     const lod = m.userData.lod;
-    lod.near = rank < LOD.maxDetailed && lod.d < (lod.near ? LOD.far : LOD.near);
+    lod.near = rank < (GRAPHICS.detailedCars ?? LOD.maxDetailed) && lod.d < (lod.near ? LOD.far : LOD.near);
     lod.hi.visible = lod.near; lod.lo.visible = !lod.near;
     syncCarModel(lod.near ? lod.hi : lod.lo, c.state);
   });

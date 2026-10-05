@@ -728,6 +728,7 @@ function treeKit() {
 // ok(x, z, extra): that spot is `extra` metres beyond the barriers and clear of buildings
 function buildTrees(track, ground, count, ok, heightAt) {
   const K = treeKit(), group = new THREE.Group();
+  group.userData.trees = true; // main.js: the graphics preset can turn tree shadows off
   seed = 11 + (Math.abs(Math.round(track.cx[0] * 7 + track.cz[0])) % 100000); // the same trees every time
   const beside = (from, to) => { // a spot from–to metres beyond the barrier, somewhere round the lap
     const i = Math.floor(rand() * track.n), side = rand() < 0.5 ? 1 : -1;
@@ -771,8 +772,9 @@ function buildTrees(track, ground, count, ok, heightAt) {
     instanced(K[kind].crown, kind === 'palm' ? K.palmLeaf : K.foliage, spots[kind], leafColour[kind], true);
   }
   // woods further out (not at desert or city circuits): dense clumps 90–700 m beyond the barriers
-  if (ground === 'grass' && LOOK.forest > 0) {
-    const far = [], target = Math.round(count * LOOK.forest);
+  const forest = LOOK.forest * (GRAPHICS.forest ?? 1); // the graphics preset thins the woods (settings.js)
+  if (ground === 'grass' && forest > 0) {
+    const far = [], target = Math.round(count * forest);
     tries = 0;
     while (far.length < target && tries++ < target * 12) {
       const [x, z] = beside(90, 700);

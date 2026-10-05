@@ -9,11 +9,11 @@
 // State on the car: car.ers (0–1, starts full) and car.ersMode ('deploy' | 'harvest' | '').
 
 export const ERS = {
-  capacity: 9,        // seconds of deployment in a full battery
-  power: 85,          // how strong: extra push = power ÷ speed (m/s²), like a motor of fixed power …
+  capacity: 10,        // seconds of deployment in a full battery
+  power: 100,          // how strong: extra push = power ÷ speed (m/s²), like a motor of fixed power …
   maxPush: 3.2,       // … capped at this at low speed. 85 / 3.2 ≈ +14% acceleration and ~20 km/h more top speed
   minThrottle: 0.2,   // only deploys while you're on the throttle
-  harvest: 0.055,     // charge gained per second of full braking at speed (0.055 = 5.5% a second)
+  harvest: 0.090,     // charge gained per second of full braking at speed (0.055 = 5.5% a second)
   harvestSpeed: 30,   // m/s (108 km/h) from which braking charges at the full rate; slower = less
 };
 
