@@ -19,6 +19,7 @@ import { buildCity, setWindowLights } from './buildings.js';
 import { buildGrandstands, buildPits, buildPitLane, setVenueLights } from './venue.js';
 import { GRAPHICS } from './settings.js';
 import { TyreMarks, MARKS, MARK_GRID } from './tyreMarks.js';
+import { buildBrakeBoards } from './brakeBoards.js';
 
 export const LOOK = {
   asphaltTile: 2,       // metres per repeat of the asphalt texture (the real size of the scanned patch)
@@ -867,6 +868,8 @@ export function buildCircuit(track) {
 
   // Barriers: concrete wall blocks with sponsor banners, and the debris fence on top (barriers.js)
   group.add(buildBarriers(track));
+  // 300 / 200 / 100 m braking boards before the big braking zones (brakeBoards.js)
+  group.add(buildBrakeBoards(track, terrain.heightAt));
 
   // Start/finish line and gantry with the five start lights
   const h0 = Math.atan2(track.tx[0], track.tz[0]);

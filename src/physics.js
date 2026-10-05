@@ -10,6 +10,7 @@ import { heightAtS } from './elevation.js';
 import { bankLift, bankRoll } from './banking.js';
 import { PITLANE, pitBounds, onPitLane, pitSpeedLimit } from './pitlane.js';
 import { ersStep } from './ers.js';
+import { SLIPSTREAM } from './slipstream.js';
 
 export const CAR = {
   // --- engine & brakes ---
@@ -101,7 +102,9 @@ export function stepCar(car, input, track, dt) {
 
   // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
   const bankGrip = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
-  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1), vcurv) + bankGrip, 2);
+  // car.tow: in another car's slipstream (slipstream.js, set by race.js): dirty air costs a little grip …
+  const tow = car.tow ?? 0, dirty = 1 - SLIPSTREAM.dirtyAir * tow;
+  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty, vcurv) + bankGrip, 2);
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   const latUse = Math.abs(car.yawRate * vf) / latMax;   // how much cornering grip is in use
@@ -147,7 +150,8 @@ export function stepCar(car, input, track, dt) {
   vf += ersStep(car, { boost: input.boost, throttle: thr, brake: brk }, vf, dt) * dt;
   // Engine braking: the car slows noticeably as soon as you lift off the throttle.
   const lift = vf > 1 ? p.liftOff * (1 - thr) : 0;
-  const resist = (p.drag * vf * vf + p.roll + extraDrag + lift) * dt;
+  // … and the tow cuts the air resistance, so you're faster down the straight behind someone
+  const resist = (p.drag * (1 - SLIPSTREAM.dragCut * tow) * vf * vf + p.roll + extraDrag + lift) * dt;
   vf = Math.abs(vf) <= resist ? 0 : vf - Math.sign(vf) * resist;
   // Gravity along the slope: slower uphill, faster downhill (not while parked).
   if (Math.abs(vf) > 0.5 || thr > 0) vf -= (p.g * grade / Math.sqrt(1 + grade * grade)) * dt;

@@ -34,6 +34,7 @@ export class HUD {
     this.showLeaderGap = false; // T toggles interval ↔ gap to leader
     this.setupMinimap(track);
     this.setupErs();
+    this.setupTow();
   }
 
   // ---------- ERS battery (ers.js) ----------
@@ -73,6 +74,34 @@ export class HUD {
     E.full = full && racing && !s.pitLimiter && s.speed > 15 ? E.full + dt : 0;
     const show = E.full > 1 && (this.frame >> 4) % 3 !== 2;
     if (show !== E.showing) { E.showing = show; E.remind.style.display = show ? 'block' : 'none'; }
+  }
+
+  // ---------- slipstream (slipstream.js) ----------
+  // A bar under the ERS battery: how strong the tow from the car ahead is. Dim when you're not in anyone's wake.
+  setupTow() {
+    const row = document.createElement('div');
+    Object.assign(row.style, { display: 'grid', gridTemplateColumns: 'auto 1fr 46px', alignItems: 'center', columnGap: '10px', marginTop: '8px',
+      opacity: '0.35', transition: 'opacity 0.2s' });
+    row.innerHTML = `<span data-label style="font-size:12px;font-weight:900;letter-spacing:0.14em;color:var(--muted)">≋ TOW</span>
+      <div style="position:relative;height:8px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden">
+        <div data-fill style="position:absolute;inset:0;transform-origin:left;transform:scaleX(0);background:#5fd8ff"></div>
+      </div>
+      <b data-pct style="font-size:13px;font-weight:900;text-align:right;color:var(--muted)">--</b>`;
+    $('speedo').appendChild(row);
+    this.tow = { row, fill: row.querySelector('[data-fill]'), pct: row.querySelector('[data-pct]'), label: row.querySelector('[data-label]'), shown: 0, on: false, txt: '' };
+  }
+
+  updateTow(s, dt) {
+    const T = this.tow, target = s.tow ?? 0;
+    T.shown += (target - T.shown) * Math.min(1, dt * 8);         // smooth, so it doesn't flicker
+    const on = T.shown > 0.03;
+    if (on !== T.on) {
+      T.on = on; T.row.style.opacity = on ? '1' : '0.35';
+      T.label.style.color = T.pct.style.color = on ? '#5fd8ff' : 'var(--muted)';
+    }
+    T.fill.style.transform = `scaleX(${T.shown.toFixed(3)})`;
+    const txt = on ? Math.round(T.shown * 100) + '%' : '--';
+    if (txt !== T.txt) { T.txt = txt; T.pct.textContent = txt; }
   }
 
   // ---------- minimap ----------
@@ -316,6 +345,7 @@ export class HUD {
     if (this.el.limiter) this.el.limiter.style.display = s.pitLimiter && (this.frame >> 4) % 4 !== 3 ? 'block' : 'none';
 
     this.updateErs(race, s, dt);
+    this.updateTow(s, dt);
 
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) this.el.toast.classList.remove('show'); }
     this.drawMinimap(race);

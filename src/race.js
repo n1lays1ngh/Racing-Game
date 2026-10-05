@@ -2,6 +2,7 @@
 // No rendering here, so a whole race can be simulated headless.
 import { createCarState, stepCar, placeCar, CAR } from './physics.js';
 import { AIDriver, buildSpeedProfile } from './ai.js';
+import { towFor } from './slipstream.js';
 
 // The grid: you plus 19 AI drivers (made-up teams). Add or remove entries to change the field size.
 // The tower shows the first three letters of each name, so keep those unique.
@@ -129,6 +130,8 @@ export class Race {
 
     this.time += dt;
     const states = this.cars.filter((c) => !c.dnf).map((c) => c.state);
+    // slipstream: how much each car here is in the wake of the car(s) ahead (slipstream.js; physics.js uses it)
+    for (const car of this.cars) if (!car.dnf && !car.remote) car.state.tow = towFor(car.state, states);
     for (const car of this.cars) {
       if (car.dnf) continue;
       if (car.remote) { car.advance?.(dt); this.countLap(car); continue; } // driven from the network
