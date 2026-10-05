@@ -367,32 +367,46 @@ function showResults() {
 }
 
 // ---------- camera ----------
-// Chase cams trail the car's heading (smoothed) rather than lerping position,
-// so the camera never falls behind at 300 km/h.
+// Every camera rides with your car: it turns, pitches over crests and leans on banking exactly as the car does,
+// so your car stays put on screen and the world moves round it, like a real onboard camera.
+//   pitch / roll: 1 = exactly with the car, 0 = stays level with the world (0.3 was the old horizon-steady chase cam)
+//   lag: seconds the chase cameras take to swing round behind the car in a corner (0 = locked behind it; 0.2 = the old feel)
+const CAMERA = {
+  chase:   { lag: 0, pitch: 1, roll: 1 },   // Chase and Far chase
+  onboard: { pitch: 1, roll: 1 },           // T-cam and Cockpit
+  shake: { impacts: true, kerbs: false },   // shake when you hit something / over kerbs and grass
+  speedFov: true,                           // the view widens a little with speed
+};
+// Camera and look-at points in the car's own frame: [x (left), y (up), z (forward)], metres from the car's centre
+// on the road. The onboard cameras come from CAR_MODEL.cams in carModel.js.
+const RIG = {
+  0: { pos: [0, 2.9, -8.5], look: [0, 0.9, 6] },     // Chase
+  1: { pos: [0, 5, -14], look: [0, 0.6, 8] },        // Far chase
+  back: { pos: [0, 2.6, 7.5], look: [0, 0.9, -8] },  // Q held: in front of the car, looking back over it
+};
 let camYaw = 0;
-// How much each camera tilts with the car on a slope (1 = fully, like a camera bolted to the car).
-// Less than 1 keeps the horizon steadier, so you can see hills like Eau Rouge rise up in front of you.
-const PITCH_FOLLOW = [0.3, 0.3, 0.65, 0.65];
-function cameraTarget(state, out, look) {
-  if (rearView.lookBack) return rearView.lookBackTarget(state, out, look);
-  const yaw = camMode <= 1 ? camYaw : state.h;
-  const fx = Math.sin(yaw), fz = Math.cos(yaw);
-  const y = state.y ?? 0, sp = Math.sin(state.pitch ?? 0); // follow the car up and down hills
-  const lp = sp * PITCH_FOLLOW[camMode];                    // ...but only partly tilt the view
-  switch (camMode) {
-    case 0: out.set(state.x - fx * 8.5, y + 2.9 - sp * 8.5, state.z - fz * 8.5); look.set(state.x + fx * 6, y + 0.9 + lp * 6, state.z + fz * 6); break;
-    case 1: out.set(state.x - fx * 14, y + 5 - sp * 14, state.z - fz * 14); look.set(state.x + fx * 8, y + 0.6 + lp * 8, state.z + fz * 8); break;
-    case 2: case 3: { // T-cam on the airbox / driver's eyes. Positions and tilt are in CAR_MODEL.cams (carModel.js)
-      const c = camMode === 2 ? cams.tcam : cams.cockpit, tilt = Math.tan(THREE.MathUtils.degToRad(c.tilt ?? 0)) * 20;
-      out.set(state.x + fx * c.z, y + c.y, state.z + fz * c.z);
-      look.set(state.x + fx * 20, y + c.y + tilt + lp * 20, state.z + fz * 20); break;
-    }
-  }
+const camQ = new THREE.Quaternion(), camE = new THREE.Euler(0, 0, 0, 'YXZ'), camBase = new THREE.Vector3();
+// Where the camera goes for this car state: camPos, camLook and camera.up
+function cameraTarget(state) {
+  const onboard = camMode >= 2 && !rearView.lookBack, C = onboard ? CAMERA.onboard : CAMERA.chase;
+  const yaw = !onboard && C.lag > 0 ? camYaw : state.h;
+  camE.set(-(state.pitch ?? 0) * C.pitch, yaw, (state.roll ?? 0) * C.roll); // the same rotation as the car model (carModel.js)
+  camQ.setFromEuler(camE);
+  let pos, look;
+  if (rearView.lookBack) ({ pos, look } = RIG.back);
+  else if (onboard) { // T-cam on the airbox / driver's eyes
+    const c = camMode === 2 ? cams.tcam : cams.cockpit, tilt = Math.tan(THREE.MathUtils.degToRad(c.tilt ?? 0)) * 20;
+    pos = [0, c.y, c.z]; look = [0, c.y + tilt, 20];
+  } else ({ pos, look } = RIG[camMode]);
+  camBase.set(state.x, state.y ?? 0, state.z);
+  camPos.set(...pos).applyQuaternion(camQ).add(camBase);
+  camLook.set(...look).applyQuaternion(camQ).add(camBase);
+  camera.up.set(0, 1, 0).applyQuaternion(camQ); // leans with the car on banking
 }
 function snapCamera() {
   if (!race) return;
   camYaw = race.player.state.h;
-  cameraTarget(race.player.state, camPos, camLook);
+  cameraTarget(race.player.state);
   camera.position.copy(camPos); camera.lookAt(camLook);
 }
 
@@ -417,6 +431,7 @@ function tick(timestamp) {
   if (shadowSweep > 1) { shadowSweep = 0; applyShadowCasters(); } // scenery that loaded since (see applyShadowCasters)
 
   if (!race) { // menu: live AI race filmed like TV
+    camera.up.set(0, 1, 0); // (the race camera leans with the car; the TV cameras don't)
     showcase.update(dt);
     const t = showcase.target?.state;
     if (t) { // keep the sharp shadows around the car on screen
@@ -468,17 +483,17 @@ function tick(timestamp) {
   // Start lights on the gantry
   for (const l of circuit.lights) l.mat.emissiveIntensity = race.state === 'countdown' && l.index < race.lightsOn ? 4 : 0;
 
-  // Camera follow with speed-based FOV and a bit of shake on impacts / kerbs
-  const ps = race.player.state;
-  let dYaw = ps.h - camYaw;
-  dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
-  camYaw += dYaw * (1 - Math.exp(-5 * dt));
-  cameraTarget(ps, camPos, camLook);
+  // Camera: rides with the car (CAMERA above), a little wider at speed, a shake when you hit something
+  const ps = race.player.state, lag = CAMERA.chase.lag;
+  if (lag > 0) { const dYaw = Math.atan2(Math.sin(ps.h - camYaw), Math.cos(ps.h - camYaw)); camYaw += dYaw * (1 - Math.exp(-dt / lag)); }
+  else camYaw = ps.h;
+  cameraTarget(ps);
   camera.position.copy(camPos);
-  shake = Math.max(ps.hitWall, ps.surface !== 'road' && ps.speed > 5 ? 0.15 : 0, shake - dt * 3);
+  const SH = CAMERA.shake;
+  shake = Math.max(SH.impacts ? ps.hitWall : 0, SH.kerbs && ps.surface !== 'road' && ps.speed > 5 ? 0.15 : 0, shake - dt * 3);
   if (shake > 0) camera.position.add(new THREE.Vector3((Math.random() - 0.5) * shake * 0.25, (Math.random() - 0.5) * shake * 0.25, 0));
   camera.lookAt(camLook);
-  const fov = 62 + Math.min(ps.speed, 95) * 0.14;
+  const fov = CAMERA.speedFov ? 62 + Math.min(ps.speed, 95) * 0.14 : 62;
   camera.fov += (fov - camera.fov) * Math.min(1, dt * 4); camera.updateProjectionMatrix();
   nameTags.update(camera);
 

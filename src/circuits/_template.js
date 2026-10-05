@@ -43,7 +43,8 @@ export default {
   ],
 
   // ---- Shape ----
-  banking: [                 // banked corners, tilted toward the inside
+  banking: [                 // banked corners, tilted toward the inside. at → at + len fully banked;
+                             // ramp: metres it takes to build up / die away (default 45; ~150 for an oval's 31°)
     // { at: 854, len: 134, deg: 19, name: 'Hugenholtzbocht' },
   ],
   elevation: [],             // road heights (m), evenly spaced round the lap from points[0]. [] = flat.

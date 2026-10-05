@@ -1,7 +1,9 @@
 // Banked corners: the road tilts toward the inside of the turn.
-// Each circuit file lists them in `banking: [{ at, len, deg, name }]`, with
+// Each circuit file lists them in `banking: [{ at, len, deg, name, ramp }]`, with
 // positions in metres along the lap from its first point (same as stands).
-// Banking fades in and out over RAMP metres.
+// `at` to `at + len` is fully banked; the banking builds up over `ramp` metres before it and dies away over
+// `ramp` metres after it (default RAMP). Steep, wide banking (an oval's 31°) needs a long ramp, ~150 m, or the
+// outside edge climbs like a wall.
 // The inside edge stays at road height and the outside edge rises, so a 19°
 // bank lifts the outer kerb by several metres — just like the real thing.
 //
@@ -22,8 +24,9 @@ export function applyBanking(t, list, startAt) {
     let k = 0;
     for (let d = 0; d <= c.len; d += 4) k += t.curv[Math.floor(mod(s0 + d, t.length) / t.ds) % t.n];
     const angle = (Math.sign(k) || 1) * (c.deg * Math.PI) / 180;
-    for (let d = -RAMP; d <= c.len + RAMP; d += t.ds / 2) {
-      const w = d < 0 ? smoothstep((d + RAMP) / RAMP) : d > c.len ? smoothstep((c.len + RAMP - d) / RAMP) : 1;
+    const ramp = Math.max(c.ramp ?? RAMP, 1);
+    for (let d = -ramp; d <= c.len + ramp; d += t.ds / 2) {
+      const w = d < 0 ? smoothstep((d + ramp) / ramp) : d > c.len ? smoothstep((c.len + ramp - d) / ramp) : 1;
       const i = Math.floor(mod(s0 + d, t.length) / t.ds) % t.n;
       if (Math.abs(angle * w) > Math.abs(t.bank[i])) t.bank[i] = angle * w;
     }
@@ -44,4 +47,3 @@ export function bankRoll(t, i, lateral) {
   const b = t.bank ? t.bank[i] : 0;
   return b && Math.abs(lateral) < t.hw[i] + t.kerb ? -b : 0;
 }
-

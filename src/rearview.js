@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { GRAPHICS } from './settings.js';
 
+const ME = new THREE.Euler(0, 0, 0, 'YXZ'), MQ = new THREE.Quaternion(), MB = new THREE.Vector3(), ML = new THREE.Vector3();
+
 export class RearView {
   constructor(renderer) {
     this.renderer = renderer;
@@ -85,10 +87,12 @@ export class RearView {
     if (!show) return;
     this.layout();
 
-    // Camera just behind the rear wing, looking back down the track
-    const fx = Math.sin(state.h), fz = Math.cos(state.h), y = state.y ?? 0, sp = Math.sin(state.pitch ?? 0);
-    this.cam.position.set(state.x - fx * 3.1, y + 1.05 - sp * 3.1, state.z - fz * 3.1);
-    this.cam.lookAt(state.x - fx * 40, y + 0.5 - sp * 40, state.z - fz * 40);
+    // Camera just behind the rear wing, looking back down the track; it turns, pitches and leans with the car
+    MQ.setFromEuler(ME.set(-(state.pitch ?? 0), state.h, state.roll ?? 0));
+    MB.set(state.x, state.y ?? 0, state.z);
+    this.cam.position.set(0, 1.05, -3.1).applyQuaternion(MQ).add(MB);
+    this.cam.up.set(0, 1, 0).applyQuaternion(MQ);
+    this.cam.lookAt(ML.set(0, 0.5, -40).applyQuaternion(MQ).add(MB));
 
     const r = this.renderer;
     const shadows = r.shadowMap.autoUpdate;
@@ -107,7 +111,7 @@ export class RearView {
     r.autoClear = true;
   }
 
-  // Camera while Q is held: in front of the car, looking back over it.
+  // (Not used any more: main.js places the look-back camera with the others, so it leans with the car too.)
   lookBackTarget(state, out, look) {
     const fx = Math.sin(state.h), fz = Math.cos(state.h), y = state.y ?? 0, sp = Math.sin(state.pitch ?? 0);
     out.set(state.x + fx * 7.5, y + 2.6 + sp * 7.5, state.z + fz * 7.5);

@@ -226,6 +226,9 @@ can be shrunk without visible loss using glTF-Transform:
   (https://sketchfab.com/3d-models/oracle-red-bull-f1-car-rb19-2023-e4afe46f3aab4b23a418da06fc163821),
   licensed CC-BY-4.0. If you share the game, keep this credit visible.
 - Circuit layouts: bacinger/f1-circuits (MIT). Elevation: F1 timing data via TracingInsights.
+- Le Mans and Daytona: centrelines from tobi/track-atlas (https://github.com/tobi/track-atlas, MIT), built from
+  OpenStreetMap data (© OpenStreetMap contributors, ODbL) and, for Daytona, 2021 aerial survey data (Florida DEP).
+  Le Mans elevation: Mapzen Terrain Tiles (USGS, NOAA, Copernicus EU-DEM) via markthebault/open-racetrack-db.
 
 ## Ideas for what to build next
 

@@ -225,7 +225,8 @@ export function placeCar(car, track, s, lateral = 0) {
   car.vx = car.vz = car.vf = car.speed = car.steer = car.yawRate = 0;
   car.lockF = false; car.inPitLane = false; car.pitLimiter = false;
   car.trackIndex = i; car.s = s; car.lateral = lateral;
-  car.y = track.h ? track.h[i] : 0;
+  car.y = (track.h ? track.h[i] : 0) + bankLift(track, i, lateral); // on a banked grid (Daytona), on the banking, not in it
+  car.roll = bankRoll(track, i, lateral);
   car.pitch = track.grade ? Math.atan(track.grade[i]) : 0;
 }
 
