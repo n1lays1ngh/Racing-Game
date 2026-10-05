@@ -77,11 +77,10 @@ export default {
   model: {
     url: '/models/amg_gt3.glb',
     length: null,             // null = the file is already to scale, in metres, centred on the axles (prepare-car.mjs)
-    builtin: 'gt',            // the light built-in car: AI cars further away (and your car if the model can't load)
-    // AI cars close up are this model repainted: the livery's navy blue becomes the team's colour (stickers stay)
-    paint: { material: 'Body', colour: '#081848' },
-    farLivery: { color: 0x081848, accent: 0xd81838 }, // friends' cars further away (online): the light car in these colours
-    lite: [],                 // parts left out of other people's cars (none: its steering wheel is one light part)
+    builtin: 'gt',            // the built-in GT3 (carBodies.js): the AI cars, in their team's colours (and your car if
+                              // the model can't load). AI cars are never this model: that's yours
+    farLivery: { color: 0x081848, accent: 0xd81838 }, // friends' cars further away (online): the built-in car in these colours
+    lite: [],                 // parts left out of friends' cars (none: its steering wheel is one light part)
     steeringLock: 2.6, frontWheelSteer: 1.4, maxSpinPerFrame: 0.5, blurSpeed: [4, 11],
     // Onboard cameras (x = metres to the left of the middle, name = what the HUD calls it, the rest as in f1.js):
     // the roof camera, and the driver's eyes in the left-hand seat behind the wheel (prepare-car.mjs prints where)

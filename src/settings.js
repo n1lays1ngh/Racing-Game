@@ -13,8 +13,7 @@
 //   forest         multiplies the woods further out (LOOK.forest in scenery.js)
 //   buildings      multiplies scenery.buildings on street circuits
 //   viewDistance   metres; things further away aren't drawn (the haze is pulled in to match)
-//   detailedCars   how many other cars get the full model at once, the rest the light car (carLod.js): friends'
-//                  cars online, and AI Hypercars and GT3s
+//   detailedCars   online: how many friends' cars get the full car model at once (carLod.js)
 //   blur           frosted-glass blur behind the HUD and menu panels (redrawn every frame over the 3D view)
 // Per circuit, scenery.trees / scenery.buildings in its file still set the base numbers.
 

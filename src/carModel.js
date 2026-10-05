@@ -4,10 +4,8 @@
 //    (public/models/rb19.glb), the Ferrari 499P (ferrari_499p.glb) or the Mercedes-AMG GT3 (amg_gt3.glb).
 //    The model is rigged when it loads: the four wheels spin, the front wheels steer (with their brake
 //    calipers), and the steering wheel in the cockpit turns as you steer, with a live screen on it or the dash.
-//  • AI cars: a built-in procedural car painted in each team's colours (createBuiltinCar further down), in the
-//    car's own shape: an F1 car, a Le Mans prototype or a GT car (BODIES). Cars whose model can be repainted
-//    (`paint` in the model settings: the Hypercar and the GT3) are the real model in the team's colours when
-//    they're close to the camera (carLod.js swaps them).
+//  • AI cars: a built-in car made in code, painted in each team's colours (createBuiltinCar further down), in the
+//    car's own shape: an F1 car (BODIES), a Le Mans Hypercar or a GT3 (carBodies.js). Never a copy of your car.
 //  • Your car is the built-in one too if its .glb can't be loaded.
 //
 // "Oracle Red Bull F1 Car RB19 2023" model by Redgrund
@@ -21,6 +19,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { steerLimit, gearbox } from './physics.js';
+import { bodyFor, rimGeometry, NEW_BODIES } from './carBodies.js';
 import F1 from './cars/f1.js';
 
 // The F1 car's model settings (src/cars/f1.js: `model`). Each car has its own in its file.
@@ -147,11 +146,9 @@ function numberTexture(num, color) {
 const COMPOUNDS = [0xe8261f, 0xffd12a, 0xf2f2f2]; // soft / medium / hard sidewall stripe
 
 // The built-in cars: one body shape per kind of car (`builtin` in the car's model settings, src/cars/):
-//   f1    open wheels, halo, wings (the F1 car)
-//   proto a Le Mans prototype: closed cockpit, big fenders over the wheels, shark fin, full-width rear wing
-//   gt    a GT racer: long bonnet, cabin set back, wide arches, rear wing on swan-neck mounts
-// Each fills the material buckets (B) and says where its wheels go and how big they are.
-// The proto and gt shapes stand in for the cars' own 3D models until those are ready.
+//   f1    open wheels, halo, wings (the F1 car), here in BODIES: it fills the material buckets (B) and says where
+//         its wheels go and how big they are
+//   proto a Le Mans Hypercar, and gt a GT3: made in carBodies.js (createBodyCar below), with spoked rims
 const BODIES = {
   f1(B, car, M) {
     // --- Floor (with edge wings) and plank ---
@@ -269,156 +266,12 @@ const BODIES = {
     return { wheels: [[-0.8, 1.8, 0.3, true], [0.8, 1.8, 0.3, true], [-0.78, -1.8, 0.4, false], [0.78, -1.8, 0.4, false]],
       tyre: { R: 0.36, rim: 0.232, stripe: true }, cams: BUILTIN_CAMS };
   },
-
-  // Le Mans prototype, 5.0 m long and 2.0 m wide; wheels ±1.575 m (wheelbase 3.15), track 1.64 m
-  proto(B, car, M) {
-    const WZ = 1.575, WX = 0.82;
-    B.carbon.push(boxAt(1.9, 0.03, 4.9, 0, 0.09, 0));                          // floor
-    B.carbon.push(boxAt(1.92, 0.025, 0.55, 0, 0.07, 2.3));                     // front splitter
-    // the tub between the wheels: narrow enough for the wheels to show beside it
-    B.paint.push(loft([
-      { z: -2.52, y: 0.14, w: 0.6, h: 0.62, p: 4 },
-      { z: -2.0, y: 0.1, w: 0.64, h: 0.64, p: 4 },
-      { z: -1.0, y: 0.1, w: 0.64, h: 0.56, p: 4 },
-      { z: 0.0, y: 0.1, w: 0.64, h: 0.5, p: 4 },
-      { z: 1.0, y: 0.1, w: 0.62, h: 0.44, p: 4 },
-      { z: 2.0, y: 0.09, w: 0.56, h: 0.34, p: 4 },
-      { z: 2.5, y: 0.08, w: 0.46, h: 0.2, p: 3 },
-    ]));
-    for (const s of [-1, 1]) {
-      // fenders arching over the wheels (the lower part of each tyre shows underneath)
-      B.paint.push(loft([
-        { z: WZ - 0.85, x: s * WX, y: 0.4, w: 0.16, h: 0.28 },
-        { z: WZ - 0.4, x: s * WX, y: 0.52, w: 0.2, h: 0.36 },
-        { z: WZ, x: s * WX, y: 0.55, w: 0.2, h: 0.38 },
-        { z: WZ + 0.45, x: s * WX, y: 0.5, w: 0.2, h: 0.33 },
-        { z: WZ + 0.9, x: s * (WX - 0.04), y: 0.2, w: 0.17, h: 0.36, p: 2.5 },
-      ]));
-      B.paint.push(loft([
-        { z: -WZ + 0.9, x: s * WX, y: 0.45, w: 0.16, h: 0.3 },
-        { z: -WZ + 0.45, x: s * WX, y: 0.56, w: 0.2, h: 0.38 },
-        { z: -WZ, x: s * WX, y: 0.58, w: 0.2, h: 0.4 },
-        { z: -WZ - 0.45, x: s * WX, y: 0.55, w: 0.2, h: 0.38 },
-        { z: -WZ - 0.92, x: s * (WX - 0.05), y: 0.3, w: 0.17, h: 0.6, p: 3 },
-      ]));
-      // sills joining them
-      B.paint.push(loft([
-        { z: -WZ + 0.95, x: s * (WX + 0.02), y: 0.1, w: 0.16, h: 0.34, p: 4 },
-        { z: WZ - 0.95, x: s * (WX + 0.02), y: 0.1, w: 0.16, h: 0.3, p: 4 },
-      ], 16));
-      B.head.push(boxAt(0.34, 0.06, 0.05, s * 0.8, 0.66, WZ + 0.86));          // light strip
-      B.dark.push(boxAt(0.3, 0.16, 0.02, s * 0.8, 0.5, WZ + 0.9));              // intakes under it
-      B.body.push(boxAt(0.16, 0.07, 0.05, s * 0.72, 0.9, 0.55));                // mirrors
-      B.visor.push(boxAt(0.14, 0.05, 0.01, s * 0.72, 0.9, 0.524));
-      const win = new THREE.PlaneGeometry(0.62, 0.2); win.rotateY(s * Math.PI / 2); win.translate(s * 0.47, 0.84, 0.15);
-      B.visor.push(win);                                                         // side windows (seen from outside only)
-    }
-    // cockpit canopy, engine cover and the windscreen
-    B.paint.push(loft([
-      { z: 1.0, y: 0.5, w: 0.28, h: 0.2 },
-      { z: 0.6, y: 0.52, w: 0.45, h: 0.42 },
-      { z: 0.05, y: 0.54, w: 0.49, h: 0.5 },
-      { z: -0.55, y: 0.56, w: 0.44, h: 0.44 },
-      { z: -1.1, y: 0.56, w: 0.32, h: 0.38 },
-      { z: -1.8, y: 0.56, w: 0.24, h: 0.32 },
-      { z: -2.45, y: 0.56, w: 0.18, h: 0.26 },
-    ]));
-    const screen = new THREE.PlaneGeometry(0.72, 0.52); screen.rotateX(-0.95); screen.translate(0, 0.86, 0.72);
-    B.visor.push(screen); // (a single face looking out: from the cockpit you see through it)
-    // shark fin, with the number on it
-    B.body.push(sidePlate([[-0.35, 1.04], [-2.3, 0.98], [-2.35, 0.8], [-1.0, 0.86], [-0.45, 0.95]], 0.012, 0));
-    for (const s of [-1, 1]) {
-      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.13), M.number);
-      num.position.set(s * 0.012, 0.92, -1.2); num.rotation.y = s * Math.PI / 2; car.add(num);
-    }
-    // full-width rear wing on two pylons, endplates, tail light, diffuser
-    B.carbon.push(wing(1.82, 0.3, 0.025, 0, 1.0, -2.36, 0.2));
-    B.accent.push(wing(1.82, 0.14, 0.02, 0, 1.07, -2.52, 0.55));
-    for (const s of [-1, 1]) {
-      B.carbon.push(sidePlate([[-2.05, 0.55], [-2.6, 0.55], [-2.62, 1.12], [-2.2, 1.12]], 0.02, s * 0.92));
-      B.carbon.push(boxAt(0.03, 0.4, 0.12, s * 0.3, 0.82, -2.36));
-    }
-    B.light.push(boxAt(1.5, 0.05, 0.03, 0, 0.66, -2.53));
-    const diffuser = new THREE.BoxGeometry(1.5, 0.02, 0.5); diffuser.rotateX(-0.3); diffuser.translate(0, 0.17, -2.3);
-    B.carbon.push(diffuser);
-    return { wheels: [[-WX, WZ, 0.31, true], [WX, WZ, 0.31, true], [-WX, -WZ, 0.33, false], [WX, -WZ, 0.33, false]],
-      tyre: { R: 0.355, rim: 0.235 }, cams: { tcam: { z: -0.2, y: 1.42, tilt: -4 }, cockpit: { z: 0.15, y: 0.95, tilt: -3 } } };
-  },
-
-  // GT racer, 4.75 m long and 2.05 m wide; wheels ±1.315 m (wheelbase 2.63), track 1.68 m
-  gt(B, car, M) {
-    const WZ = 1.315, WX = 0.84;
-    B.carbon.push(boxAt(1.9, 0.03, 4.5, 0, 0.09, 0));                          // floor
-    B.carbon.push(boxAt(1.96, 0.025, 0.42, 0, 0.07, 2.25));                    // splitter
-    // the body: full width at the nose, doors and tail, pinched in at the wheels so they show
-    B.paint.push(loft([
-      { z: -2.36, y: 0.15, w: 0.94, h: 0.74, p: 4 },
-      { z: -2.0, y: 0.12, w: 1.0, h: 0.84, p: 4 },
-      { z: -WZ - 0.42, y: 0.1, w: 0.68, h: 0.86, p: 4 },
-      { z: -WZ + 0.38, y: 0.1, w: 0.68, h: 0.84, p: 4 },
-      { z: -0.72, y: 0.1, w: 1.0, h: 0.82, p: 4 },
-      { z: 0.72, y: 0.1, w: 1.0, h: 0.76, p: 4 },
-      { z: WZ - 0.38, y: 0.1, w: 0.68, h: 0.74, p: 4 },
-      { z: WZ + 0.42, y: 0.1, w: 0.68, h: 0.64, p: 4 },
-      { z: 2.12, y: 0.1, w: 0.98, h: 0.52, p: 4 },
-      { z: 2.4, y: 0.12, w: 0.86, h: 0.38, p: 3.5 },
-    ]));
-    for (const s of [-1, 1]) {
-      // wide arches over the wheels
-      B.paint.push(loft([
-        { z: WZ - 0.5, x: s * WX, y: 0.55, w: 0.17, h: 0.26 },
-        { z: WZ - 0.25, x: s * WX, y: 0.5, w: 0.19, h: 0.4 },
-        { z: WZ, x: s * WX, y: 0.5, w: 0.19, h: 0.42 },
-        { z: WZ + 0.25, x: s * WX, y: 0.48, w: 0.19, h: 0.38 },
-        { z: WZ + 0.55, x: s * WX, y: 0.42, w: 0.17, h: 0.26 },
-      ]));
-      B.paint.push(loft([
-        { z: -WZ + 0.55, x: s * WX, y: 0.6, w: 0.17, h: 0.3 },
-        { z: -WZ + 0.25, x: s * WX, y: 0.52, w: 0.2, h: 0.46 },
-        { z: -WZ, x: s * WX, y: 0.52, w: 0.2, h: 0.48 },
-        { z: -WZ - 0.25, x: s * WX, y: 0.54, w: 0.2, h: 0.44 },
-        { z: -WZ - 0.55, x: s * WX, y: 0.6, w: 0.17, h: 0.3 },
-      ]));
-      const head = new THREE.BoxGeometry(0.34, 0.07, 0.05); head.rotateY(s * 0.35); head.translate(s * 0.66, 0.6, 2.2);
-      B.head.push(head);                                                          // headlights
-      B.light.push(boxAt(0.36, 0.06, 0.03, s * 0.68, 0.84, -2.37));             // tail lights
-      B.body.push(boxAt(0.17, 0.09, 0.05, s * 0.98, 0.98, 0.55));               // mirrors on the doors
-      B.visor.push(boxAt(0.15, 0.07, 0.01, s * 0.98, 0.98, 0.524));
-      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.36), M.number); // number on each door
-      num.position.set(s * 1.012, 0.5, -0.05); num.rotation.y = s * Math.PI / 2; car.add(num);
-      B.dark.push(boxAt(0.22, 0.02, 0.32, s * 0.36, 0.86, 1.45));               // bonnet vents
-    }
-    // the cabin: dark glass all round, the painted roof on top
-    B.visor.push(loft([
-      { z: 0.78, y: 0.76, w: 0.62, h: 0.12 },
-      { z: 0.35, y: 0.78, w: 0.64, h: 0.35 },
-      { z: -0.1, y: 0.8, w: 0.62, h: 0.43 },
-      { z: -0.6, y: 0.82, w: 0.58, h: 0.36 },
-      { z: -1.2, y: 0.84, w: 0.5, h: 0.18 },
-      { z: -1.6, y: 0.88, w: 0.44, h: 0.05 },
-    ]));
-    B.paint.push(loft([
-      { z: 0.32, y: 1.06, w: 0.5, h: 0.08 },
-      { z: -0.1, y: 1.15, w: 0.56, h: 0.09 },
-      { z: -0.6, y: 1.1, w: 0.53, h: 0.09 },
-      { z: -1.15, y: 0.98, w: 0.46, h: 0.07 },
-    ], 16));
-    B.dark.push(boxAt(0.86, 0.2, 0.04, 0, 0.36, 2.41));                        // grille
-    // rear wing on swan-neck mounts, diffuser
-    B.carbon.push(wing(1.86, 0.3, 0.025, 0, 1.3, -2.08, 0.16));
-    for (const s of [-1, 1]) {
-      B.carbon.push(sidePlate([[-1.9, 1.18], [-2.3, 1.18], [-2.3, 1.42], [-1.95, 1.42]], 0.02, s * 0.93));
-      B.carbon.push(sidePlate([[-1.85, 0.92], [-2.05, 0.92], [-2.0, 1.32], [-1.92, 1.32]], 0.025, s * 0.38));
-    }
-    const diffuser = new THREE.BoxGeometry(1.6, 0.02, 0.45); diffuser.rotateX(-0.28); diffuser.translate(0, 0.18, -2.15);
-    B.carbon.push(diffuser);
-    return { wheels: [[-WX, WZ, 0.31, true], [WX, WZ, 0.31, true], [-WX, -WZ, 0.33, false], [WX, -WZ, 0.33, false]],
-      tyre: { R: 0.34, rim: 0.23 }, cams: { tcam: { z: -0.4, y: 1.55, tilt: -4 }, cockpit: { z: -0.2, y: 1.02, tilt: -3 } } };
-  },
 };
 
 // kind: the body shape (BODIES above); cams: onboard cameras to use instead of the body's own
-function createBuiltinCar({ color = 0xe10600, accent = 0xffffff, number = 1 } = {}, kind = 'f1', cams = null) {
+function createBuiltinCar(team = {}, kind = 'f1', cams = null) {
+  if (NEW_BODIES.includes(kind)) return createBodyCar(team, kind, cams);
+  const { color = 0xe10600, accent = 0xffffff, number = 1 } = team;
   const car = new THREE.Group();
   car.rotation.order = 'YXZ'; // yaw first, then pitch in the car's own frame
 
@@ -484,6 +337,85 @@ function createBuiltinCar({ color = 0xe10600, accent = 0xffffff, number = 1 } = 
   car.userData = { wheels, steerPivots, cams: cams ?? shape.cams };
   return car;
 }
+
+// ---------- the built-in Hypercar and GT3 (carBodies.js) ----------
+// The shapes are shared by every car of a kind; each car gets its own paint (team colour and accent), number
+// plates, and a motion-blur disc on each wheel (the spokes would strobe at speed).
+const SHARED = {};
+const shared = () => SHARED.carbon ? SHARED : Object.assign(SHARED, {
+  carbon: new THREE.MeshStandardMaterial({ map: carbonTexture(), metalness: 0.4, roughness: 0.45 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x07080a, roughness: 0.75 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x0b0e14, metalness: 0.2, roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03 }),
+  tyre: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92, side: THREE.DoubleSide }),
+  disc: new THREE.MeshStandardMaterial({ color: 0x3a3c40, metalness: 0.7, roughness: 0.5 }),
+});
+function plateTexture(num) { // race number: black on a white plate
+  return canvasTex(128, 96, (x) => {
+    x.fillStyle = '#f4f4f2'; x.beginPath(); x.roundRect(2, 2, 124, 92, 14); x.fill();
+    x.fillStyle = '#0b0b0d'; x.font = 'bold 72px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(String(num), 64, 52);
+  });
+}
+const rimMats = new Map();
+function createBodyCar({ color = 0xe10600, accent = 0xffffff, number = 1 } = {}, kind, cams) {
+  const b = bodyFor(kind), S = shared(), car = new THREE.Group();
+  car.rotation.order = 'YXZ'; // yaw first, then pitch in the car's own frame
+  const M = {
+    body: new THREE.MeshPhysicalMaterial({ color, metalness: 0.3, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.08 }),
+    accent: new THREE.MeshPhysicalMaterial({ color: accent, metalness: 0.3, roughness: 0.35, clearcoat: 0.8 }),
+    carbon: S.carbon, dark: S.dark, glass: S.glass,
+    light: new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 0.6 }),     // tail lights
+    head: new THREE.MeshStandardMaterial({ color: 0xdfe6f2, emissive: 0xf4f7ff, emissiveIntensity: 0.35, roughness: 0.2 }), // headlights
+  };
+  for (const [key, geo] of Object.entries(b.merged)) {
+    const mesh = new THREE.Mesh(geo, M[key] ?? M.body);
+    mesh.name = 'builtin_' + key; // (builtin_head: the headlights, headlights.js)
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    car.add(mesh);
+  }
+  const plate = new THREE.MeshStandardMaterial({ map: plateTexture(number), roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -2 });
+  for (const n of b.numbers) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(n.w, n.h), plate);
+    m.position.set(...n.pos); if (n.rotX) m.rotation.x = n.rotX; if (n.rotY) m.rotation.y = n.rotY;
+    car.add(m);
+  }
+  // wheels: tyre, spoked rim, brake disc (all spin), caliper (steers, doesn't spin), blur disc (fades in with speed)
+  const t = b.tyre, key = kind + t.rimColour;
+  if (!rimMats.has(key)) rimMats.set(key, {
+    rim: new THREE.MeshStandardMaterial({ color: t.rimColour, metalness: 0.65, roughness: 0.32 }),
+    caliper: new THREE.MeshStandardMaterial({ color: t.caliper, metalness: 0.3, roughness: 0.4 }),
+  });
+  const RM = rimMats.get(key), rimRGB = [16, 8, 0].map((sh) => +Math.min(1, (((t.rimColour >> sh) & 255) / 255) * 1.5).toFixed(2));
+  const blurMat = new THREE.MeshStandardMaterial({ map: blurTexture(rimRGB), roughness: 0.6, metalness: 0.2, transparent: true, opacity: 0, depthWrite: false });
+  blurMat.visible = false;
+  const wheels = [], steerPivots = [];
+  for (const [x, z, width, front] of b.wheels) {
+    const { R, rim } = t, w2 = width / 2, k = R / 0.36, side = Math.sign(x);
+    const pivot = new THREE.Group(); pivot.position.set(x, R, z); car.add(pivot);
+    const wheel = new THREE.Group(); pivot.add(wheel);
+    const prof = [[rim, -w2], [0.3 * k, -w2], [0.343 * k, -w2 + 0.015], [R, -w2 + 0.06], [R, w2 - 0.06], [0.343 * k, w2 - 0.015], [0.3 * k, w2], [rim, w2]]
+      .map(([rr, y]) => new THREE.Vector2(rr, y));
+    const tyre = new THREE.Mesh(tyreLathe(prof), S.tyre);
+    tyre.rotation.z = Math.PI / 2; tyre.castShadow = true; wheel.add(tyre);
+    const rg = rimGeometry(R, rim, t.spokes, width);
+    const face = new THREE.Group(); face.rotation.y = side > 0 ? 0 : Math.PI; wheel.add(face); // spokes on the outside
+    const spokes = new THREE.Mesh(rg.face, RM.rim); spokes.position.x = rg.faceX; face.add(spokes);
+    face.add(new THREE.Mesh(rg.barrel, RM.rim), new THREE.Mesh(rg.backing, S.dark));
+    const disc = new THREE.Mesh(discGeometry(rim), S.disc); disc.position.x = rg.faceX - 0.07; face.add(disc);
+    const caliper = new THREE.Mesh(caliperGeometry(rim), RM.caliper);
+    caliper.position.set(side * (rg.faceX - 0.065), rim * 0.55, -rim * 0.45); pivot.add(caliper);
+    const blur = new THREE.Mesh(blurDisc(rim), blurMat);
+    blur.rotation.y = side * Math.PI / 2; blur.position.x = side * (w2 - 0.004); blur.name = 'blur'; pivot.add(blur);
+    wheels.push(wheel); if (front) steerPivots.push(pivot);
+  }
+  car.userData = { wheels, steerPivots, cams: cams ?? b.cams, blurMats: [blurMat], spinVis: 0, lastSpin: null };
+  return car;
+}
+const lathes = new Map(), discs = new Map(), calipers = new Map(), blurDiscs = new Map();
+const once = (map, key, make) => (map.has(key) ? map.get(key) : map.set(key, make()).get(key));
+const tyreLathe = (prof) => once(lathes, prof.map((p) => p.x.toFixed(3) + ',' + p.y.toFixed(3)).join(), () => new THREE.LatheGeometry(prof, 36));
+const discGeometry = (rim) => once(discs, rim, () => new THREE.CylinderGeometry(rim * 0.8, rim * 0.8, 0.03, 24).rotateZ(Math.PI / 2));
+const caliperGeometry = (rim) => once(calipers, rim, () => new THREE.BoxGeometry(0.05, rim * 0.5, rim * 0.32).rotateX(0.7));
+const blurDisc = (rim) => once(blurDiscs, rim, () => new THREE.CircleGeometry(rim * 1.02, 40));
 
 // Called every frame with the physics state.
 // ---------- the car models (.glb) ----------
@@ -621,39 +553,6 @@ function rigModel(root, cfg) {
   }
 }
 
-// AI cars in the full model wear their team's colour: every pixel of the livery's main colour (cfg.paint.colour,
-// in the material cfg.paint.material) is repainted, keeping its shading; stickers and other colours stay.
-function paintMaterial(base, from, to, tol) {
-  const m = base.clone();
-  const uniforms = { paintFrom: { value: new THREE.Vector3(...from) }, paintTo: { value: to }, paintTol: { value: new THREE.Vector2(...tol) } };
-  const finish = base.userData.patch; // the paint finish from loadModel, if the car has one
-  m.onBeforeCompile = (sh, renderer) => {
-    finish?.(sh, renderer);
-    Object.assign(sh.uniforms, uniforms);
-    sh.fragmentShader = 'uniform vec3 paintFrom;\nuniform vec3 paintTo;\nuniform vec2 paintTol;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-#ifdef USE_MAP
-  {
-    vec3 srgb = pow(max(sampledDiffuseColor.rgb, vec3(0.0)), vec3(1.0 / 2.2)); // compare in the texture's own colours
-    float k = 1.0 - smoothstep(paintTol.x, paintTol.y, distance(srgb, paintFrom));
-    float lum = clamp(dot(srgb, vec3(0.299, 0.587, 0.114)) / max(dot(paintFrom, vec3(0.299, 0.587, 0.114)), 0.02), 0.6, 1.4);
-    diffuseColor.rgb = mix(diffuseColor.rgb, paintTo * pow(lum, 2.2), k);
-  }
-#endif`);
-  };
-  m.customProgramCacheKey = () => `car-paint-${base.userData.patchKey ?? ''}`;
-  return m;
-}
-function repaint(car, cfg, team) {
-  const P = cfg.paint; if (!P) return;
-  const hex = parseInt(P.colour.slice(1), 16), from = [(hex >> 16) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
-  const to = new THREE.Color(team.color ?? 0xffffff), mats = new Map();
-  car.traverse((o) => {
-    if (!o.isMesh || o.material.name !== P.material) return;
-    if (!mats.has(o.material)) mats.set(o.material, paintMaterial(o.material, from, to, P.tolerance ?? [0.12, 0.26]));
-    o.material = mats.get(o.material);
-  });
-}
-
 // Load a car's model (once; asking again gives the same load). cfg: the `model` part of a car's file
 // (src/cars/). Resolves true when the model is ready, false if it couldn't be loaded.
 export function loadCarModel(cfg = CAR_MODEL) {
@@ -681,7 +580,6 @@ function loadModel(cfg) {
             .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n  metalnessFactor = min(metalnessFactor, ${f.maxMetalness.toFixed(3)});`);
         };
         m.onBeforeCompile = patch;
-        m.userData.patch = patch; m.userData.patchKey = `${f.minRoughness}-${f.maxMetalness}`; // (repainted copies keep it)
         m.customProgramCacheKey = () => `car-finish-${f.minRoughness}-${f.maxMetalness}`;
       }
     });
@@ -705,13 +603,12 @@ function loadModel(cfg) {
   });
 }
 
-// team: repaint it in this team's colours (AI cars); lite: someone else's car, seen from outside: no live screen,
-// and the parts in cfg.lite left out (cockpit details nobody sees from outside)
-function createModelCar(cfg, { team = null, lite = false } = {}) {
+// lite: someone else's car (a friend's, online), seen from outside: no live screen, and the parts in cfg.lite left
+// out (cockpit details nobody sees from outside)
+function createModelCar(cfg, { lite = false } = {}) {
   const car = new THREE.Group();
   car.rotation.order = 'YXZ'; // yaw first, then pitch in the car's own frame
   car.add(templates.get(cfg).clone());  // geometry and textures are shared between cars
-  if (team) repaint(car, cfg, team);
   if (lite) for (const name of cfg.lite ?? []) { const o = car.getObjectByName(name); if (o) o.visible = false; }
   const wheels = [], steerPivots = [], blurMats = new Set();
   let display = null;
@@ -736,19 +633,16 @@ function createModelCar(cfg, { team = null, lite = false } = {}) {
 
 // A car for a team. car: which car (its file in src/cars/; race.carDef).
 //   player: your car (or a friend's online): the model in its own livery
-//   paint:  an AI car in the model, repainted in the team's colours (needs cfg.paint; carLod.js decides when)
 //   lite:   seen only from outside (see createModelCar)
-// The model is used once it has loaded (loadCarModel); until then, and for other AI cars, the built-in car.
-export function createCarModel(team = {}, { player = false, car = F1, paint = false, lite = false } = {}) {
+// The model is used once it has loaded (loadCarModel); until then, and for AI cars, the built-in car in the
+// team's colours (never a copy of your car).
+export function createCarModel(team = {}, { player = false, car = F1, lite = false } = {}) {
   const cfg = car.model;
-  if (templates.has(cfg)) {
-    if (player || cfg.forAI) return createModelCar(cfg, { lite });
-    if (paint && cfg.paint) return createModelCar(cfg, { team, lite });
-  }
+  if (templates.has(cfg) && (player || cfg.forAI)) return createModelCar(cfg, { lite });
   // the car's body shape (BODIES), with its own cameras, unless the car only has the built-in body
   return createBuiltinCar(team, cfg.builtin ?? 'f1', cfg.builtin && !cfg.url ? cfg.cams : null);
 }
-// Has this car's model loaded (so AI cars can be the repainted model)?
+// Has this car's model loaded?
 export const modelReady = (car) => templates.has(car.model);
 
 // Onboard camera positions for this car (a car that swaps detail, carLod.js: the one showing)
@@ -780,6 +674,12 @@ export function syncCarModel(model, state) {
       const k = THREE.MathUtils.clamp((state.steer ?? 0) / Math.max(steerLimit(Math.abs(state.vf ?? 0), state.spec?.physics), 1e-3), -1, 1);
       u.steeringWheel.quaternion.copy(tmpQ.setFromAxisAngle(u.swAxis, k * cfg.steeringLock));
     }
+  } else if (u.blurMats) { // the built-in Hypercar and GT3: spoked rims, so like the models: capped spin, blur at speed
+    const spin = state.wheelSpin ?? 0, d = u.lastSpin == null ? 0 : spin - u.lastSpin; u.lastSpin = spin;
+    u.spinVis += THREE.MathUtils.clamp(d, -cfg.maxSpinPerFrame, cfg.maxSpinPerFrame);
+    for (const w of u.wheels) w.rotation.x = u.spinVis;
+    const blur = smooth01(cfg.blurSpeed[0], cfg.blurSpeed[1], Math.abs(state.vf ?? state.speed ?? 0));
+    for (const m of u.blurMats) { m.opacity = blur; m.visible = blur > 0.01; }
   } else {
     for (const w of u.wheels) w.rotation.x = state.wheelSpin;
   }

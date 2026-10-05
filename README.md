@@ -112,7 +112,7 @@ background keep racing (just without drawing).
   `http://localhost:5173/?relay`) in both windows: everything then goes through the relay.
 
 **Tuning:** update rates are `RATE` in `src/net/session.js`; smoothing of other people's cars is
-`SMOOTH` in `src/net/remote.js`; when other cars switch to the light model is `LOD` in `src/carLod.js` (within what distance; how many at once is
+`SMOOTH` in `src/net/remote.js`; when friends' cars switch to the light model is `LOD` in `src/carLod.js` (within what distance; how many at once is
 `detailedCars` in the graphics presets, `src/settings.js`);
 name tag size and range are `TAGS` in `src/nametags.js`; max players is `NET.maxPlayers` in `src/net/peer.js`.
 
@@ -143,14 +143,15 @@ src/
   physics.js        Arcade car physics (grip, downforce, slip, walls), gearbox; each car's numbers are in cars/
   ai.js             Speed profile + pure-pursuit AI drivers
   race.js           Grid, start lights, laps, timing, positions, collisions
-  carModel.js       The car models (rigged .glb: spinning wheels, steering, live screen), AI repaints, the built-in car
+  carModel.js       The car models (rigged .glb: spinning wheels, steering, live screen) and the built-in cars
+  carBodies.js      The built-in Hypercar and GT3 (the AI cars in those classes), made in code
   scenery.js        Sky, sun and shadows, road, kerbs, run-off, barriers, stands, trees, city buildings
   hud.js            Speedo, timing, standings, minimap
   input.js          Keyboard and gamepad
   audio.js          Web Audio engine, tyre and wind sound
   lobby.js          Multiplayer lobby screen: create / join a room, drivers, race settings
   nametags.js       Names over friends' cars
-  carLod.js         Other cars swap to the light built-in car further away
+  carLod.js         Friends' cars swap to the light built-in car further away
   net/
     peer.js         Browser-to-browser connections (WebRTC) and the room server calls
     session.js      Online room: lobby, start, keeping everyone's race in step
@@ -242,10 +243,9 @@ the front motor's whine when it deploys; the GT3 a 6.2 V8 with the burble of its
 
 Your car is the real model in its own livery (the 499P in Ferrari red, the AMG in Max Verstappen's Red Bull
 colours), with a live screen on the 499P's steering wheel and on the AMG's dash. The T-cam is a roof camera on
-these two, and the cockpit camera sits at the driver's eyes in the left-hand seat. AI Hypercars and GT3s are the
-same model repainted in their team's colours when they're close to the camera (the livery's main colour changes,
-the stickers stay), and a light built-in car further away; how many get the full model at once is `detailedCars`
-in the graphics presets (`src/settings.js`). AI F1 cars are always the built-in car.
+these two, and the cockpit camera sits at the driver's eyes in the left-hand seat. The AI cars never drive your
+car: they're a generic Le Mans Hypercar and a generic GT3 made in code (`src/carBodies.js`), in their team's
+colours, with spoked rims, brake calipers and their own lights. (AI F1 cars are the built-in F1 car.)
 
 **When a car races** (`times` in its file): the F1 car races every circuit at that circuit's own time of day
 (the `time` in the circuit file, so Bahrain or Singapore are night races under floodlights). The Hypercar and

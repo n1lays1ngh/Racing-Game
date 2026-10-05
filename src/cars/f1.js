@@ -99,9 +99,9 @@ export default {
     // Steering-wheel display, in model units from the steering wheel's centre (x right, y up, z forward)
     display: { x: 0, y: 0.006, z: -0.0088, w: 0.064, h: 0.027 },
     // Optional (see gt3.js and hypercar.js, whose models were made with tools/prepare-car.mjs): length: null (the file
-    // is already to scale), paint (AI cars are the model repainted in their team's colours, close up), farLivery
-    // (friends' cars further away), lite (parts left out of other people's cars), x in the onboard cameras (seat
-    // to one side). Those models carry their own screen position, tyre sizes and brake calipers.
+    // is already to scale), builtin (the AI cars' body: 'proto' or 'gt', carBodies.js), farLivery (friends' cars
+    // further away), lite (parts left out of friends' cars), x in the onboard cameras (seat to one side). Those
+    // models carry their own screen position, tyre sizes and brake calipers.
   },
 
   // ---- Chase cameras (main.js): [x (left), y (up), z (forward)] in metres from the car's centre on the road ----

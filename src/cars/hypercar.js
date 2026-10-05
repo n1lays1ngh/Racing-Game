@@ -96,10 +96,9 @@ export default {
   model: {
     url: '/models/ferrari_499p.glb',
     length: null,
-    builtin: 'proto',
-    paint: { material: 'Body', colour: '#d80808' },   // AI cars close up: the Ferrari red becomes the team's colour
+    builtin: 'proto',          // the built-in Hypercar (carBodies.js): the AI cars, in their team's colours
     farLivery: { color: 0xd80808, accent: 0xf8b808 },
-    lite: ['steering_pivot'],  // other cars: no steering wheel (a dozen small parts nobody sees from outside)
+    lite: ['steering_pivot'],  // friends' cars: no steering wheel (a dozen small parts nobody sees from outside)
     steeringLock: 1.6, frontWheelSteer: 1.4, maxSpinPerFrame: 0.5, blurSpeed: [4, 11],
     // the T-cam on top of the roof intake; the driver's eyes in the left-hand seat
     cams: { tcam: { name: 'Roof cam', x: 0, z: 0.05, y: 1.24, tilt: -1.4 }, cockpit: { x: 0.145, z: 0.12, y: 0.73, tilt: -2 } },
