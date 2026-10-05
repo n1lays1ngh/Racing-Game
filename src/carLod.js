@@ -12,11 +12,12 @@ export const LOD = {
   farLivery: { color: 0x1b2448, accent: 0xd8141d },
 };
 
-export function createRemoteModel(team) {
+// car: the car everyone's racing (its file in src/cars/; race.carDef)
+export function createRemoteModel(team, car) {
   const group = new THREE.Group();
-  const hi = createCarModel(team, { player: true });
+  const hi = createCarModel(team, { player: true, car });
   hi.userData.display = null; // no live steering-wheel screen on other people's cars (saves work every frame)
-  const lo = createCarModel({ ...team, ...LOD.farLivery }, { player: false });
+  const lo = createCarModel({ ...team, ...LOD.farLivery }, { player: false, car });
   lo.visible = false;
   group.add(hi, lo);
   group.userData = { lod: { hi, lo, near: false, d: 0 } };

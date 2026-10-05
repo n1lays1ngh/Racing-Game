@@ -19,6 +19,7 @@ import { createRemoteModel, syncModels } from './carLod.js';
 import { keepTicking, stopTicking } from './net/background.js';
 import { StatsRun } from './stats.js';
 import { StatsScreen } from './statsScreen.js';
+import { getCar, selectedCar } from './cars/index.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -40,7 +41,10 @@ window.addEventListener('resize', () => {
 const world = buildWorld(scene, renderer);
 const audio = new EngineAudio();
 const rearView = new RearView(renderer); // mirror (V) and look back (Q)
-const carModelReady = loadCarModel();    // your RB19 (see carModel.js); falls back to the built-in car
+// The car you race: one of src/cars/ (one kind of car per race). Its 3D model loads in the background
+// (carModel.js); until then, or if it can't be loaded, you get the built-in car.
+let myCar = getCar(selectedCar());
+const carModelReady = loadCarModel(myCar.model);
 const showcase = new Showcase(scene, camera); // live AI race behind the menu
 let menuUI = null;
 let track = null, circuit = null, hud = null;
@@ -53,13 +57,13 @@ function loadTrack(id) {
   showCircuit();
   if (hud) hud.setupMinimap(track); else hud = new HUD(track);
   menuUI?.setTrackInfo(track);
-  if (!race) showcase.start(track); // restart the live race on the new circuit
+  if (!race) showcase.start(track, myCar); // restart the live race on the new circuit
 }
 
 // The scenery for the current circuit (built again when a graphics preset changes how many trees
 // or buildings there are).
 function showCircuit() {
-  circuit = buildCircuit(track);
+  circuit = buildCircuit(track, { car: myCar }); // (the braking boards depend on the car)
   scene.add(circuit.group);
   applyTimeOfDay(world, track); // day, dusk or night (set in the circuit file)
   circuitBuiltWith = sceneryKey();
@@ -70,7 +74,7 @@ function showCircuit() {
 // ---------- graphics presets: Low / Medium / High (settings.js) ----------
 const startedWithAA = GRAPHICS.antialias; // edge smoothing is fixed when the page loads
 let circuitBuiltWith = null;              // the tree / building counts the current circuit was built with
-const sceneryKey = () => [GRAPHICS.trees, GRAPHICS.forest, GRAPHICS.buildings, GRAPHICS.floodlightSpacing].join('|');
+const sceneryKey = () => [GRAPHICS.trees, GRAPHICS.forest, GRAPHICS.buildings, GRAPHICS.floodlightSpacing, myCar.id].join('|');
 
 // How far the camera sees. The haze is pulled in to end before that, so nothing pops in or out.
 function applyViewDistance() {
@@ -202,6 +206,7 @@ function soloConfig() {
   return {
     track: trackSelect.value, laps: Number($('opt-laps').value), difficulty: $('opt-diff').value,
     aiCount: Number($('opt-ai').value), playerName: $('opt-name').value.trim() || 'You', playerColor,
+    car: myCar.id,
   };
 }
 
@@ -215,7 +220,7 @@ function newRace(cfg = soloConfig()) {
   lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
   statsRun = new StatsRun(race, { online: !!lobby.session }); // your stats: time, laps, sectors, result
   models = race.cars.map((c) => {
-    const m = c.isHuman && !c.isPlayer ? createRemoteModel(c.team) : createCarModel(c.team, { player: c.isPlayer });
+    const m = c.isHuman && !c.isPlayer ? createRemoteModel(c.team, race.carDef) : createCarModel(c.team, { player: c.isPlayer, car: race.carDef });
     scene.add(m);
     return m;
   });
@@ -257,7 +262,7 @@ const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classL
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(); });
 
 loadTrack(trackSelect.value);                               // first circuit + live race behind the menu
-carModelReady.then(() => { if (!race) showcase.start(track); }); // swap in the RB19 once it has loaded
+carModelReady.then(() => { if (!race) showcase.start(track, myCar); }); // swap in your car's model once it has loaded
 
 // cfg: race settings (solo: from the menu; online: from the host)
 async function startGame(cfg) {
@@ -285,7 +290,7 @@ function exitRace() {
   paused = false; audio.suspend(); rearView.hide();
   for (const m of models) scene.remove(m);
   models = [];
-  if (race) { race = null; showcase.start(track); }
+  if (race) { race = null; showcase.start(track, myCar); }
 }
 function toMenu() {
   lobby.leave(); lobby.hide(); // online: leaving the menu means leaving the room
@@ -377,13 +382,8 @@ const CAMERA = {
   shake: { impacts: true, kerbs: false },   // shake when you hit something / over kerbs and grass
   speedFov: true,                           // the view widens a little with speed
 };
-// Camera and look-at points in the car's own frame: [x (left), y (up), z (forward)], metres from the car's centre
-// on the road. The onboard cameras come from CAR_MODEL.cams in carModel.js.
-const RIG = {
-  0: { pos: [0, 2.9, -8.5], look: [0, 0.9, 6] },     // Chase
-  1: { pos: [0, 5, -14], look: [0, 0.6, 8] },        // Far chase
-  back: { pos: [0, 2.6, 7.5], look: [0, 0.9, -8] },  // Q held: in front of the car, looking back over it
-};
+// Where the chase cameras sit (Chase, Far chase, and Q held: looking back) comes from the car's file in src/cars/
+// (`cameras`), the onboard cameras from its model (`model.cams`), since a bigger car needs them further out.
 let camYaw = 0;
 const camQ = new THREE.Quaternion(), camE = new THREE.Euler(0, 0, 0, 'YXZ'), camBase = new THREE.Vector3();
 // Where the camera goes for this car state: camPos, camLook and camera.up
@@ -393,11 +393,12 @@ function cameraTarget(state) {
   camE.set(-(state.pitch ?? 0) * C.pitch, yaw, (state.roll ?? 0) * C.roll); // the same rotation as the car model (carModel.js)
   camQ.setFromEuler(camE);
   let pos, look;
-  if (rearView.lookBack) ({ pos, look } = RIG.back);
+  const rig = (race?.carDef ?? myCar).cameras;
+  if (rearView.lookBack) ({ pos, look } = rig.back);
   else if (onboard) { // T-cam on the airbox / driver's eyes
     const c = camMode === 2 ? cams.tcam : cams.cockpit, tilt = Math.tan(THREE.MathUtils.degToRad(c.tilt ?? 0)) * 20;
     pos = [0, c.y, c.z]; look = [0, c.y + tilt, 20];
-  } else ({ pos, look } = RIG[camMode]);
+  } else ({ pos, look } = camMode === 0 ? rig.chase : rig.far);
   camBase.set(state.x, state.y ?? 0, state.z);
   camPos.set(...pos).applyQuaternion(camQ).add(camBase);
   camLook.set(...look).applyQuaternion(camQ).add(camBase);
@@ -501,9 +502,9 @@ function tick(timestamp) {
   world.sun.position.set(ps.x + world.sunDir.x * 150, ps.y + world.sunDir.y * 150, ps.z + world.sunDir.z * 150);
   world.sun.target.position.set(ps.x, ps.y, ps.z);
 
-  const gb = gearbox(Math.abs(ps.vf));
+  const box = ps.spec.gearbox, gb = gearbox(Math.abs(ps.vf), box); // your car's gearbox (src/cars/)
   audio.update({
-    rpm: race.state === 'countdown' ? 6000 + input.throttle * 6000 : gb.rpm,
+    rpm: race.state === 'countdown' ? box.rpm[0] + input.throttle * ((box.rpm[1] - box.rpm[0]) * 6 / 7) : gb.rpm,
     throttle: race.state === 'countdown' ? input.throttle : ps.throttle,
     slip: ps.slip, surface: ps.surface, speed: ps.speed, hit: ps.hitWall,
     gear: gb.gear, brake: ps.brake,

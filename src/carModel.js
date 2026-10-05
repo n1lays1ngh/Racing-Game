@@ -1,6 +1,7 @@
 // How the cars look.
 //
-//  • Your car: the 3D model in public/models/rb19.glb (settings in CAR_MODEL below).
+//  • Your car: the 3D model of the car you're racing (`model` in its file in src/cars/; the F1 car's
+//    RB19 is public/models/rb19.glb).
 //    The model is rigged when it loads: the four wheels spin, the front wheels steer,
 //    and the steering wheel in the cockpit turns as you steer.
 //  • AI cars (and your car if the .glb can't be loaded): a built-in procedural car,
@@ -15,24 +16,10 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { steerLimit, gearbox } from './physics.js';
+import F1 from './cars/f1.js';
 
-export const CAR_MODEL = {
-  url: '/models/rb19.glb',  // null = use the built-in car
-  length: 5.6,              // nose to rear wing in metres (the model is scaled to this)
-  offsetZ: 0.29,            // slides the model so its wheels sit on the physics wheelbase (±1.8 m)
-  forAI: false,             // true = every car on the grid is an RB19
-  steeringLock: 1.75,       // steering wheel rotation at full lock (radians, 1.75 ≈ 100°)
-  frontWheelSteer: 1.4,     // how far the front wheels turn compared with the physics steer angle
-  maxSpinPerFrame: 0.5,     // cap on wheel rotation per frame, so fast wheels don't strobe backwards
-  blurSpeed: [4, 11],       // m/s where the motion blur on the wheels starts / is complete
-  // Paint finish: the RB19 is matte. Lower maxMetalness / raise minRoughness for less shine.
-  finish: { maxMetalness: 0.2, minRoughness: 0.5, clearcoat: 0.06, clearcoatRoughness: 0.3 },
-  // Onboard cameras for this model: z = metres forward (+) / back (−) from the car's centre,
-  // y = metres above the road, tilt = degrees up (+) / down (−).
-  cams: { tcam: { z: -0.40, y: 1.50, tilt: -5 }, cockpit: { z: 0.25, y: 0.80, tilt: -4 } },
-  // Steering-wheel display, in model units from the steering wheel's centre (x right, y up, z forward)
-  display: { x: 0, y: 0.006, z: -0.0088, w: 0.064, h: 0.027 },
-};
+// The F1 car's model settings (src/cars/f1.js: `model`). Each car has its own in its file.
+export const CAR_MODEL = F1.model;
 const BUILTIN_CAMS = { tcam: { z: -0.35, y: 1.2, tilt: -1.15 }, cockpit: { z: 0.16, y: 0.87, tilt: -0.92 } };
 
 // ---------- geometry helpers ----------
@@ -334,8 +321,9 @@ function createBuiltinCar({ color = 0xe10600, accent = 0xffffff, number = 1 } = 
 }
 
 // Called every frame with the physics state.
-// ---------- the RB19 (.glb) ----------
-let template = null;
+// ---------- the car models (.glb) ----------
+const templates = new Map(); // a car's model settings → the loaded model, ready to copy for each car
+const loading = new Map();   // … and the load in progress
 
 // Motion blur for the wheels: a smeared cover on each face and a smooth tread band that fade in with
 // speed. Above ~40 km/h they hide the real wheel, which keeps turning underneath (capped, so it never
@@ -378,8 +366,9 @@ function makeDisplay() {
 }
 function drawDisplay(d, state) {
   const speed = Math.round(Math.abs(state.vf ?? 0) * 3.6);
-  const gb = gearbox(Math.abs(state.vf ?? 0));
-  const rev = Math.min(1, Math.max(0, (gb.rpm - 6000) / 7000));
+  const box = state.spec?.gearbox ?? F1.gearbox, [r0, r1] = box.rpm;   // this car's gearbox (src/cars/)
+  const gb = gearbox(Math.abs(state.vf ?? 0), box);
+  const rev = Math.min(1, Math.max(0, (gb.rpm - r0) / (r1 - r0)));
   const key = `${speed}|${gb.gear}|${Math.round(rev * 15)}|${Math.round((state.throttle ?? 0) * 10)}|${Math.round((state.brake ?? 0) * 10)}`;
   if (key === d.last) return; d.last = key;
   const x = d.ctx, W = d.c.width, H = d.c.height;
@@ -401,8 +390,8 @@ function drawDisplay(d, state) {
 }
 
 // Wheels, front-wheel steering and steering wheel: each part turns around its own pivot
-// (stored in the model file as node extras).
-function rigModel(root) {
+// (stored in the model file as node extras). cfg: the car's model settings.
+function rigModel(root, cfg) {
   const byName = (n) => root.getObjectByName(n);
   const shellMat = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.85, transparent: true, opacity: 0, depthWrite: false });
   const faceMat = new THREE.MeshStandardMaterial({ map: blurTexture(), roughness: 0.6, metalness: 0.2, transparent: true, opacity: 0, depthWrite: false });
@@ -430,16 +419,21 @@ function rigModel(root) {
     const pivot = new THREE.Group(); pivot.name = 'steering_pivot'; pivot.position.copy(p);
     pivot.userData.axis = sw.userData.spinAxis ?? [0, 0, -1]; // steering column direction, pointing at the driver
     sw.parent.add(pivot); pivot.add(sw); sw.position.sub(p);
-    const D = CAR_MODEL.display; // screen facing the driver (placeholder texture until the car is created)
+    const D = cfg.display; // screen facing the driver (placeholder texture until the car is created)
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(D.w, D.h), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
     screen.name = 'display'; screen.position.set(D.x, D.y, D.z); screen.rotation.y = Math.PI;
     pivot.add(screen);
   }
 }
 
-// Load once at startup. Resolves true when the model is ready, false if it couldn't be loaded.
+// Load a car's model (once; asking again gives the same load). cfg: the `model` part of a car's file
+// (src/cars/). Resolves true when the model is ready, false if it couldn't be loaded.
 export function loadCarModel(cfg = CAR_MODEL) {
-  if (!cfg.url) return Promise.resolve(false);
+  if (!cfg?.url) return Promise.resolve(false);
+  if (!loading.has(cfg)) loading.set(cfg, loadModel(cfg));
+  return loading.get(cfg);
+}
+function loadModel(cfg) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   return loader.loadAsync(cfg.url).then((gltf) => {
@@ -461,7 +455,7 @@ export function loadCarModel(cfg = CAR_MODEL) {
         m.customProgramCacheKey = () => `car-finish-${f.minRoughness}-${f.maxMetalness}`;
       }
     });
-    rigModel(model);
+    rigModel(model, cfg);
     // Scale to the right length, centre it, wheels on the road (y = 0), nose towards +Z
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -470,7 +464,8 @@ export function loadCarModel(cfg = CAR_MODEL) {
     box = new THREE.Box3().setFromObject(model);
     const c = box.getCenter(new THREE.Vector3());
     model.position.set(-c.x, -box.min.y, -c.z + cfg.offsetZ);
-    template = new THREE.Group(); template.add(model);
+    const template = new THREE.Group(); template.add(model);
+    templates.set(cfg, template);
     return true;
   }).catch((err) => {
     console.warn(`Car model ${cfg.url} couldn't be loaded, using the built-in car.`, err);
@@ -478,10 +473,10 @@ export function loadCarModel(cfg = CAR_MODEL) {
   });
 }
 
-function createModelCar() {
+function createModelCar(cfg) {
   const car = new THREE.Group();
   car.rotation.order = 'YXZ'; // yaw first, then pitch in the car's own frame
-  car.add(template.clone());  // geometry and textures are shared between cars
+  car.add(templates.get(cfg).clone());  // geometry and textures are shared between cars
   const wheels = [], steerPivots = [], blurMats = new Set();
   let display = null;
   car.traverse((o) => {
@@ -495,14 +490,16 @@ function createModelCar() {
   car.traverse((o) => { if (o.name === 'blur') o.material = own.get(o.material); });
   const steeringWheel = car.getObjectByName('steering_pivot');
   const swAxis = new THREE.Vector3().fromArray(steeringWheel?.userData.axis ?? [0, 0, -1]).normalize();
-  car.userData = { model: true, wheels, steerPivots, blurMats: [...own.values()], steeringWheel, swAxis, display,
-    cams: CAR_MODEL.cams, spinVis: 0, lastSpin: null, frame: 0 };
+  car.userData = { model: true, cfg, wheels, steerPivots, blurMats: [...own.values()], steeringWheel, swAxis, display,
+    cams: cfg.cams, spinVis: 0, lastSpin: null, frame: 0 };
   return car;
 }
 
-// A car for a team. player = true for your car.
-export function createCarModel(team = {}, { player = false } = {}) {
-  if (template && (player || CAR_MODEL.forAI)) return createModelCar();
+// A car for a team. player = true for your car. car: which car (its file in src/cars/; race.carDef).
+// The model is used once it has loaded (loadCarModel); until then, and for AI cars, the built-in car.
+export function createCarModel(team = {}, { player = false, car = F1 } = {}) {
+  const cfg = car.model;
+  if (templates.has(cfg) && (player || cfg.forAI)) return createModelCar(cfg);
   return createBuiltinCar(team);
 }
 
@@ -515,26 +512,26 @@ const tmpQ = new THREE.Quaternion();
 export function syncCarModel(model, state) {
   model.position.set(state.x, state.y ?? 0, state.z);
   model.rotation.y = state.h;
-  const u = model.userData;
+  const u = model.userData, cfg = u.cfg ?? CAR_MODEL; // the model's settings (the built-in car uses the F1 car's)
   if (u.model) {
     // Wheels: follow the real rotation, but never more than maxSpinPerFrame per frame (no backwards strobing),
     // with a motion-blur disc fading in as the speed rises.
     const spin = state.wheelSpin ?? 0;
     const d = u.lastSpin == null ? 0 : spin - u.lastSpin; u.lastSpin = spin;
-    u.spinVis += THREE.MathUtils.clamp(d, -CAR_MODEL.maxSpinPerFrame, CAR_MODEL.maxSpinPerFrame);
+    u.spinVis += THREE.MathUtils.clamp(d, -cfg.maxSpinPerFrame, cfg.maxSpinPerFrame);
     for (const w of u.wheels) w.rotation.x = u.spinVis;
-    const blur = smooth01(CAR_MODEL.blurSpeed[0], CAR_MODEL.blurSpeed[1], Math.abs(state.vf ?? state.speed ?? 0));
+    const blur = smooth01(cfg.blurSpeed[0], cfg.blurSpeed[1], Math.abs(state.vf ?? state.speed ?? 0));
     for (const m of u.blurMats) { m.opacity = blur; m.visible = blur > 0.01; }
     if (u.display && u.frame++ % 2 === 0) drawDisplay(u.display, state); // steering-wheel screen, 30 times a second
-    // Steering wheel: turns with your steering input (full lock = CAR_MODEL.steeringLock)
+    // Steering wheel: turns with your steering input (full lock = the model's steeringLock)
     if (u.steeringWheel) {
-      const k = THREE.MathUtils.clamp((state.steer ?? 0) / Math.max(steerLimit(Math.abs(state.vf ?? 0)), 1e-3), -1, 1);
-      u.steeringWheel.quaternion.copy(tmpQ.setFromAxisAngle(u.swAxis, k * CAR_MODEL.steeringLock));
+      const k = THREE.MathUtils.clamp((state.steer ?? 0) / Math.max(steerLimit(Math.abs(state.vf ?? 0), state.spec?.physics), 1e-3), -1, 1);
+      u.steeringWheel.quaternion.copy(tmpQ.setFromAxisAngle(u.swAxis, k * cfg.steeringLock));
     }
   } else {
     for (const w of u.wheels) w.rotation.x = state.wheelSpin;
   }
-  for (const p of u.steerPivots) p.rotation.y = (state.steer ?? 0) * CAR_MODEL.frontWheelSteer;
+  for (const p of u.steerPivots) p.rotation.y = (state.steer ?? 0) * cfg.frontWheelSteer;
   // Follow the slope of the hill, plus a little pitch for weight transfer
   model.rotation.x = -(state.pitch ?? 0) + state.brake * 0.012 - state.throttle * 0.006;
   model.rotation.z = state.roll ?? 0; // lean with banked corners

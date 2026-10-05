@@ -1,8 +1,11 @@
 // Your driving stats, recorded while you drive and kept in this browser (localStorage):
 //   overall    time on track, distance, laps (and how many were clean), races, wins, podiums, top speed
-//   per lap    time, the three sectors, top speed, clean or off track, practice / race / online
+//   per lap    time, the three sectors, top speed, clean or off track, practice / race / online, the car
 //   per circuit fastest lap (valid laps only), best sectors (→ theoretical best), average lap, races,
 //              wins, podiums, best and average finish, time on track, distance, top speed
+// Records are per circuit and per car (src/cars/): a GT3 lap doesn't compete with an F1 lap. The overall
+// totals count every car; each car also has its own totals. Stats saved before cars had their own records
+// (version 1) were all driven in the F1 car, so they become the F1 car's when they're first read.
 // The stats screen (statsScreen.js, main menu → Your stats) shows them.
 //
 //   const run = new StatsRun(race, { online })   main.js, when a race or practice session starts
@@ -11,7 +14,8 @@
 //   run.finish()               you took the chequered flag
 //   run.end()                  you left / restarted / closed the page (safe to call twice)
 //   run.flush()                save what's been driven so far (tab hidden)
-//   getStats()                 everything, for the stats screen
+//   getStats(car)              one car's records, laps, sessions and totals, for the stats screen
+//   getStats()                 everything (the overall totals in .total)
 //   resetStats()               wipe it all
 //
 // Units: times in seconds, distances in metres, speeds in km/h, dates in ms (Date.now()).
@@ -22,17 +26,19 @@
 // doesn't count towards the average lap.
 
 const KEY = 'apex-circuit:stats';
-const VERSION = 1;
+const VERSION = 2;
+const FIRST_CAR = 'f1'; // laps and sessions saved without a car were driven in this one
 export const LIMITS = { laps: 3000, races: 500 }; // the lap and session logs keep the newest this many; totals and records keep everything
 const r3 = (t) => Math.round(t * 1000) / 1000;
 
+const blankTotal = () => ({ time: 0, dist: 0, laps: 0, cleanLaps: 0, sessions: 0, races: 0, finished: 0, wins: 0, podiums: 0, top: 0 });
 function blank() {
   return {
     v: VERSION, since: Date.now(),
-    total: { time: 0, dist: 0, laps: 0, cleanLaps: 0, sessions: 0, races: 0, finished: 0, wins: 0, podiums: 0, top: 0 },
-    circuits: {}, // id → see blankCircuit()
-    laps: [],     // { c, t, n, at, clean, s: [s1, s2, s3]?, top, mode, diff?, standing? }   oldest first
-    races: [],    // { c, at, mode, diff?, laps, done, field, grid?, pos?, result, best?, total? }  oldest first
+    total: blankTotal(), // every car
+    cars: {},     // car id → { total, circuits: { circuit id → see blankCircuit() } }
+    laps: [],     // { c, car, t, n, at, clean, s: [s1, s2, s3]?, top, mode, diff?, standing? }   oldest first
+    races: [],    // { c, car, at, mode, diff?, laps, done, field, grid?, pos?, result, best?, total? }  oldest first
   };
 }
 function blankCircuit() {
@@ -52,8 +58,13 @@ let data = null, dirty = false, saveQueued = false;
 
 function read() {
   try {
-    const d = JSON.parse(localStorage.getItem(KEY));
-    if (d && d.v === VERSION && d.total && d.circuits) {
+    let d = JSON.parse(localStorage.getItem(KEY));
+    // version 1 (before each car had its own records): everything in it was driven in the F1 car
+    if (d && d.v === 1 && d.total && d.circuits) {
+      d = { v: VERSION, since: d.since, total: d.total, cars: { [FIRST_CAR]: { total: { ...d.total }, circuits: d.circuits } },
+        laps: d.laps, races: d.races };
+    }
+    if (d && d.v === VERSION && d.total && d.cars) {
       const b = blank();
       return { ...b, ...d, total: { ...b.total, ...d.total }, laps: d.laps ?? [], races: d.races ?? [] };
     }
@@ -61,9 +72,16 @@ function read() {
   return blank();
 }
 const db = () => (data ??= read());
+// one car's records and totals (made when you first drive it)
+const carsFilledIn = new WeakSet(); // car entries already given any fields they were missing
+function carOf(car) {
+  const all = db().cars, c = (all[car] ??= { total: blankTotal(), circuits: {} });
+  if (!carsFilledIn.has(c)) { c.total = Object.assign(blankTotal(), c.total); c.circuits ??= {}; carsFilledIn.add(c); }
+  return c;
+}
 const filledIn = new WeakSet(); // circuit records already given any fields they were missing
-function circuitOf(id) {
-  const all = db().circuits;
+function circuitOf(car, id) {
+  const all = carOf(car).circuits;
   if (!all[id] || !filledIn.has(all[id])) { all[id] = Object.assign(blankCircuit(), all[id] ?? {}); filledIn.add(all[id]); }
   return all[id];
 }
@@ -89,10 +107,14 @@ function saveSoon() {
   else setTimeout(save, 400);
 }
 
-// Everything, for the stats screen. Read fresh (another tab may have raced meanwhile) unless there's unsaved driving.
-export function getStats() {
+// For the stats screen. Read fresh (another tab may have raced meanwhile) unless there's unsaved driving.
+// car: just that car's (its records, laps and sessions, and its totals in .total); none = everything.
+export function getStats(car = null) {
   if (!dirty) data = read();
-  return db();
+  const d = db();
+  if (!car) return d;
+  const own = d.cars[car] ?? { total: blankTotal(), circuits: {} }, mine = (x) => (x.car ?? FIRST_CAR) === car;
+  return { ...d, car, total: { ...blankTotal(), ...own.total }, circuits: own.circuits, laps: d.laps.filter(mine), races: d.races.filter(mine) };
 }
 
 export function resetStats() {
@@ -104,6 +126,7 @@ export class StatsRun {
   constructor(race, { online = false } = {}) {
     if (!dirty) data = read();                 // pick up anything another tab saved
     this.race = race; this.id = race.track.id; this.L = race.track.length;
+    this.car = race.carDef?.id ?? FIRST_CAR;     // which car: records are per circuit and per car
     this.field = race.cars.length;
     this.mode = online ? 'online' : this.field > 1 ? 'race' : 'practice';
     this.diff = race.cars.some((c) => c.ai && !c.isPlayer) ? race.difficulty : null; // AI skill, if there were AI cars
@@ -130,9 +153,9 @@ export class StatsRun {
     if (race.state === 'countdown') return;
     if (!this.started) {                        // lights out: a session (and a race, if there are rivals)
       this.started = true;
-      const d = db(), c = circuitOf(this.id);
-      d.total.sessions++; c.sessions++;
-      if (this.mode !== 'practice') { d.total.races++; c.races++; }
+      const d = db(), c = circuitOf(this.car, this.id), t = carOf(this.car).total;
+      d.total.sessions++; t.sessions++; c.sessions++;
+      if (this.mode !== 'practice') { d.total.races++; t.races++; c.races++; }
       c.first ??= Date.now(); c.last = Date.now();
       saveSoon();
     }
@@ -159,11 +182,11 @@ export class StatsRun {
   // A lap from race.js: { lap, time, at, valid, offSec }. Returns { lap: the record, best: new circuit record?, prevBest }.
   lap(e) {
     if (this.ended) return null;
-    const d = db(), c = circuitOf(this.id);
+    const d = db(), c = circuitOf(this.car, this.id), t = carOf(this.car).total;
     const start = e.at - e.time, [b1, b2] = this.cross;
     const off = e.offSec ?? [false, false, false]; // sectors where you broke track limits (or reset)
     const rec = {
-      c: this.id, t: r3(e.time), n: e.lap, at: Date.now(),
+      c: this.id, car: this.car, t: r3(e.time), n: e.lap, at: Date.now(),
       clean: e.valid !== false, top: Math.round(this.lapTop), mode: this.mode,
     };
     if (b1 != null && b2 != null && b1 > start && b2 > b1 && b2 < e.at) rec.s = [r3(b1 - start), r3(b2 - b1), r3(e.at - b2)];
@@ -176,8 +199,8 @@ export class StatsRun {
     if (best) c.best = c.bestClean = brief();
     if (rec.s) rec.s.forEach((v, k) => { if (!off[k] && (c.bestSec[k] == null || v < c.bestSec[k])) c.bestSec[k] = v; });
 
-    c.laps++; d.total.laps++;
-    if (rec.clean) { c.cleanLaps++; d.total.cleanLaps++; }
+    c.laps++; d.total.laps++; t.laps++;
+    if (rec.clean) { c.cleanLaps++; d.total.cleanLaps++; t.cleanLaps++; }
     if (!rec.standing) { c.flySum += rec.t; c.flyN++; }
     c.last = rec.at;
     d.laps.push(rec);
@@ -196,10 +219,10 @@ export class StatsRun {
   // Add the time and distance driven so far to the totals, and save soon.
   commit() {
     if (!this.started) return;
-    const d = db(), c = circuitOf(this.id);
-    d.total.time += this.time; c.time += this.time;
-    d.total.dist += this.dist; c.dist += this.dist;
-    d.total.top = Math.max(d.total.top, Math.round(this.top)); c.top = Math.max(c.top, Math.round(this.top));
+    const d = db(), c = circuitOf(this.car, this.id), t = carOf(this.car).total, top = Math.round(this.top);
+    d.total.time += this.time; t.time += this.time; c.time += this.time;
+    d.total.dist += this.dist; t.dist += this.dist; c.dist += this.dist;
+    d.total.top = Math.max(d.total.top, top); t.top = Math.max(t.top, top); c.top = Math.max(c.top, top);
     c.last = Date.now();
     this.time = 0; this.dist = 0;
     saveSoon();
@@ -217,8 +240,8 @@ export class StatsRun {
 
   logSession(result) {
     if (!this.started) return; // never got past the start lights
-    const d = db(), c = circuitOf(this.id), p = this.race.player, isRace = this.mode !== 'practice';
-    const r = { c: this.id, at: Date.now(), mode: this.mode, laps: this.race.laps, done: Math.max(0, p.lapsDone), field: this.field, result };
+    const d = db(), c = circuitOf(this.car, this.id), t = carOf(this.car).total, p = this.race.player, isRace = this.mode !== 'practice';
+    const r = { c: this.id, car: this.car, at: Date.now(), mode: this.mode, laps: this.race.laps, done: Math.max(0, p.lapsDone), field: this.field, result };
     if (this.diff) r.diff = this.diff;
     if (p.bestLap != null) r.best = r3(p.bestLap);
     if (isRace) r.grid = p.grid;
@@ -226,9 +249,9 @@ export class StatsRun {
       r.total = r3(p.finishTime);
       if (isRace) {
         r.pos = p.position;
-        d.total.finished++; c.finished++; c.posSum += p.position;
-        if (p.position === 1) { d.total.wins++; c.wins++; }
-        if (p.position <= 3) { d.total.podiums++; c.podiums++; }
+        d.total.finished++; t.finished++; c.finished++; c.posSum += p.position;
+        if (p.position === 1) { d.total.wins++; t.wins++; c.wins++; }
+        if (p.position <= 3) { d.total.podiums++; t.podiums++; c.podiums++; }
         c.bestPos = c.bestPos == null ? p.position : Math.min(c.bestPos, p.position);
       }
     }

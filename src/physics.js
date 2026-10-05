@@ -3,6 +3,8 @@
 // bit past the grip limit, straightens itself out, and only locks the brakes
 // if you brake hard while turning hard.
 //
+// How each car drives (grip, power, brakes, steering feel) is in its own file in src/cars/.
+//
 // Conventions: heading h = 0 faces +Z. Forward = (sin h, cos h),
 // left = (cos h, -sin h). Positive steer turns left (h increases).
 import { projectOnTrack, HALF_WIDTH, KERB_WIDTH, SURFACES } from './track.js';
@@ -11,39 +13,16 @@ import { bankLift, bankRoll } from './banking.js';
 import { PITLANE, pitBounds, onPitLane, pitSpeedLimit } from './pitlane.js';
 import { ersStep } from './ers.js';
 import { SLIPSTREAM } from './slipstream.js';
+import F1 from './cars/f1.js';
 
-export const CAR = {
-  // --- engine & brakes ---
-  accel: 17,            // m/s² engine push at low speed
-  accelFade: 0.6,       // how much engine push fades toward top speed
-  drag: 0.00075,        // aero drag (× v²)
-  roll: 0.4,            // rolling resistance, m/s²
-  liftOff: 11.5,           // m/s² extra slowing when off the throttle (engine braking)
-  brake: 40,            // m/s² max braking (still limited by grip)
-  // --- grip ---
-  mu: 1.9,              // tyre grip
-  g: 9.81,
-  downforce: 0.0022,    // extra grip per v² (more grip in fast corners)
-  // --- steering & handling feel ---
-  wheelbase: 3.6,
-  maxSteer: 0.36,       // steering lock at low speed
-  steerFade: 32,        // lock reduces with speed (higher = more lock at speed)
-  steerRate: 2.3,       // how fast the front wheels turn
-  yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
-  slideAllowance: 1.10,  // how far the car can rotate past grip → small controllable slide
-  trailBrake: 0.15,     // extra rotation while braking into a corner
-  powerRotation: 0.20,   // extra rotation on throttle in slow corners
-  stability: 2,       // how strongly slides straighten out (higher = safer, lower = driftier)
-  // --- lock-ups ---
-  lockThreshold: 1.25,  // brake + cornering needed to lock the fronts (higher = harder to lock)
-  lockSteer: 0.30,      // steering left while locked (lock-up understeer)
-  lockBrake: 0.8,       // braking left while locked
-  reverseMax: 12,
-  radius: 1.25,         // collision circle radius (two circles per car)
-};
+// The F1 car's numbers (src/cars/f1.js). Every car has its own in its file in src/cars/; each car's state
+// carries them (state.spec, from createCarState), so cars of different kinds can share a track.
+export const CAR = F1.physics;
 
-export function createCarState(x, z, heading) {
+// spec: the car (a file from src/cars/): its physics, gearbox and hybrid boost
+export function createCarState(x, z, heading, spec = F1) {
   return {
+    spec,
     x, z, h: heading, vx: 0, vz: 0,
     y: 0, pitch: 0, roll: 0, // height, nose-up angle and sideways tilt from hills and banking
     steer: 0, speed: 0, vf: 0, slip: 0,
@@ -55,20 +34,20 @@ export function createCarState(x, z, heading) {
   };
 }
 
-// Steering lock available at a given speed (the AI uses this too).
-export function steerLimit(vf) {
-  return CAR.maxSteer / (1 + Math.max(vf, 0) / CAR.steerFade);
+// Steering lock available at a given speed (the AI uses this too). p: the car's physics (state.spec.physics)
+export function steerLimit(vf, p = CAR) {
+  return p.maxSteer / (1 + Math.max(vf, 0) / p.steerFade);
 }
 
 // Cornering grip. vcurv > 0 in a dip (car pressed into the road = more grip),
 // < 0 over a crest (car goes light = less grip).
-export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0) {
-  const gEff = Math.max(CAR.g + vcurv * vf * vf, 2);
-  return CAR.mu * surfaceGrip * (gEff + CAR.downforce * vf * vf);
+export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0, p = CAR) {
+  const gEff = Math.max(p.g + vcurv * vf * vf, 2);
+  return p.mu * surfaceGrip * (gEff + p.downforce * vf * vf);
 }
 
 export function stepCar(car, input, track, dt) {
-  const p = CAR;
+  const p = car.spec?.physics ?? CAR;
 
   // --- Where are we on the circuit? -------------------------------------
   const proj = projectOnTrack(track, car.x, car.z, car.trackIndex);
@@ -97,14 +76,14 @@ export function stepCar(car, input, track, dt) {
   car.throttle = thr; car.brake = brk;
 
   // --- Steering ---------------------------------------------------------
-  const target = clamp(input.steer, -1, 1) * steerLimit(vf) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
+  const target = clamp(input.steer, -1, 1) * steerLimit(vf, p) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
   car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
 
   // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
   const bankGrip = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
   // car.tow: in another car's slipstream (slipstream.js, set by race.js): dirty air costs a little grip …
   const tow = car.tow ?? 0, dirty = 1 - SLIPSTREAM.dirtyAir * tow;
-  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty, vcurv) + bankGrip, 2);
+  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty, vcurv, p) + bankGrip, 2);
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   const latUse = Math.abs(car.yawRate * vf) / latMax;   // how much cornering grip is in use
@@ -230,15 +209,15 @@ export function placeCar(car, track, s, lateral = 0) {
   car.pitch = track.grade ? Math.atan(track.grade[i]) : 0;
 }
 
-// Simple 8-speed gearbox for the HUD and engine sound.
-const GEAR_TOP = [0, 24, 36, 47, 57, 66, 75, 83, 95]; // m/s at the top of each gear
-export function gearbox(speed) {
-  if (speed < 0.5) return { gear: 'N', rpm: 4000 };
+// Simple gearbox for the HUD and engine sound. box: the car's gearbox (state.spec.gearbox, src/cars/)
+export function gearbox(speed, box = F1.gearbox) {
+  if (speed < 0.5) return { gear: 'N', rpm: box.neutral };
+  const top = box.top, gears = top.length - 1, [r0, r1] = box.rpm;
   let g = 1;
-  while (g < 8 && speed > GEAR_TOP[g]) g++;
-  const lo = g === 1 ? 0 : GEAR_TOP[g - 1] * 0.82, hi = GEAR_TOP[g];
+  while (g < gears && speed > top[g]) g++;
+  const lo = g === 1 ? 0 : top[g - 1] * 0.82, hi = top[g];
   const f = clamp((speed - lo) / (hi - lo), 0, 1);
-  return { gear: String(g), rpm: 6000 + f * 7000 };
+  return { gear: String(g), rpm: r0 + f * (r1 - r0) };
 }
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }

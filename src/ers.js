@@ -7,29 +7,27 @@
 //   ersStep(car, controls, vf, dt) → extra acceleration (m/s²) this step; physics.js calls it for every car,
 //                                    but only the player's input has `boost`, so the AI never deploys.
 // State on the car: car.ers (0–1, starts full) and car.ersMode ('deploy' | 'harvest' | '').
+// How big and strong the battery is depends on the car: `ers` in its file in src/cars/.
+import F1 from './cars/f1.js';
 
-export const ERS = {
-  capacity: 10,        // seconds of deployment in a full battery
-  power: 100,          // how strong: extra push = power ÷ speed (m/s²), like a motor of fixed power …
-  maxPush: 3.2,       // … capped at this at low speed. 85 / 3.2 ≈ +14% acceleration and ~20 km/h more top speed
-  minThrottle: 0.2,   // only deploys while you're on the throttle
-  harvest: 0.090,     // charge gained per second of full braking at speed (0.055 = 5.5% a second)
-  harvestSpeed: 30,   // m/s (108 km/h) from which braking charges at the full rate; slower = less
-};
+// The F1 car's ERS (src/cars/f1.js); each car has its own in its file (ers: null = no hybrid boost).
+export const ERS = F1.ers;
 
 export function ersStep(car, { boost = false, throttle = 0, brake = 0 }, vf, dt) {
-  car.ers ??= 1;                                   // a new car (every race start): full battery
+  const E = car.spec ? car.spec.ers : F1.ers;      // this car's battery (null: it has none)
   car.ersMode = '';
+  if (!E) { car.ers = 0; return 0; }
+  car.ers ??= 1;                                   // a new car (every race start): full battery
   // Deploy: button held, on the throttle, moving forwards, charge left (not in the pit lane, where the
   // speed limiter holds the car anyway)
-  if (boost && throttle >= ERS.minThrottle && vf > 2 && car.ers > 0 && !car.pitLimiter) {
-    car.ers = Math.max(0, car.ers - dt / ERS.capacity);
+  if (boost && throttle >= E.minThrottle && vf > 2 && car.ers > 0 && !car.pitLimiter) {
+    car.ers = Math.max(0, car.ers - dt / E.capacity);
     car.ersMode = 'deploy';
-    return Math.min(ERS.maxPush, ERS.power / vf) * Math.min(1, throttle / 0.6);
+    return Math.min(E.maxPush, E.power / vf) * Math.min(1, throttle / 0.6);
   }
   // Harvest: braking charges the battery
   if (brake > 0.05 && vf > 3 && car.ers < 1) {
-    car.ers = Math.min(1, car.ers + ERS.harvest * brake * Math.min(1, vf / ERS.harvestSpeed) * dt);
+    car.ers = Math.min(1, car.ers + E.harvest * brake * Math.min(1, vf / E.harvestSpeed) * dt);
     car.ersMode = 'harvest';
   }
   return 0;

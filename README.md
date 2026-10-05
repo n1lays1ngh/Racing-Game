@@ -125,6 +125,9 @@ src/
   circuits/         One file per circuit (layout, width, walls, run-off, stands, elevation…)
     index.js        The list shown in the menu — add or remove circuits here
     _template.js    Copy this to make a new circuit; every option is explained in it
+  cars/             One file per car (physics, gearbox, hybrid boost, 3D model, cameras)
+    index.js        The list of cars — add or remove cars here
+    f1.js           The F1 car (RB19); every setting is explained in it
   track.js          Circuit file → samples, walls, surfaces, racing line; CIRCUIT_DEFAULTS
   elevation.js      Hills and crests from a circuit's elevation list
   banking.js        Banked corners
@@ -133,7 +136,7 @@ src/
   rearview.js       Mirror and look-behind camera
   lighting.js       Day / dusk / night: sky, floodlights, fog, lit windows
   settings.js       Graphics settings (resolution, shadows, how many trees and buildings)
-  physics.js        Arcade car physics (grip, downforce, slip, walls), gearbox
+  physics.js        Arcade car physics (grip, downforce, slip, walls), gearbox; each car's numbers are in cars/
   ai.js             Speed profile + pure-pursuit AI drivers
   race.js           Grid, start lights, laps, timing, positions, collisions
   carModel.js       Your car (rigged RB19 .glb: spinning wheels, steering) and the built-in AI car
@@ -160,7 +163,8 @@ which is why the whole race can run in Node.
 ## Ways to customise it
 
 - **Circuits:** see *Adding or changing a circuit* below.
-- **Car handling:** change the numbers in `CAR` in `src/physics.js`: `mu` (grip), `downforce`, `accel`, `brake`, `maxSteer`.
+- **Car handling:** change the numbers in `physics` in the car's file (`src/cars/f1.js` for the F1 car): `mu` (grip),
+  `downforce`, `accel`, `brake`, `maxSteer`. The AI plans its corner speeds from the same numbers. See *Cars* below.
 - **AI pace:** change `DIFFICULTY` in `src/race.js` (`pace` = how hard it pushes, `grip` = grip bonus over you).
 - **Teams and liveries:** edit `TEAMS` in `src/race.js`.
 - **Real 3D car model:** export a `.glb` from Blender, load it with `GLTFLoader`
@@ -212,9 +216,22 @@ After editing, run `npm run sim -- 3 hard <id>`. "off-track samples" should be 0
 (a few in lap-1 traffic is normal). If it isn't, a corner is too tight for the AI or a wall is too
 close: widen that section or give it more run-off. ("wall hits" also counts car-to-car contact.)
 
+## Cars
+
+Each car is one file in `src/cars/`, listed in `src/cars/index.js`, the same way circuits work. A car's file
+has everything about it: `physics` (how it drives; the AI uses the same numbers), `gearbox` (gears and revs
+for the HUD and engine sound), `ers` (the hybrid boost, or `null` for none), `model` (its `.glb` and how it's
+rigged) and `cameras` (where the chase cameras sit). One kind of car races at a time. To add a car, copy
+`f1.js`, change what's different, and add it to the list. `npm run sim -- 3 hard monza <car id>` races it headless.
+
+Your stats keep separate records for each car: a lap in one car never competes with a lap in another.
+
+The original model files for the cars still being added are in `assets-src/cars/` (not served to the
+browser: they're too big; the game uses compressed copies in `public/models/`).
+
 ## Using your own car model (.glb)
 
-Your car is the RB19 in `public/models/rb19.glb` (settings in `CAR_MODEL` at the top of `src/carModel.js`).
+Your car is the RB19 in `public/models/rb19.glb` (settings in `model` in `src/cars/f1.js`).
 Its wheels spin (with a motion-blur disc at speed), the front wheels steer and the steering wheel turns
 with your input. That works because the model file has the wheels and steering wheel as separate parts
 named `wheel_FL`, `wheel_FR`, `wheel_RL`, `wheel_RR` and `steering_wheel`, each with its pivot point
@@ -228,6 +245,10 @@ can be shrunk without visible loss using glTF-Transform:
 - Car model: "Oracle Red Bull F1 Car RB19 2023" by Redgrund on Sketchfab
   (https://sketchfab.com/3d-models/oracle-red-bull-f1-car-rb19-2023-e4afe46f3aab4b23a418da06fc163821),
   licensed CC-BY-4.0. If you share the game, keep this credit visible.
+- Car model: "Ferrari 499p | www.vecarz.com" by vecarz on Sketchfab
+  (https://sketchfab.com/3d-models/ferrari-499p-wwwvecarzcom-f87c672819f34a759ee171733284c53c), licensed CC-BY-4.0.
+- Car model: "Mercedes Benz AMG GT3 Red Bull" by toddeppe on Sketchfab
+  (https://sketchfab.com/3d-models/mercedes-benz-amg-gt3-red-bull-83c34fe5c0d64d838bc3c5e0f2d7f56a), licensed CC-BY-4.0.
 - Circuit layouts: bacinger/f1-circuits (MIT). Elevation: F1 timing data via TracingInsights.
 - Le Mans and Daytona: centrelines from tobi/track-atlas (https://github.com/tobi/track-atlas, MIT), built from
   OpenStreetMap data (© OpenStreetMap contributors, ODbL) and, for Daytona, 2021 aerial survey data (Florida DEP).

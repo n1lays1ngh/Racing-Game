@@ -5,12 +5,13 @@
 // Where they go is worked out from the circuit, so every circuit gets them with nothing to set up:
 // an ideal lap (the AI's speed plan, limited by how fast the car can actually accelerate) shows where a
 // fast lap brakes hard; the boards count down to the end of that braking zone (about where you turn in).
+// That depends on the car you're racing (car: its file in src/cars/; a slower car brakes in fewer places).
 //
-//   findBrakingZones(track)          → [{ i, s, entry, exit, side }]   numbers only, no 3D
-//   buildBrakeBoards(track, heightAt) → THREE.Group                    scenery.js adds it to the circuit
+//   findBrakingZones(track, car)           → [{ i, s, entry, exit, side }]   numbers only, no 3D
+//   buildBrakeBoards(track, heightAt, car) → THREE.Group                    scenery.js adds it to the circuit
 import * as THREE from 'three';
 import { buildSpeedProfile } from './ai.js';
-import { CAR } from './physics.js';
+import F1 from './cars/f1.js';
 
 export const BRAKE_BOARDS = {
   enabled: true,
@@ -27,9 +28,9 @@ export const BRAKE_BOARDS = {
 const mod = (v, m) => ((v % m) + m) % m;
 
 // Speed (m/s) at every sample on an ideal lap: as fast as the corners allow, but no faster than the car accelerates.
-function idealSpeeds(track) {
-  const { n, ds } = track, cap = buildSpeedProfile(track);
-  const accel = (u) => CAR.accel * (1 - CAR.accelFade * Math.min(Math.max(u, 0) / 90, 1)) - CAR.drag * u * u - CAR.roll;
+function idealSpeeds(track, p) {
+  const { n, ds } = track, cap = buildSpeedProfile(track, 1, 0.97, 0.9, p);
+  const accel = (u) => p.accel * (1 - p.accelFade * Math.min(Math.max(u, 0) / 90, 1)) - p.drag * u * u - p.roll;
   let i0 = 0;
   for (let i = 1; i < n; i++) if (cap[i] < cap[i0]) i0 = i;      // start from the slowest corner
   const v = new Float32Array(n);
@@ -44,8 +45,8 @@ function idealSpeeds(track) {
 }
 
 // The big braking zones: where an ideal lap slows down a lot from high speed.
-export function findBrakingZones(track) {
-  const { n, ds } = track, B = BRAKE_BOARDS, v = idealSpeeds(track);
+export function findBrakingZones(track, car = F1) {
+  const { n, ds } = track, B = BRAKE_BOARDS, v = idealSpeeds(track, car.physics);
   // runs of samples where the car is slowing down (a few metres of not slowing don't end a run)
   const slowing = (i) => v[(i + 1) % n] < v[i] - 1e-3;
   let start = 0;
@@ -98,8 +99,8 @@ function faceMaterial(d) {
   return K.faces.get(d);
 }
 
-// heightAt(x, z): the ground's height there (terrain.js)
-export function buildBrakeBoards(track, heightAt) {
+// heightAt(x, z): the ground's height there (terrain.js); car: the car you're racing (src/cars/)
+export function buildBrakeBoards(track, heightAt, car = F1) {
   const group = new THREE.Group();
   group.name = 'brake-boards';
   if (!BRAKE_BOARDS.enabled) return group;
@@ -108,7 +109,7 @@ export function buildBrakeBoards(track, heightAt) {
   for (const d of B.distances) faceMaterial(d).emissiveIntensity = lit;
   const [w, h] = B.size;
   const panel = new THREE.BoxGeometry(w, h, 0.08);
-  const zones = findBrakingZones(track);
+  const zones = findBrakingZones(track, car);
   zones.forEach((z, k) => {
     const prev = zones[(k - 1 + zones.length) % zones.length];
     const room = zones.length > 1 ? mod(z.a - prev.i, n) * ds - 40 : length; // metres of straight since the last big corner

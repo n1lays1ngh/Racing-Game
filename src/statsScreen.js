@@ -5,6 +5,7 @@
 //              a chart of your lap times, your 10 fastest laps and your recent sessions there
 // The numbers are recorded by stats.js while you drive; this file only shows them.
 import { getStats, resetStats, LIMITS } from './stats.js';
+import { DEFAULT_CAR } from './cars/index.js';
 import { formatTime } from './race.js';
 
 const $ = (id) => document.getElementById(id);
@@ -84,7 +85,8 @@ export class StatsScreen {
     this.circuit = null; this.from = 'circuits';
     this.filter = { c: 'all', clean: false, sort: 'new', shown: PAGE };
     this.thumbs = new Map();
-    this.data = getStats();
+    this.car = DEFAULT_CAR;          // whose records are shown (records are per circuit and per car, stats.js)
+    this.data = getStats(this.car);
     $('st-back').addEventListener('click', () => this.back());
     this.body.addEventListener('click', (e) => this.onClick(e));
     this.body.addEventListener('change', (e) => this.onChange(e));
@@ -100,7 +102,7 @@ export class StatsScreen {
   get visible() { return !this.el.classList.contains('hidden'); }
 
   open() {
-    this.data = getStats();
+    this.data = getStats(this.car);
     this.view = 'circuits'; this.circuit = null;
     this.el.classList.remove('hidden');
     this.render();
@@ -136,7 +138,7 @@ export class StatsScreen {
       case 'laps-here': Object.assign(this.filter, { c: this.circuit, shown: PAGE }); this.view = 'laps'; this.circuit = null; this.render(); break;
       case 'reset':
         if (window.confirm("Delete all your stats? Every lap, record and race result will be gone, and this can't be undone.")) {
-          resetStats(); this.data = getStats(); this.view = 'circuits'; this.render();
+          resetStats(); this.data = getStats(this.car); this.view = 'circuits'; this.render();
         }
         break;
     }

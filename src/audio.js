@@ -311,7 +311,7 @@ export class EngineAudio {
       let v = this.others.find((x) => x.car === o.c) ?? this.others.find((x) => !x.car);
       if (!v) continue;
       v.car = o.c;
-      const s = o.c.state, gb = gearbox(Math.abs(s.vf));
+      const s = o.c.state, gb = gearbox(Math.abs(s.vf), s.spec?.gearbox);
       const inv = 1 / Math.max(o.d, 0.001), ux = o.dx * inv, uz = o.dz * inv;
       const away = (s.vx - lvx) * ux + (s.vz - lvz) * uz;                 // + = moving away
       const doppler = Math.min(dHi, Math.max(dLo, 343 / (343 + away)));

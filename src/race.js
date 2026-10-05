@@ -3,6 +3,7 @@
 import { createCarState, stepCar, placeCar, CAR } from './physics.js';
 import { AIDriver, buildSpeedProfile } from './ai.js';
 import { towFor } from './slipstream.js';
+import { getCar, DEFAULT_CAR } from './cars/index.js';
 
 // The grid: you plus 19 AI drivers (made-up teams). Add or remove entries to change the field size.
 // The tower shows the first three letters of each name, so keep those unique.
@@ -57,9 +58,11 @@ export class Race {
   // Online races (see net/session.js) also pass:
   //   humans: [{ id, name, color }] – everyone in the room, in grid order (they start behind the AI)
   //   localId: which of them is you. collisions: false = cars drive through each other.
+  // car: which car everyone races (an id from src/cars/, or the car itself); one kind of car per race.
   constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName,
-    humans = null, localId = null, collisions = true } = {}) {
+    humans = null, localId = null, collisions = true, car = DEFAULT_CAR } = {}) {
     this.track = track;
+    this.carDef = typeof car === 'string' || car == null ? getCar(car) : car;
     this.laps = laps;
     this.collisions = collisions;
     this.difficulty = difficulty;
@@ -70,8 +73,9 @@ export class Race {
     this.lightsOutAt = 5 + 0.4 + Math.random() * 1.2;
     this.lightsOn = 0;
     const diff = DIFFICULTY[difficulty] ?? DIFFICULTY.medium;
-    this.profile = buildSpeedProfile(track, diff.grip, diff.safety, diff.brakeUse);
-    this.playerProfile = buildSpeedProfile(track); // for the cool-down lap
+    const physics = this.carDef.physics;          // the AI's corner speeds and braking come from the car it drives
+    this.profile = buildSpeedProfile(track, diff.grip, diff.safety, diff.brakeUse, physics);
+    this.playerProfile = buildSpeedProfile(track, 1, 0.97, 0.9, physics); // for the cool-down lap
     this.cars = [];
     this.leaderTimes = new Float32Array(Math.ceil(((laps + 1) * track.length) / 10) + 10).fill(-1);
     this.events = [];             // messages for the HUD ("New best lap" etc.)
@@ -88,7 +92,7 @@ export class Race {
       if (isPlayer && playerColor != null) team.color = playerColor;
       if (isPlayer && playerName) team.name = playerName;
       if (human?.name) { team.name = human.name; team.color = human.color ?? team.color; }
-      const state = createCarState(0, 0, 0);
+      const state = createCarState(0, 0, 0, this.carDef);
       placeCar(state, track, track.length - 10 - slot * 8, slot % 2 === 0 ? 2.8 : -2.8);
       const car = {
         id: id ?? teamIdx, team, state, isPlayer, isHuman: !!human, humanId: human?.id ?? null,
@@ -251,12 +255,12 @@ export class Race {
     this.standings = sorted;
   }
 
-  // Each car is two circles (front and rear). Push overlapping cars apart
-  // and exchange momentum along the contact normal.
+  // Each car is two circles (front and rear; their size and spacing come from the car's file in src/cars/).
+  // Push overlapping cars apart and exchange momentum along the contact normal.
   // Online, a car driven from the network only moves when its owner says so: the local car takes the whole push.
   resolveContacts() {
     if (!this.collisions) return;
-    const r = CAR.radius, cars = this.cars;
+    const cars = this.cars;
     for (let a = 0; a < cars.length; a++) {
       for (let b = a + 1; b < cars.length; b++) {
         const ca = cars[a], cb = cars[b];
@@ -264,15 +268,17 @@ export class Race {
         const wa = ca.remote ? 0 : cb.remote ? 1 : 0.5, wb = cb.remote ? 0 : ca.remote ? 1 : 0.5; // share of the push
         const A = ca.state, B = cb.state;
         if ((A.x - B.x) ** 2 + (A.z - B.z) ** 2 > 64) continue;
-        for (const oa of [1.4, -1.4]) {
-          for (const ob of [1.4, -1.4]) {
+        const pa = A.spec?.physics ?? CAR, pb = B.spec?.physics ?? CAR, reach = pa.radius + pb.radius;
+        const offA = pa.contactOffset ?? 1.4, offB = pb.contactOffset ?? 1.4;
+        for (const oa of [offA, -offA]) {
+          for (const ob of [offB, -offB]) {
             const ax = A.x + Math.sin(A.h) * oa, az = A.z + Math.cos(A.h) * oa;
             const bx = B.x + Math.sin(B.h) * ob, bz = B.z + Math.cos(B.h) * ob;
             let dx = bx - ax, dz = bz - az;
             const d = Math.hypot(dx, dz);
-            if (d >= 2 * r || d < 1e-4) continue;
+            if (d >= reach || d < 1e-4) continue;
             dx /= d; dz /= d;
-            const push = 2 * r - d;
+            const push = reach - d;
             A.x -= dx * push * wa; A.z -= dz * push * wa;
             B.x += dx * push * wb; B.z += dz * push * wb;
             const rel = (B.vx - A.vx) * dx + (B.vz - A.vz) * dz;

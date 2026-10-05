@@ -289,11 +289,12 @@ export class HUD {
   update(race, dt) {
     const p = race.player, s = p.state;
     const kmh = Math.round(Math.abs(s.vf) * 3.6);
-    const gb = gearbox(Math.abs(s.vf));
+    const box = s.spec?.gearbox, gb = gearbox(Math.abs(s.vf), box);   // the car's gearbox (src/cars/)
+    const [r0, r1] = box?.rpm ?? [6000, 13000];
     this.el.speed.textContent = kmh;
     this.el.gear.textContent = s.vf < -0.5 ? 'R' : gb.gear;
-    const lit = Math.round(Math.min(1, Math.max(0, (gb.rpm - 6000) / 7000)) * REV_LEDS);
-    const flash = gb.rpm > 12600 && (this.frame >> 2) % 2;
+    const lit = Math.round(Math.min(1, Math.max(0, (gb.rpm - r0) / (r1 - r0))) * REV_LEDS);
+    const flash = gb.rpm > (box?.flash ?? 12600) && (this.frame >> 2) % 2;
     if (lit !== this.litLeds || flash !== this.flash) {
       this.leds.forEach((l, k) => l.classList.toggle('on', k < lit && !flash));
       this.litLeds = lit; this.flash = flash;

@@ -20,15 +20,16 @@ export class Showcase {
         this.pos = new THREE.Vector3(); this.look = new THREE.Vector3(); this.lookSmooth = new THREE.Vector3();
     }
 
-    start(track) {
+    // car: which car they race (its file in src/cars/; the last one asked for if left out)
+    start(track, car = this.car) {
         this.stop();
-        this.track = track;
-        const race = new Race(track, { laps: 50, difficulty: 'hard' });
+        this.track = track; this.car = car;
+        const race = new Race(track, { laps: 50, difficulty: 'hard', car });
         race.player.ai = new AIDriver(race.player.state, track, race.profile, 1.0, 1.12); // your car races too
         race.countdown = race.lightsOutAt;                                                 // lights out straight away
         this.race = race;
         this.models = race.cars.map((c) => {
-            const m = createCarModel(c.team, { player: c.isPlayer });
+            const m = createCarModel(c.team, { player: c.isPlayer, car: race.carDef });
             this.scene.add(m); syncCarModel(m, c.state);
             return m;
         });

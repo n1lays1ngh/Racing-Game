@@ -25,34 +25,35 @@ const VMAX = 120; // planned speed on straights (above what the car can reach, s
 // so the car brakes early enough for the next corner.
 // grip = extra grip the AI gets on this difficulty (1 = same as the player).
 // grip: AI grip bonus; gripSafety: how close to the cornering limit it plans (1 = right on it);
-// brakeUse: how much of the car's braking it plans to use (1 = all of it, latest braking).
-export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97, brakeUse = 0.9) {
+// brakeUse: how much of the car's braking it plans to use (1 = all of it, latest braking);
+// p: the car's physics (its file in src/cars/), since every kind of car has its own corner speeds.
+export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97, brakeUse = 0.9, p = CAR) {
   const { n, ds } = track;
   const v = new Float32Array(n);
-  const mu = CAR.mu * grip * gripSafety;
+  const mu = p.mu * grip * gripSafety;
   const vc = (i) => (track.vcurv ? track.vcurv[i] : 0);   // + dip, − crest
   const grade = (i) => (track.grade ? track.grade[i] : 0); // + uphill
   for (let i = 0; i < n; i++) {
     const k = track.rcurv[i];
-    const denom = k - mu * CAR.downforce - mu * vc(i); // crests lower the corner speed
-    const bankG = CAR.g * (1 + 0.5 * CAR.mu) * Math.sin(Math.abs(track.bank ? track.bank[i] : 0)); // banking helps
-    v[i] = denom <= 1e-5 ? VMAX : Math.min(VMAX, Math.sqrt((mu * CAR.g + bankG) / denom));
+    const denom = k - mu * p.downforce - mu * vc(i); // crests lower the corner speed
+    const bankG = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(track.bank ? track.bank[i] : 0)); // banking helps
+    v[i] = denom <= 1e-5 ? VMAX : Math.min(VMAX, Math.sqrt((mu * p.g + bankG) / denom));
     if (v[i] < AI_TUNE.slowCorners.below) v[i] *= AI_TUNE.slowCorners.boost; // a little braver in slow corners
     // Also slow enough that the steering has the lock for this corner (with the AI's extra lock).
-    const lockNeeded = Math.atan(k * CAR.wheelbase) * 1.02; // small safety margin
+    const lockNeeded = Math.atan(k * p.wheelbase) * 1.02; // small safety margin
     let lo = 0, hi = VMAX; // fastest speed that still has enough lock
     for (let it = 0; it < 24; it++) {
       const mid = (lo + hi) / 2;
-      if (steerLimit(mid) * AI_TUNE.lockBonus >= lockNeeded) lo = mid; else hi = mid;
+      if (steerLimit(mid, p) * AI_TUNE.lockBonus >= lockNeeded) lo = mid; else hi = mid;
     }
     v[i] = Math.min(v[i], Math.max(lo, 5));
   }
   for (let loop = 0; loop < 2; loop++) {
     for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n];
-      const gEff = Math.max(CAR.g + vc(i) * next * next, 2);
-      let brake = brakeUse * Math.min(CAR.brake, 1.2 * mu * (gEff + CAR.downforce * next * next));
-      brake = Math.max(brake + CAR.g * grade(i), 5); // uphill helps, downhill hurts
+      const gEff = Math.max(p.g + vc(i) * next * next, 2);
+      let brake = brakeUse * Math.min(p.brake, 1.2 * mu * (gEff + p.downforce * next * next));
+      brake = Math.max(brake + p.g * grade(i), 5); // uphill helps, downhill hurts
       v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brake * ds));
     }
   }
@@ -68,14 +69,15 @@ export class AIDriver {
   constructor(car, track, profile, skill = 0.93, grip = 1) {
     this.car = car; this.track = track; this.profile = profile;
     this.skill = skill; this.grip = grip;
+    this.p = car.spec?.physics ?? CAR;                   // the car it's driving (src/cars/)
     this.offset = 0; this.offsetTarget = 0; this.offsetTimer = 0;
     const [r0, r1] = AI_TUNE.ers.reserve;
     this.ersReserve = r0 + Math.random() * (r1 - r0);   // some drivers save more battery than others
-    this.usesErs = skill > 0.8;                          // (not on your cool-down lap)
+    this.usesErs = skill > 0.8 && (car.spec ? !!car.spec.ers : true); // (not on your cool-down lap; not if the car has none)
   }
 
   update(dt, others) {
-    const { car, track } = this;
+    const { car, track, p } = this;
     const i = car.trackIndex < 0 ? 0 : car.trackIndex;
     const v = Math.max(car.vf, 0);
 
@@ -120,8 +122,8 @@ export class AIDriver {
     const fwd = dx * fx + dz * fz, left = dx * fz - dz * fx;
     const ld2 = Math.max(fwd * fwd + left * left, 1);
     const curvature = (2 * left) / ld2;
-    const steerAngle = Math.atan(curvature * CAR.wheelbase);
-    const lockHere = steerLimit(v) * AI_TUNE.lockBonus;     // the AI's steering lock at this speed
+    const steerAngle = Math.atan(curvature * p.wheelbase);
+    const lockHere = steerLimit(v, p) * AI_TUNE.lockBonus;  // the AI's steering lock at this speed
     const steer = clamp(steerAngle / lockHere, -1, 1);
 
     // --- Throttle / brake ---------------------------------------------------
@@ -142,7 +144,7 @@ export class AIDriver {
     const room = hwHere + car.lateral * Math.sign(steerAngle); // tarmac left on the outside
     const outOfLock = need > have && v > 10 && wide && room < ROOM;
     if (outOfLock && need > have * LOCK_BRAKE) {
-      const fits = CAR.steerFade * ((CAR.maxSteer * AI_TUNE.lockBonus) / need - 1);   // speed at which the lock is enough
+      const fits = p.steerFade * ((p.maxSteer * AI_TUNE.lockBonus) / need - 1);       // speed at which the lock is enough
       target = Math.min(target, Math.max(fits, AI_TUNE.minWideSpeed));
     }
     const err = target - v;

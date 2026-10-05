@@ -837,7 +837,8 @@ export function buildWorld(scene, renderer) {
 }
 
 // ---------- per circuit ----------
-export function buildCircuit(track) {
+// car: the car being raced (its file in src/cars/): where the braking boards go depends on it
+export function buildCircuit(track, { car } = {}) {
   const M = materials();
   const group = new THREE.Group();
   const add = (mesh) => { if (mesh) group.add(mesh); return mesh; };
@@ -881,7 +882,7 @@ export function buildCircuit(track) {
   // Barriers: concrete wall blocks with sponsor banners, and the debris fence on top (barriers.js)
   group.add(buildBarriers(track));
   // 300 / 200 / 100 m braking boards before the big braking zones (brakeBoards.js)
-  group.add(buildBrakeBoards(track, terrain.heightAt));
+  group.add(buildBrakeBoards(track, terrain.heightAt, car));
 
   // Start/finish line and gantry with the five start lights
   const h0 = Math.atan2(track.tx[0], track.tz[0]);
