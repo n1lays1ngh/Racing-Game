@@ -13,7 +13,7 @@ import { SURFACES } from './track.js';
 import { buildSpeedProfile } from './ai.js';
 import { buildTerrain } from './terrain.js';
 import { bankLift } from './banking.js';
-import { TIMES, buildFloodlights, darkenAwayFromTrack, withLightPools, setLightPools } from './lighting.js';
+import { TIMES, timeOf, buildFloodlights, pitStraight, darkenAwayFromTrack, withLightPools, setLightPools } from './lighting.js';
 import { buildBarriers } from './barriers.js';
 import { buildCity, setWindowLights } from './buildings.js';
 import { buildGrandstands, buildPits, buildPitLane, setVenueLights } from './venue.js';
@@ -950,10 +950,12 @@ export function buildCircuit(track, { car } = {}) {
   const cull = distanceCuller(group);
   if (cull) terrain.mesh.onBeforeRender = (renderer, scene, camera) => cull(camera);
   // Dusk and night races: floodlights, lit windows, and dark surroundings away from the track (lighting.js)
-  const T = TIMES[track.time] ?? TIMES.day;
+  const T = TIMES[timeOf(track)];
   setWindowLights(T.windows);
   setVenueLights(T.windows);                              // stand, garage and glass-floor lights
-  const flood = track.time === 'dusk' || track.time === 'night' ? add(buildFloodlights(track, terrain.heightAt)) : null;
+  // (a dark endurance night, track.lighting 'pits': towers only along the pit straight and paddock)
+  const flood = track.time === 'dusk' || track.time === 'night'
+    ? add(buildFloodlights(track, terrain.heightAt, GRAPHICS.floodlightSpacing, track.lighting === 'pits' ? pitStraight(track) : null)) : null;
   setLightPools(flood?.userData.pools, T.pools ?? 0);      // pools of light on the track under the floodlights
   if (track.time === 'night') {
     const ground = terrain.mesh.material;

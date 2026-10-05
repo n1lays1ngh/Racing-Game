@@ -3,7 +3,7 @@
 //   CAR  – player → host: their own car
 // Header: type (u8) · race number (u8) · car count or car index (u8) · spare (u8) · host clock in ms (f64)
 export const SNAP = 1, CAR = 2;
-export const VERSION = 1; // bump when packets or messages change, so old and new pages don't mix
+export const VERSION = 2; // bump when packets or messages change, so old and new pages don't mix (2: the race's car and time)
 const HEAD = 12, CAR_BYTES = 44;
 const NONE = -1; // "no time yet" for lap times
 

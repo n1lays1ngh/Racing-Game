@@ -56,20 +56,22 @@ npm run dev
 | W / ↑                | Throttle                       |
 | S / ↓ / Space        | Brake (hold when stopped to reverse) |
 | A D / ← →            | Steer                          |
-| C                    | Cycle camera: chase, far chase, T-cam, cockpit |
+| C                    | Cycle camera: chase, far chase, T-cam (a roof cam on the Hypercar and GT3), cockpit |
 | Q (hold)             | Look behind                    |
 | V                    | Rear-view mirror on / off      |
+| H                    | Headlights on / off (Hypercar and GT3; on by themselves at night) |
 | R                    | Reset onto the track           |
 | M                    | Mute                           |
 | Esc / P              | Pause                          |
-| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · View reset · Menu pause. In menus: D-pad/LB/RB circuit, A start, Y multiplayer; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
+| Menu: ↑ ↓ / ← → / N  | Car / circuit / day or night (where the car can race both) |
+| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · D-pad ← headlights · View reset · Menu pause. In menus: D-pad ↑ ↓ car, D-pad ← → / LB / RB circuit, B day or night, A start, Y multiplayer; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
 
 ## Multiplayer
 
 Menu → **Multiplayer**. One person creates a room and gets a 4-letter code (or an invite link);
 everyone else types the code. The host picks the circuit, laps, how many AI cars (none by default),
-AI skill and whether cars collide, then starts. Up to 10 people; everyone drives the RB19 and gets
-their own colour for the tower, the map and the name tag over their car. People start at the back
+AI skill and whether cars collide, then starts. Up to 10 people; everyone drives the car the host picks (in
+its own livery) and gets their own colour for the tower, the map and the name tag over their car. People start at the back
 of the grid in random order, behind any AI. Anyone who drops out mid-race gets a DNF.
 
 **How it works.** The host's browser is the referee: it runs the AI and sends every car's position
@@ -110,7 +112,8 @@ background keep racing (just without drawing).
   `http://localhost:5173/?relay`) in both windows: everything then goes through the relay.
 
 **Tuning:** update rates are `RATE` in `src/net/session.js`; smoothing of other people's cars is
-`SMOOTH` in `src/net/remote.js`; when friends' cars switch to the light model is `LOD` in `src/carLod.js` (how many friends get the full RB19 at once, and within what distance);
+`SMOOTH` in `src/net/remote.js`; when other cars switch to the light model is `LOD` in `src/carLod.js` (within what distance; how many at once is
+`detailedCars` in the graphics presets, `src/settings.js`);
 name tag size and range are `TAGS` in `src/nametags.js`; max players is `NET.maxPlayers` in `src/net/peer.js`.
 
 ## Project layout
@@ -134,19 +137,20 @@ src/
   terrain.js        Ground that follows the track's height (or a circuit's real ground)
   forest.js         Woods right behind the guardrail along forest stretches (the Nordschleife)
   rearview.js       Mirror and look-behind camera
+  headlights.js     Your car's headlights (Hypercar, GT3)
   lighting.js       Day / dusk / night: sky, floodlights, fog, lit windows
   settings.js       Graphics settings (resolution, shadows, how many trees and buildings)
   physics.js        Arcade car physics (grip, downforce, slip, walls), gearbox; each car's numbers are in cars/
   ai.js             Speed profile + pure-pursuit AI drivers
   race.js           Grid, start lights, laps, timing, positions, collisions
-  carModel.js       Your car (rigged RB19 .glb: spinning wheels, steering) and the built-in AI car
+  carModel.js       The car models (rigged .glb: spinning wheels, steering, live screen), AI repaints, the built-in car
   scenery.js        Sky, sun and shadows, road, kerbs, run-off, barriers, stands, trees, city buildings
   hud.js            Speedo, timing, standings, minimap
   input.js          Keyboard and gamepad
   audio.js          Web Audio engine, tyre and wind sound
   lobby.js          Multiplayer lobby screen: create / join a room, drivers, race settings
   nametags.js       Names over friends' cars
-  carLod.js         Friends' RB19s swap to a light model further away
+  carLod.js         Other cars swap to the light built-in car further away
   net/
     peer.js         Browser-to-browser connections (WebRTC) and the room server calls
     session.js      Online room: lobby, start, keeping everyone's race in step
@@ -155,6 +159,7 @@ src/
     background.js   Keeps an online race running in a background tab
   style.css
 tools/simulate.mjs  Runs a whole race headless
+tools/prepare-car.mjs  Turns a downloaded car .glb into a game model (see Using your own car model)
 ```
 
 `physics.js`, `track.js`, `ai.js` and `race.js` don't import any rendering code,
@@ -220,25 +225,59 @@ close: widen that section or give it more run-off. ("wall hits" also counts car-
 
 Each car is one file in `src/cars/`, listed in `src/cars/index.js`, the same way circuits work. A car's file
 has everything about it: `physics` (how it drives; the AI uses the same numbers), `gearbox` (gears and revs
-for the HUD and engine sound), `ers` (the hybrid boost, or `null` for none), `model` (its `.glb` and how it's
-rigged) and `cameras` (where the chase cameras sit). One kind of car races at a time. To add a car, copy
-`f1.js`, change what's different, and add it to the list. `npm run sim -- 3 hard monza <car id>` races it headless.
+for the HUD and engine sound), `sound` (which engine it sounds like), `ers` (the hybrid boost, or `null` for none), `model` (its `.glb` and how it's
+rigged), `cameras` (where the chase cameras sit) and `times` (when it races: see below). One kind of car races
+at a time: you pick it in the menu (the host picks it online). To add a car, copy `f1.js`, change what's
+different, and add it to the list. `npm run sim -- 3 hard monza <car id>` races it headless.
+
+The cars are the F1 car (Red Bull RB19), the Hypercar (Ferrari 499P) and the GT3 (Mercedes-AMG GT3 in Red Bull
+colours). Each drives like itself, tuned with the sim against real lap times: the Hypercar does a flying lap of
+Le Mans in about 3:26 (the 499P qualified in 3:25.1 in 2026), the GT3 about 3:55 there (LMGT3 pole: 3:52.4) and
+8:12 round the Nürburgring 24h lap (pole: 8:11.0). The Hypercar has less power and downforce than the F1 car,
+traction control, no ABS, and a hybrid front axle that deploys by itself above 190 km/h (the HUD says HYBRID).
+The GT3 is heavier, has far less downforce, and has ABS and traction control (the ABS and TC lights show when
+they're working) but no hybrid. Each has its own engine sound (`sound` in its file; the engines are `ENGINES` in
+`src/audio.js`): the Hypercar a twin-turbo V6 that revs to 8,800, deeper than the F1 car's, with a louder turbo and
+the front motor's whine when it deploys; the GT3 a 6.2 V8 with the burble of its cross-plane crank.
+
+Your car is the real model in its own livery (the 499P in Ferrari red, the AMG in Max Verstappen's Red Bull
+colours), with a live screen on the 499P's steering wheel and on the AMG's dash. The T-cam is a roof camera on
+these two, and the cockpit camera sits at the driver's eyes in the left-hand seat. AI Hypercars and GT3s are the
+same model repainted in their team's colours when they're close to the camera (the livery's main colour changes,
+the stickers stay), and a light built-in car further away; how many get the full model at once is `detailedCars`
+in the graphics presets (`src/settings.js`). AI F1 cars are always the built-in car.
+
+**When a car races** (`times` in its file): the F1 car races every circuit at that circuit's own time of day
+(the `time` in the circuit file, so Bahrain or Singapore are night races under floodlights). The Hypercar and
+GT3 race every circuit by day, and Le Mans and the Nürburgring by day or by night (the Day / Night buttons under
+the circuit, or N). Their night is a real endurance night (`night: 'pits'`): floodlights only along the pit
+straight and paddock, the rest of the lap lit by the moon (`TIMES.dark` in `src/lighting.js`) and your headlights.
+They come on by themselves at night (H switches them; the green LIGHTS light under the speed shows they're on):
+two real spotlights shaped like a race car's main beams, plus a pool of light on the road ahead
+(`HEADLIGHTS` in `src/headlights.js`; each car's lamp positions and colour are `headlights` in its file).
 
 Your stats keep separate records for each car: a lap in one car never competes with a lap in another.
 
-The original model files for the cars still being added are in `assets-src/cars/` (not served to the
-browser: they're too big; the game uses compressed copies in `public/models/`).
+The original model files are in `assets-src/cars/` (not served to the browser: they're too big; the game uses
+the rigged, compressed copies in `public/models/` that `tools/prepare-car.mjs` made from them).
 
 ## Using your own car model (.glb)
 
-Your car is the RB19 in `public/models/rb19.glb` (settings in `model` in `src/cars/f1.js`).
-Its wheels spin (with a motion-blur disc at speed), the front wheels steer and the steering wheel turns
+Each car's model is set in `model` in its file: the RB19 is `public/models/rb19.glb` (`src/cars/f1.js`), the
+499P `ferrari_499p.glb` (`hypercar.js`) and the AMG `amg_gt3.glb` (`gt3.js`).
+The wheels spin (with a motion-blur disc at speed), the front wheels steer and the steering wheel turns
 with your input. That works because the model file has the wheels and steering wheel as separate parts
 named `wheel_FL`, `wheel_FR`, `wheel_RL`, `wheel_RR` and `steering_wheel`, each with its pivot point
-stored in the node's `extras`. Set `forAI: true` to give every car on the grid the RB19,
-or `url: null` to go back to the built-in car. A different model needs the same named parts to animate. Big models (hundreds of thousands of triangles)
-can be shrunk without visible loss using glTF-Transform:
-`npx @gltf-transform/cli optimize in.glb out.glb --compress meshopt --texture-compress false`.
+stored in the node's `extras` (`pivot`; `pivotPoint` on a node with children, since three.js's loader reads
+`pivot` there as something else). The 499P and AMG also have `hub_FL` / `hub_FR`, the brake calipers that steer
+but don't spin, and `display_anchor`, where the live screen goes. Set `forAI: true` to give every car on the
+grid the full model in its own livery, or `url: null` to go back to the built-in car.
+
+To turn a downloaded model (Sketchfab and the like) into one: `tools/prepare-car.mjs` (instructions at its top)
+puts it to scale in the game's frame (wheelbase = the physics wheelbase), sorts its parts into those groups by
+their names (a few lines per car in the script), fixes see-through materials, simplifies it to about 40% of
+its triangles and compresses it (meshopt, WebP textures: ~430k triangles and 35–40 MB → 170k and 5 MB). It prints
+where the driver's eyes and the roof are, for the onboard cameras in the car's file.
 
 ## Credits
 

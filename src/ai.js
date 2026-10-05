@@ -40,7 +40,7 @@ export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97, brakeUse =
     v[i] = denom <= 1e-5 ? VMAX : Math.min(VMAX, Math.sqrt((mu * p.g + bankG) / denom));
     if (v[i] < AI_TUNE.slowCorners.below) v[i] *= AI_TUNE.slowCorners.boost; // a little braver in slow corners
     // Also slow enough that the steering has the lock for this corner (with the AI's extra lock).
-    const lockNeeded = Math.atan(k * p.wheelbase) * 1.02; // small safety margin
+    const lockNeeded = Math.atan(k * (p.steerBase ?? p.wheelbase)) * 1.02; // small safety margin
     let lo = 0, hi = VMAX; // fastest speed that still has enough lock
     for (let it = 0; it < 24; it++) {
       const mid = (lo + hi) / 2;
@@ -122,7 +122,7 @@ export class AIDriver {
     const fwd = dx * fx + dz * fz, left = dx * fz - dz * fx;
     const ld2 = Math.max(fwd * fwd + left * left, 1);
     const curvature = (2 * left) / ld2;
-    const steerAngle = Math.atan(curvature * p.wheelbase);
+    const steerAngle = Math.atan(curvature * (p.steerBase ?? p.wheelbase));
     const lockHere = steerLimit(v, p) * AI_TUNE.lockBonus;  // the AI's steering lock at this speed
     const steer = clamp(steerAngle / lockHere, -1, 1);
 

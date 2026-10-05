@@ -40,10 +40,13 @@ export class HUD {
   // ---------- ERS battery (ers.js) ----------
   // A charge bar under the speed: green when charged, blue while braking charges it, yellow while you
   // deploy. When the battery is full (and you're racing) a reminder to deploy flashes above it.
+  // It depends on your car (src/cars/): the Hypercar's hybrid deploys by itself (HYBRID, no reminder), the GT3
+  // has none (no bar). Cars with driver aids (ABS, traction control) get two lights that show when they work,
+  // and cars with headlights (headlights.js) a green LIGHTS light while they're on.
   setupErs() {
     const row = document.createElement('div');
     Object.assign(row.style, { display: 'grid', gridTemplateColumns: 'auto 1fr 46px', alignItems: 'center', columnGap: '10px', marginTop: '12px' });
-    row.innerHTML = `<span style="font-size:12px;font-weight:900;letter-spacing:0.14em;color:#ffd400">⚡ ERS</span>
+    row.innerHTML = `<span data-label style="font-size:12px;font-weight:900;letter-spacing:0.14em;color:#ffd400">⚡ ERS</span>
       <div style="position:relative;height:12px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden">
         <div data-fill style="position:absolute;inset:0;transform-origin:left;background:#1fe05a;transition:background-color 0.15s"></div>
         <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 2px),rgba(11,13,19,0.9) calc(10% - 2px) 10%)"></div>
@@ -51,17 +54,46 @@ export class HUD {
       <b data-pct style="font-size:15px;font-weight:900;text-align:right">100%</b>
       <span data-mode style="grid-column:1/-1;margin-top:4px;font-size:10px;font-weight:700;letter-spacing:0.18em;color:var(--muted);height:12px"></span>`;
     $('speedo').appendChild(row);
+    const aids = document.createElement('div'); // ABS and TC lights
+    Object.assign(aids.style, { display: 'none', gap: '6px', marginTop: '10px' });
+    const lamp = (txt) => `<span data-aid="${txt}" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:900;letter-spacing:0.14em;` +
+      `border:1px solid rgba(255,255,255,0.18);color:var(--muted);transition:background-color 0.1s,color 0.1s">${txt}</span>`;
+    aids.innerHTML = lamp('ABS') + lamp('TC') + lamp('LIGHTS');
+    $('speedo').appendChild(aids);
     const remind = document.createElement('div');
     remind.textContent = '⚡ BATTERY FULL · HOLD SHIFT / R1 TO DEPLOY';
     Object.assign(remind.style, { position: 'absolute', left: '50%', bottom: '31%', transform: 'translateX(-50%)', padding: '7px 18px',
       background: 'rgba(11,13,19,0.86)', border: '1px solid #ffd400', color: '#ffd400', borderRadius: '6px', whiteSpace: 'nowrap',
       font: "900 15px 'Titillium Web', sans-serif", letterSpacing: '0.12em', boxShadow: '0 0 18px rgba(255,212,0,0.35)', display: 'none' });
     this.el.hud.appendChild(remind);
-    this.ers = { fill: row.querySelector('[data-fill]'), pct: row.querySelector('[data-pct]'), mode: row.querySelector('[data-mode]'), remind, full: 0 };
+    this.ers = { row, label: row.querySelector('[data-label]'), fill: row.querySelector('[data-fill]'), pct: row.querySelector('[data-pct]'),
+      mode: row.querySelector('[data-mode]'), remind, full: 0, aids, abs: aids.querySelector('[data-aid="ABS"]'), tc: aids.querySelector('[data-aid="TC"]'),
+      lights: aids.querySelector('[data-aid="LIGHTS"]') };
+  }
+
+  // The bar and the lights for this car (its file in src/cars/)
+  setupCar(spec) {
+    const E = this.ers, ers = spec ? spec.ers : {}, p = spec?.physics ?? {};
+    E.row.style.display = ers ? 'grid' : 'none';
+    E.label.textContent = ers?.auto ? '⚡ HYBRID' : '⚡ ERS';
+    E.auto = !!ers?.auto;
+    E.aids.style.display = p.abs || p.tc || spec?.headlights ? 'flex' : 'none';
+    E.abs.style.display = p.abs ? '' : 'none'; E.tc.style.display = p.tc ? '' : 'none';
+    E.lights.style.display = spec?.headlights ? '' : 'none';
+    E.spec = spec;
   }
 
   updateErs(race, s, dt) {
-    const E = this.ers, charge = s.ers ?? 1, pct = Math.round(charge * 100), full = charge >= 0.995;
+    const E = this.ers;
+    if (E.spec !== s.spec) this.setupCar(s.spec);
+    for (const [el, on, colour] of [[E.abs, s.absActive, '#ffb000'], [E.tc, s.tcActive, '#ffb000'], [E.lights, s.lightsOn, '#1fe05a']]) {
+      if (el.dataset.on !== String(!!on)) { // driver aids working: amber; headlights on: green
+        el.dataset.on = String(!!on);
+        el.style.background = on ? colour : 'transparent'; el.style.color = on ? '#0b0d13' : 'var(--muted)';
+      }
+    }
+    if (s.spec && !s.spec.ers) { if (E.showing) { E.showing = false; E.remind.style.display = 'none'; } return; }
+    const charge = s.ers ?? 1, pct = Math.round(charge * 100), full = charge >= 0.995;
     const mode = s.ersMode === 'deploy' || s.ersMode === 'harvest' ? s.ersMode : full ? 'full' : '';
     if (pct !== E.pctShown) { E.pctShown = pct; E.fill.style.transform = `scaleX(${charge.toFixed(3)})`; E.pct.textContent = pct + '%'; }
     if (mode !== E.modeShown) {
@@ -71,7 +103,7 @@ export class HUD {
     }
     // Full battery while racing on the move (not finished, not in the pit lane): after a second, flash the reminder
     const racing = race.state === 'racing' && race.player.finishTime == null;
-    E.full = full && racing && !s.pitLimiter && s.speed > 15 ? E.full + dt : 0;
+    E.full = full && racing && !E.auto && !s.pitLimiter && s.speed > 15 ? E.full + dt : 0; // (a hybrid that deploys by itself needs no reminder)
     const show = E.full > 1 && (this.frame >> 4) % 3 !== 2;
     if (show !== E.showing) { E.showing = show; E.remind.style.display = show ? 'block' : 'none'; }
   }

@@ -86,15 +86,22 @@ export function stepCar(car, input, track, dt) {
   const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty, vcurv, p) + bankGrip, 2);
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
+  // (a car with ABS, p.abs, never locks: the HUD shows ABS working where it would have)
   const latUse = Math.abs(car.yawRate * vf) / latMax;   // how much cornering grip is in use
   const load = Math.hypot(brk, latUse);
-  if (input.abs || brk < 0.8 || vf < 10) car.lockF = false; // ease off the brake to recover
+  car.absActive = !!p.abs && brk >= 0.8 && vf >= 10 && load > p.lockThreshold;
+  if (input.abs || p.abs || brk < 0.8 || vf < 10) car.lockF = false; // ease off the brake to recover
   else if (!car.lockF && load > p.lockThreshold) car.lockF = true;
+
+  // --- Traction control (p.tc, 0–1): when the rear steps out on the throttle, it trims the power --------
+  const tcCut = p.tc ? p.tc * clamp((car.slip - 1.2) / 3, 0, 1) * (thr > 0.3 ? 1 : 0) : 0;
+  car.tcActive = tcCut > 0.04;
+  const drive = thr * (1 - tcCut * 0.6);                 // throttle that reaches the road
 
   // --- Rotation -----------------------------------------------------------
   const slow = clamp(1 - vf / 60, 0, 1);
-  let yawTarget = vf * Math.tan(car.steer) / p.wheelbase;           // where you're steering
-  yawTarget *= 1 + p.trailBrake * brk + p.powerRotation * thr * slow;
+  let yawTarget = vf * Math.tan(car.steer) / (p.steerBase ?? p.wheelbase); // where you're steering (steerBase: see src/cars/)
+  yawTarget *= 1 + p.trailBrake * brk + p.powerRotation * drive * slow * (1 - 0.5 * (p.tc ?? 0)); // (TC tames power oversteer)
   if (car.lockF) yawTarget *= p.lockSteer;
   const yawMax = p.slideAllowance * latMax / Math.max(Math.abs(vf), 3);
   yawTarget = clamp(yawTarget, -yawMax, yawMax);
@@ -113,7 +120,7 @@ export function stepCar(car, input, track, dt) {
 
   // --- Throttle / brake ---------------------------------------------------
   if (thr > 0) {
-    if (vf >= -0.5) vf += thr * p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)) * dt;
+    if (vf >= -0.5) vf += drive * p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)) * dt;
     else vf = Math.min(0, vf + thr * 10 * dt); // throttle while reversing = stop
   }
   if (brk > 0) {

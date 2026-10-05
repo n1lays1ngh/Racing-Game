@@ -6,6 +6,9 @@
 //
 //   ersStep(car, controls, vf, dt) → extra acceleration (m/s²) this step; physics.js calls it for every car,
 //                                    but only the player's input has `boost`, so the AI never deploys.
+// A car whose ers has `auto: true` (the Hypercar) needs no button: its hybrid front axle deploys by itself
+// on the throttle between minSpeed (190 km/h, as in the Le Mans Hypercar rules) and maxSpeed, where the
+// engine and motor together reach the power cap and it fades out (so it doesn't raise the top speed).
 // State on the car: car.ers (0–1, starts full) and car.ersMode ('deploy' | 'harvest' | '').
 // How big and strong the battery is depends on the car: `ers` in its file in src/cars/.
 import F1 from './cars/f1.js';
@@ -20,7 +23,16 @@ export function ersStep(car, { boost = false, throttle = 0, brake = 0 }, vf, dt)
   car.ers ??= 1;                                   // a new car (every race start): full battery
   // Deploy: button held, on the throttle, moving forwards, charge left (not in the pit lane, where the
   // speed limiter holds the car anyway)
-  if (boost && throttle >= E.minThrottle && vf > 2 && car.ers > 0 && !car.pitLimiter) {
+  if (E.auto) {
+    if (throttle >= E.minThrottle && vf > E.minSpeed && car.ers > 0 && !car.pitLimiter) {
+      const fade = 1 - Math.min(1, Math.max(0, (vf - E.maxSpeed + 8) / 8)); // nothing left at maxSpeed
+      if (fade > 0) {
+        car.ers = Math.max(0, car.ers - (dt / E.capacity) * fade);
+        car.ersMode = 'deploy';
+        return Math.min(E.maxPush, E.power / vf) * fade;
+      }
+    }
+  } else if (boost && throttle >= E.minThrottle && vf > 2 && car.ers > 0 && !car.pitLimiter) {
     car.ers = Math.max(0, car.ers - dt / E.capacity);
     car.ersMode = 'deploy';
     return Math.min(E.maxPush, E.power / vf) * Math.min(1, throttle / 0.6);

@@ -125,6 +125,7 @@ export class Session {
     const humans = shuffle(this.players.map(({ id, name, color }) => ({ id, name, color }))); // random order at the back
     const cfg = {
       raceNo: (this.raceNo + 1) & 255, track: st.track, laps: st.laps, difficulty: st.difficulty,
+      car: st.car, time: st.time,              // the car everyone races, and when (src/cars/)
       aiCount: Math.max(0, Math.min(st.ai, MAX_CARS - humans.length)), collisions: st.collisions, humans,
       lightsOutAt: 5.4 + Math.random() * 1.2,  // same random start for everyone
       startAt: performance.now() + 1500,       // host clock: time for everyone to build the race

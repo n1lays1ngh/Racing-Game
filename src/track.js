@@ -59,6 +59,9 @@ export function buildTrack(circuit = TRACKS[0], spacing = 2) {
 
   const t = {
     id: def.id, name: def.name, country: def.country, type: def.type ?? 'permanent', time: def.time,
+    // at night: 'circuit' = floodlit all the way round; 'pits' = only the pit straight and paddock (an endurance
+    // night for the cars that race those, src/cars/: the race's car and time are set when the circuit is built)
+    lighting: def.lighting ?? 'circuit',
     n, length, ds,
     kerb: def.kerbWidth, barrier: def.barrier, scenery: def.scenery,
     cx: new Float32Array(n), cz: new Float32Array(n), // centreline

@@ -6,7 +6,8 @@ import { Race } from './race.js';
 import { AIDriver } from './ai.js';
 import { pointAt, sampleAt } from './track.js';
 import { heightAtS } from './elevation.js';
-import { createCarModel, syncCarModel, carCams } from './carModel.js';
+import { carCams } from './carModel.js';
+import { createRaceModel, syncModels } from './carLod.js';
 
 const SHOTS = ['trackside', 'tracking', 'heli', 'trackside', 'front', 'tcam', 'trackside', 'tracking'];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -28,13 +29,15 @@ export class Showcase {
         race.player.ai = new AIDriver(race.player.state, track, race.profile, 1.0, 1.12); // your car races too
         race.countdown = race.lightsOutAt;                                                 // lights out straight away
         this.race = race;
-        this.models = race.cars.map((c) => {
-            const m = createCarModel(c.team, { player: c.isPlayer, car: race.carDef });
-            this.scene.add(m); syncCarModel(m, c.state);
+        this.models = race.cars.map((c) => { // (Hypercar, GT3: AI cars are the full model close to the camera)
+            const m = createRaceModel(c, race.carDef);
+            this.scene.add(m);
             return m;
         });
+        syncModels(this.models, race.cars, this.camera);
         this.shotIndex = -1;
         this.cut('grid');
+        this.onStart?.(this); // (main.js: your car's headlights)
         if (this.caption) this.caption.textContent = `Live AI race · ${track.name}`;
     }
 
@@ -77,7 +80,7 @@ export class Showcase {
         const steps = Math.ceil(dt / (1 / 120));
         for (let k = 0; k < steps; k++) race.step(dt / steps, { throttle: 0, brake: 0, steer: 0 });
         race.takeEvents();
-        race.cars.forEach((c, i) => syncCarModel(this.models[i], c.state));
+        syncModels(this.models, race.cars, this.camera);
 
         this.shotTime += dt;
         if (this.shotTime > this.shotLength) this.cut();
@@ -108,8 +111,8 @@ export class Showcase {
                 L.set(s.x, y + 0.7, s.z); fov = 55; break;
             }
             case 'tcam': {
-                const c = carCams(this.models[race.cars.indexOf(this.target)]).tcam;
-                P.set(s.x + fx * c.z, y + c.y, s.z + fz * c.z);
+                const c = carCams(this.models[race.cars.indexOf(this.target)]).tcam, x = c.x ?? 0;
+                P.set(s.x + fx * c.z + lx * x, y + c.y, s.z + fz * c.z + lz * x);
                 L.set(s.x + fx * 20, y + c.y - 0.5, s.z + fz * 20); fov = 62; break;
             }
         }

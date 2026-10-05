@@ -1,7 +1,12 @@
-// Multiplayer lobby: create a room or join one with its code, see who's in, and (host) set up the race.
+// Multiplayer lobby: create a room or join one with its code, see who's in, and (host) set up the race:
+// the circuit, the car everyone races (one kind of car per race, src/cars/) and, where that car can race
+// it by day or by night, the time of day.
 // The networking is in net/session.js; this file is only the screen.
 import { Session, cleanName, MAX_CARS } from './net/session.js';
 import { NET } from './net/peer.js';
+import { CARS, getCar, timesFor, raceSetup } from './cars/index.js';
+
+const TIME_SHORT = { day: 'Day', dusk: 'Twilight', night: 'Night' };
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -11,7 +16,8 @@ function load() { try { return JSON.parse(localStorage.getItem(KEY)) ?? {}; } ca
 function save(v) { try { localStorage.setItem(KEY, JSON.stringify({ ...load(), ...v })); } catch { /* private mode */ } }
 
 export class Lobby {
-  // hooks: previewTrack(id), onStart(cfg), onEnd(), onClosed(reason), onDnf(car), onSession(active)
+  // hooks: previewTrack(settings), menuChoice() → { car, time }, onStart(cfg), onEnd(), onClosed(reason), onDnf(car),
+  //        onSession(active)
   constructor({ tracks, ...hooks }) {
     this.tracks = tracks; this.hooks = hooks;
     this.session = null; this.busy = false;
@@ -76,10 +82,11 @@ export class Lobby {
   async create() {
     if (this.busy) return;
     this.busy = true; this.status('Opening a room…');
-    const saved = load();
+    const saved = load(), choice = this.hooks.menuChoice?.() ?? {}; // the car and time picked in the menu
     const settings = {
       track: $('opt-track').value, laps: Number(saved.laps ?? $('opt-laps').value),
       difficulty: saved.difficulty ?? $('opt-diff').value, ai: saved.ai ?? 0, collisions: saved.collisions ?? true,
+      car: choice.car ?? saved.car ?? CARS[0].id, time: choice.time ?? saved.time ?? 'day',
     };
     try { this.use(await Session.host(this.name(), settings)); this.status(''); }
     catch (err) { this.status(err.message, 'error'); }
@@ -100,10 +107,11 @@ export class Lobby {
 
   use(session) {
     this.session = session;
-    let lastTrack = null;
+    let last = null;
     session
-      .on('lobby', () => {
-        if (session.settings.track !== lastTrack) { lastTrack = session.settings.track; this.hooks.previewTrack(lastTrack); }
+      .on('lobby', () => { // the host's circuit, car and time of day behind the lobby
+        const st = session.settings, key = `${st.track}|${st.car}|${st.time}`;
+        if (key !== last) { last = key; this.hooks.previewTrack(st); }
         this.render();
       })
       .on('start', (cfg) => this.hooks.onStart(cfg))
@@ -190,8 +198,12 @@ export class Lobby {
 
     // race settings (the host picks, everyone else sees them)
     const def = this.tracks.find((t) => t.id === st.track) ?? this.tracks[0];
+    const car = getCar(st.car), setup = raceSetup(car, def, st.time), times = timesFor(car, def);
     $('lb-track').textContent = def.name;
-    $('lb-track-sub').textContent = [def.country, def.time === 'night' ? 'Night race' : def.time === 'dusk' ? 'Twilight' : null].filter(Boolean).join(' · ');
+    $('lb-track-sub').textContent = [def.country, setup.time === 'night' ? 'Night race' : setup.time === 'dusk' ? 'Twilight' : null].filter(Boolean).join(' · ');
+    this.seg('lb-car', CARS.map((c) => [c.id, c.name]), car.id, (v) => this.set({ car: v }));
+    $('lb-time-row').classList.toggle('hidden', times.length < 2);
+    this.seg('lb-time', times.map((t) => [t, TIME_SHORT[t] ?? t]), setup.time, (v) => this.set({ time: v }));
     this.seg('lb-laps', this.lapOptions, st.laps, (v) => this.set({ laps: Number(v) }));
     this.seg('lb-diff', this.diffOptions, st.difficulty, (v) => this.set({ difficulty: v }));
     this.seg('lb-coll', [['1', 'On'], ['0', 'Off']], st.collisions ? '1' : '0', (v) => this.set({ collisions: v === '1' }));

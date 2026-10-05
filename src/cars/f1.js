@@ -12,6 +12,12 @@ export default {
   name: 'Formula 1',         // shown in the menu
   short: 'F1',
   car: 'Red Bull RB19',      // the car you drive in this class
+  specs: ['1.6 V6 turbo hybrid', '798 kg', '8 gears'],  // shown in the menu
+
+  // ---- When it races: the menu's Day / Night choice ----
+  // 'circuit' = every circuit at its own time of day (the `time` in its file: some F1 races are at night,
+  // under floodlights). Otherwise a list of times per circuit id, '*' for every other circuit (see hypercar.js).
+  times: 'circuit',
 
   // ---- How it drives (physics.js; the AI plans its corner speeds and braking from the same numbers) ----
   physics: {
@@ -27,7 +33,7 @@ export default {
     g: 9.81,
     downforce: 0.0022,    // extra grip per v² (more grip in fast corners)
     // --- steering & handling feel ---
-    wheelbase: 3.6,
+    wheelbase: 3.6,       // metres between the axles; the steering works from this (or steerBase, if a car has one)
     maxSteer: 0.36,       // steering lock at low speed
     steerFade: 32,        // lock reduces with speed (higher = more lock at speed)
     steerRate: 2.3,       // how fast the front wheels turn
@@ -44,6 +50,9 @@ export default {
     // --- size, for car-to-car contact (race.js): two circles, one front and one rear ---
     radius: 1.25,         // radius of each circle (m)
     contactOffset: 1.4,   // metres from the car's centre to each circle
+    // Optional (see hypercar.js and gt3.js): steerBase (the steering works from this instead of the wheelbase),
+    // trackWidth (between the left and right wheels, for the tyre marks), abs: true (can't lock the wheels),
+    // tc: 0–1 (traction control: trims the power when the rear steps out).
   },
 
   // ---- Gearbox: the gear and engine revs shown on the HUD and the steering wheel, and heard (audio.js) ----
@@ -54,7 +63,14 @@ export default {
     flash: 12600,         // the shift lights flash above this
   },
 
-  // ---- ERS: the hybrid battery boost you deploy (ers.js). null = this car has none ----
+  // ---- Headlights (headlights.js): none on an F1 car (see hypercar.js) ----
+  headlights: null,
+
+  // ---- Engine sound (audio.js): one of its ENGINES. null = the engine set there in SOUND.engineType ----
+  sound: null,
+
+  // ---- ERS: the hybrid battery boost you deploy (ers.js). null = this car has none; auto: true = it deploys by
+  // itself between minSpeed and maxSpeed (the Hypercar's front motor, see hypercar.js) ----
   ers: {
     capacity: 9,          // seconds of deployment in a full battery
     power: 85,            // how strong: extra push = power ÷ speed (m/s²), like a motor of fixed power …
@@ -67,7 +83,7 @@ export default {
   // ---- How it looks (carModel.js) ----
   // "Oracle Red Bull F1 Car RB19 2023" by Redgrund on Sketchfab, CC-BY-4.0 (credit in the README).
   model: {
-    url: '/models/rb19.glb',  // null = use the built-in car
+    url: '/models/rb19.glb',  // null = use the built-in car (builtin: its shape, 'f1' | 'proto' | 'gt', carModel.js)
     length: 5.6,              // nose to rear wing in metres (the model is scaled to this)
     offsetZ: 0.29,            // slides the model so its wheels sit on the physics wheelbase (±1.8 m)
     forAI: false,             // true = every car on the grid is an RB19
@@ -82,6 +98,10 @@ export default {
     cams: { tcam: { z: -0.40, y: 1.50, tilt: -5 }, cockpit: { z: 0.25, y: 0.80, tilt: -4 } },
     // Steering-wheel display, in model units from the steering wheel's centre (x right, y up, z forward)
     display: { x: 0, y: 0.006, z: -0.0088, w: 0.064, h: 0.027 },
+    // Optional (see gt3.js and hypercar.js, whose models were made with tools/prepare-car.mjs): length: null (the file
+    // is already to scale), paint (AI cars are the model repainted in their team's colours, close up), farLivery
+    // (friends' cars further away), lite (parts left out of other people's cars), x in the onboard cameras (seat
+    // to one side). Those models carry their own screen position, tyre sizes and brake calipers.
   },
 
   // ---- Chase cameras (main.js): [x (left), y (up), z (forward)] in metres from the car's centre on the road ----

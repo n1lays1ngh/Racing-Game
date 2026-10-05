@@ -104,10 +104,12 @@ function screen() {
 }
 // button index (standard layout) → what it does on each screen: a key code, or 'click:<button id>'
 const MAP = {
-  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 3: 'click:btn-mp', 2: 'click:btn-stats' },
+  // D-pad ↑ ↓: car, ← → / LB RB: circuit, B: day / night (where the car can race both)
+  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 12: 'ArrowUp', 13: 'ArrowDown',
+             1: 'KeyN', 3: 'click:btn-mp', 2: 'click:btn-stats' },
   stats:   { 1: 'click:st-back', 9: 'click:st-back' },                       // B / Menu: back
   lobby:   { 9: 'click:lb-go' },
-  race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM' }, // RB (5): ERS, read in readInput
+  race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM', 14: 'KeyH' }, // RB (5): ERS, read in readInput
   pause:   { 9: 'Escape', 0: 'click:btn-resume', 3: 'click:btn-restart', 1: 'click:btn-quit' },
   results: { 0: 'click:btn-again', 1: 'click:btn-menu', 9: 'click:btn-again' },
 };

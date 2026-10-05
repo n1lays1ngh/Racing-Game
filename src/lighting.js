@@ -1,6 +1,10 @@
-// Time of day. Each circuit file can set  time: 'day' | 'dusk' | 'night'  (default 'day').
+// Time of day. Each circuit file can set  time: 'day' | 'dusk' | 'night'  (default 'day'); the car you race
+// can change that (src/cars/: the Hypercar and GT3 race every circuit by day, Le Mans and the Nürburgring by night too).
+// A night with track.lighting 'pits' is a dark endurance night ('dark' below): floodlights only along the pit
+// straight and paddock, the rest of the lap lit by the moon.
 //   applyTimeOfDay() – sky, sun/floodlight, fog, exposure and reflections (called when a circuit loads)
-//   buildFloodlights() – light towers along the track for dusk and night races
+//   timeOf(track)    – which of TIMES applies to a built circuit
+//   buildFloodlights() – light towers along the track for dusk and night races (or only the pit straight)
 //   darkenAwayFromTrack() – at night, ground, trees and buildings fade to dark away from the lit track
 // To tweak the look, change the numbers in TIMES.
 //
@@ -32,11 +36,25 @@ export const TIMES = {
   night: { phi: 20, theta: 200, sun: 0xf4f6ff, sunI: 0.85, hemiSky: 0x6a7ab0, hemiGround: 0x1c1d22, hemiI: 0.38, pools: 1.5,
            fog: 0x060a14, fogNear: 220, fogFar: 2400, exposure: 1.1, env: 0.7, windows: 1.3,
            hdri: 'moonless_golf_1k.hdr', hdriSun: 20, hdriGain: 0.4 }, // hdriGain: how bright the night photo lights things
+  // A dark endurance night: no floodlights round the lap, only along the pit straight and paddock (pools for those).
+  // The "sun" is the moon: dim and bluish, high in the sky, so the track and the barriers are just visible; your
+  // headlights do the rest (headlights.js). (Before the headlights it was sunI 0.3, hemiI 0.2, env 0.35.)
+  // lamps: false = no floodlight banks in what the cars reflect.
+  dark:  { phi: 38, theta: 140, sun: 0xa9b8ff, sunI: 0.24, hemiSky: 0x3a4670, hemiGround: 0x101116, hemiI: 0.16, pools: 1.5,
+           fog: 0x05080f, fogNear: 160, fogFar: 1800, exposure: 1.2, env: 0.3, windows: 1.3,
+           hdri: 'moonless_golf_1k.hdr', hdriSun: 20, hdriGain: 0.25, lamps: false },
 };
+const isNight = (time) => time === 'night' || time === 'dark';
+// Which of TIMES a built circuit uses (its time, and how it's lit at night)
+export function timeOf(track) {
+  if (track?.time === 'night' && track.lighting === 'pits') return 'dark';
+  return TIMES[track?.time] ? track.time : 'day';
+}
 // The night sky you see (nightDome below). Colours are linear light, so small numbers are normal.
 export const NIGHT_SKY = {
   zenith: [0.001, 0.0016, 0.0042],   // straight up: deep navy
   glow: [0.012, 0.011, 0.014],       // near the horizon: the glow of the floodlights in the haze
+  darkGlow: [0.004, 0.0045, 0.007],  // … on a dark night (only the pits lit): much fainter
   cityGlow: [0.03, 0.02, 0.015],     // street circuits: orange city glow
   stars: 1.0,                        // brightness of the stars (0 = none)
   milkyWay: 1.0,                     // brightness of the Milky Way (fainter at street circuits)
@@ -70,8 +88,9 @@ function nightSkyTexture(city) {
   return t;
 }
 
-// What shiny surfaces (the cars) reflect at night: the night sky (or night photo) plus banks of floodlights all round.
-function floodlitEnv(skyTex, photo = false) {
+// What shiny surfaces (the cars) reflect at night: the night sky (or night photo) plus banks of floodlights all round
+// (lamps: false on a dark night).
+function floodlitEnv(skyTex, photo = false, lamps = true) {
   const s = new THREE.Scene();
   s.add(new THREE.Mesh(new THREE.SphereGeometry(100, 64, 32), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })));
   if (!photo) { // the photo has its own ground
@@ -79,7 +98,7 @@ function floodlitEnv(skyTex, photo = false) {
     ground.rotation.x = -Math.PI / 2; ground.position.y = -2; s.add(ground);
   }
   const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5.8, 5.4) }); // brighter than white: HDR
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < (lamps ? 12 : 0); k++) {
     const a = (k / 12) * Math.PI * 2, bank = new THREE.Mesh(new THREE.PlaneGeometry(14, 5), lamp);
     bank.position.set(Math.cos(a) * 70, 30 + (k % 3) * 8, Math.sin(a) * 70); bank.lookAt(0, 0, 0); s.add(bank);
   }
@@ -94,7 +113,7 @@ function envFor(world, time, city) {
   if (envCache.has(key)) return envCache.get(key);
   const pmrem = new THREE.PMREMGenerator(world.renderer);
   let tex;
-  if (time === 'night') tex = pmrem.fromScene(floodlitEnv(world.nightSky[city ? 1 : 0]), 0.02).texture;
+  if (isNight(time)) tex = pmrem.fromScene(floodlitEnv(world.nightSky[city ? 1 : 0], false, TIMES[time].lamps !== false), 0.02).texture;
   else {
     const envScene = new THREE.Scene(), s = new Sky(); s.scale.setScalar(1000);
     s.material.uniforms.sunPosition.value.copy(world.sunDir);
@@ -137,7 +156,7 @@ function loadHdri(world, name, sunCap) {
 // floodlight banks: that's what lights the scene and what the cars reflect.
 // No rotation needed: there's no sun to line up.
 function loadNightEnv(world, T) {
-  const key = `night:${T.hdri}`;
+  const lamps = T.lamps !== false, key = `night:${T.hdri}:${T.hdriGain}:${lamps}`;
   if (!hdriCache.has(key)) {
     hdriCache.set(key, new HDRLoader().setDataType(THREE.FloatType).loadAsync(`/hdri/${T.hdri}`).then((t) => {
       const { data: d, width: W, height: H } = t.image, gain = T.hdriGain ?? 0.4, cap = T.hdriSun ?? 20;
@@ -153,7 +172,7 @@ function loadNightEnv(world, T) {
       sky.minFilter = sky.magFilter = THREE.LinearFilter; sky.generateMipmaps = false; sky.flipY = true;
       sky.needsUpdate = true;
       const pmrem = new THREE.PMREMGenerator(world.renderer);
-      const env = pmrem.fromScene(floodlitEnv(sky, true), 0.02).texture;
+      const env = pmrem.fromScene(floodlitEnv(sky, true, lamps), 0.02).texture;
       pmrem.dispose(); sky.dispose();
       return { env, sunAngle: null };
     }));
@@ -232,7 +251,7 @@ function nightDome() {
 
 // world = what buildWorld() returned. track = the built track (for its time and type).
 export function applyTimeOfDay(world, track) {
-  const time = TIMES[track.time] ? track.time : 'day', T = TIMES[time];
+  const time = timeOf(track), T = TIMES[time];
   const city = track.type === 'street';
   world.renderer.toneMapping = TONES[TONE] ?? THREE.NeutralToneMapping;
   world.sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(T.phi), THREE.MathUtils.degToRad(T.theta));
@@ -244,12 +263,12 @@ export function applyTimeOfDay(world, track) {
   const u = world.sky.material.uniforms;
   u.turbidity.value = T.turbidity ?? 3; u.rayleigh.value = T.rayleigh ?? 1.2;
   u.sunPosition.value.copy(world.sunDir);
-  if (time === 'night') {
+  if (isNight(time)) {
     world.nightSky ??= [nightSkyTexture(false), nightSkyTexture(true)]; // for reflections until the photo loads
     world.sky.visible = false;
     if (!world.nightDome) { world.nightDome = nightDome(); world.scene.add(world.nightDome); }
     world.nightDome.visible = true;
-    world.nightDome.material.uniforms.uGlow.value.set(...(city ? NIGHT_SKY.cityGlow : NIGHT_SKY.glow));
+    world.nightDome.material.uniforms.uGlow.value.set(...(city ? NIGHT_SKY.cityGlow : time === 'dark' ? NIGHT_SKY.darkGlow : NIGHT_SKY.glow));
     world.nightDome.material.uniforms.uMilky.value = NIGHT_SKY.milkyWay * (city ? 0.3 : 1);
     world.scene.background = null;
   } else {
@@ -262,7 +281,7 @@ export function applyTimeOfDay(world, track) {
   world.scene.environmentIntensity = T.env * 0.6;
   world.timeOfDay = time;
   if (T.hdri) {
-    (time === 'night' ? loadNightEnv(world, T) : loadHdri(world, T.hdri, T.hdriSun ?? 6)).then(({ env, sunAngle }) => {
+    (isNight(time) ? loadNightEnv(world, T) : loadHdri(world, T.hdri, T.hdriSun ?? 6)).then(({ env, sunAngle }) => {
       if (world.timeOfDay !== time) return; // switched circuit meanwhile
       world.scene.environment = env;
       // turn the photo so its bright side is where our sun is
@@ -348,6 +367,17 @@ function glareMaterial() {
 // ---------- light pools ----------
 // Shared by every material that shows the floodlight pools (withLightPools). setLightPools() plugs in
 // each circuit's pools; with no floodlights the colour is black and nothing is added.
+// The same materials (the road, kerbs, grass, gravel, barriers) also show your headlights' pool of light on the
+// ground (HEADLIGHT, set every frame by headlights.js). The headlights are real spotlights too, but light grazing
+// the road at a low angle hardly lights it (that's real: car backs and walls in your beams look far brighter than
+// the road), so the road gets this extra pool to read well, falling off with distance and with the beam's spread.
+export const HEADLIGHT = {
+  on: { value: 0 },                                  // brightness (0 = off: nothing is worked out)
+  pos: { value: new THREE.Vector3() },               // between the two lamps, in the world
+  dir: { value: new THREE.Vector2(0, 1) },           // the way the car points (x, z)
+  color: { value: new THREE.Color(1, 1, 1) },
+  shape: { value: new THREE.Vector4(38, 0.22, 0.6, 0.09) }, // half-brightness distance (m), narrow and wide spread (radians), top of the beam (rise ÷ run)
+};
 const blankPools = new THREE.DataTexture(new Uint8Array(1), 1, 1, THREE.RedFormat); blankPools.needsUpdate = true;
 export const POOLS = { tex: { value: blankPools }, box: { value: new THREE.Vector4(0, 0, 1, 1) }, color: { value: new THREE.Color(0, 0, 0) } };
 const POOL_MAX = 3; // brightest light stored in the texture (stored as a square root for more detail in the dark)
@@ -358,14 +388,36 @@ export function withLightPools(m) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (sh, renderer) {
     prev.call(this, sh, renderer);
-    Object.assign(sh.uniforms, { tPools: POOLS.tex, uPoolBox: POOLS.box, uPoolColor: POOLS.color });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vPoolXZ;')
-      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvPoolXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D tPools;\nuniform vec4 uPoolBox;\nuniform vec3 uPoolColor;\nvarying vec2 vPoolXZ;')
+    Object.assign(sh.uniforms, { tPools: POOLS.tex, uPoolBox: POOLS.box, uPoolColor: POOLS.color,
+      uHeadOn: HEADLIGHT.on, uHeadPos: HEADLIGHT.pos, uHeadDir: HEADLIGHT.dir, uHeadColor: HEADLIGHT.color, uHeadShape: HEADLIGHT.shape });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vPoolXZ;\nvarying vec3 vHeadW;')
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        vPoolXZ = (modelMatrix * vec4(transformed, 1.0)).xz;
+        vec4 headW = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          headW = instanceMatrix * headW;
+        #endif
+        vHeadW = (modelMatrix * headW).xyz;`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+        uniform sampler2D tPools;\nuniform vec4 uPoolBox;\nuniform vec3 uPoolColor;\nvarying vec2 vPoolXZ;
+        uniform float uHeadOn;\nuniform vec3 uHeadPos;\nuniform vec2 uHeadDir;\nuniform vec3 uHeadColor;\nuniform vec4 uHeadShape;\nvarying vec3 vHeadW;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         if (uPoolColor.r + uPoolColor.g + uPoolColor.b > 0.0) {
           float pl = texture2D(tPools, (vPoolXZ - uPoolBox.xy) / uPoolBox.zw).r;
           totalEmissiveRadiance += diffuseColor.rgb * uPoolColor * pl * pl;
+        }
+        if (uHeadOn > 0.0) { // your headlights on the ground ahead
+          vec3 hd = vHeadW - uHeadPos;
+          float along = dot(hd.xz, uHeadDir), side = uHeadDir.x * hd.z - uHeadDir.y * hd.x;
+          if (along > 0.5) {
+            float a = atan(side, along), r2 = dot(hd.xz, hd.xz);
+            float beam = 0.72 * exp(-a * a / (uHeadShape.y * uHeadShape.y)) + 0.28 * exp(-a * a / (uHeadShape.z * uHeadShape.z));
+            float fall = 1.0 / (1.0 + r2 / (uHeadShape.x * uHeadShape.x));
+            float nose = smoothstep(0.8, 7.0, along);                         // the car's own nose shades the road right in front
+            float below = 1.0 - smoothstep(uHeadShape.w * 0.4, uHeadShape.w, hd.y / along); // not above the top of the beam
+            float up = smoothstep(0.55, 0.9, (vec4(nonPerturbedNormal, 0.0) * viewMatrix).y); // the ground: walls get the spotlights
+            totalEmissiveRadiance += diffuseColor.rgb * uHeadColor * (uHeadOn * beam * fall * nose * below * up);
+          }
         }`);
   };
   m.customProgramCacheKey = function () { return prevKey.call(this) + '|pools'; };
@@ -438,8 +490,19 @@ function trackIndex(track) {
   };
 }
 
+// The pit straight and paddock: from a little before the pit lane leaves the track to a little after it rejoins
+// (or around the pit building), for a dark endurance night. → (sample index) → lit here?
+export function pitStraight(track, margin = 150) {
+  const { n, ds } = track, lit = new Uint8Array(n), reach = Math.round(margin / ds);
+  const lane = track.pitLane, pit = track.pits?.[0];
+  const mark = (s0, len) => { for (let d = -reach; d <= Math.round(len / ds) + reach; d++) lit[(((Math.floor(s0 / ds) + d) % n) + n) % n] = 1; };
+  if (lane) mark(lane.entry, lane.total); else if (pit) mark(pit.s, pit.len);
+  return (i) => lit[i] === 1;
+}
+
 // Light towers every `spacing` metres, alternating sides, just behind the barriers.
-export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodlightSpacing) {
+// only (optional): (sample index) → put towers here? (pitStraight() on a dark endurance night)
+export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodlightSpacing, only = null) {
   const nearest = trackIndex(track);
   const tall = track.type === 'street' ? 16 : 24;
   const spots = [];
@@ -447,6 +510,7 @@ export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodli
   for (let s = 0; s < track.length; s += spacing, side = -side) {
     const i = Math.floor(s / track.ds) % track.n;
     if (track.forest?.[i]) continue;                  // none in the woods (forest stretches: only trees)
+    if (only && !only(i)) continue;
     const wall = side > 0 ? track.wallL[i] : track.wallR[i], lane = track.pitLane;
     let off = wall + 3;
     if (lane && lane.side === side && lane.range[i]) {   // the pit lane (pitlane.js): behind it, none at the garages

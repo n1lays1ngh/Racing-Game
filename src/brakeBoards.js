@@ -105,7 +105,7 @@ export function buildBrakeBoards(track, heightAt, car = F1) {
   group.name = 'brake-boards';
   if (!BRAKE_BOARDS.enabled) return group;
   const B = BRAKE_BOARDS, { n, ds, length } = track, K = kit();
-  const lit = track.time === 'night' ? 0.55 : track.time === 'dusk' ? 0.3 : 0.06; // boards glow a little under the floodlights
+  const lit = track.time === 'night' ? (track.lighting === 'pits' ? 0.12 : 0.55) : track.time === 'dusk' ? 0.3 : 0.06; // boards glow a little under the floodlights
   for (const d of B.distances) faceMaterial(d).emissiveIntensity = lit;
   const [w, h] = B.size;
   const panel = new THREE.BoxGeometry(w, h, 0.08);

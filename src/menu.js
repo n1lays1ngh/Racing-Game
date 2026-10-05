@@ -1,16 +1,27 @@
-// Main menu: circuit picker with a live outline, lap and difficulty buttons, keyboard shortcuts.
+// Main menu: car picker, circuit picker with a live outline, Day / Night (where the car can race both),
+// lap and difficulty buttons, keyboard shortcuts.
 // The <select> elements stay in the page as the source of truth (main.js reads them);
 // this file just gives them a nicer face and remembers your last choices.
+// The car and the time of day go to main.js through onCar / onTime (it rebuilds the circuit and the live race).
+import { timesFor, raceSetup } from './cars/index.js';
+
 const $ = (id) => document.getElementById(id);
 const KEY = 'apex-circuit:setup';
 const TIME = { night: 'Night race', dusk: 'Twilight race', day: 'Day race' };
+const TIME_SHORT = { day: 'Day', dusk: 'Twilight', night: 'Night' };
+const esc = (t) => String(t).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) ?? {}; } catch { return {}; } }
 function save(v) { try { localStorage.setItem(KEY, JSON.stringify({ ...load(), ...v })); } catch { /* private mode */ } }
+// The time of day you last picked, where a circuit offers a choice ('day' unless you picked another)
+export const savedTime = () => load().time ?? 'day';
 
-export function setupMenu({ tracks, onStart }) {
+// cars: the list from src/cars/; carId: the one picked; onCar(id) / onTime(time): you picked another
+export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   const menu = $('menu'), select = $('opt-track'), laps = $('opt-laps'), diff = $('opt-diff');
   const saved = load();
+  let car = cars.find((c) => c.id === carId) ?? cars[0], time = savedTime();
+  const current = () => tracks.find((t) => t.id === select.value) ?? tracks[0];
   if (saved.track && tracks.some((t) => t.id === saved.track)) select.value = saved.track;
   if (saved.laps) laps.value = saved.laps;
   if (saved.diff) diff.value = saved.diff;
@@ -100,19 +111,59 @@ export function setupMenu({ tracks, onStart }) {
     drawOutline();
   })(last);
 
-  function showDef(def) {
+  function showDef(def, animate = true) {
     const i = tracks.indexOf(def);
     $('c-round').textContent = def.round ? `Round ${def.round}` : 'Classic';
     $('c-name').textContent = def.name;
     $('c-country').textContent = def.country;
     $('c-count').textContent = `${i + 1}/${tracks.length}`;
-    const badges = [TIME[def.time ?? 'day'], def.type === 'street' ? 'Street circuit' : 'Permanent circuit'];
-    if (def.banking?.length) badges.push('Banked corners');
-    $('c-badges').innerHTML = badges.map((b, k) => `<span class="${k === 0 ? 't-' + (def.time ?? 'day') : ''}">${b}</span>`).join('');
+    showTime(def);
     makeOutline(def);
+    if (!animate) return;
     const card = document.querySelector('.circuit-card');
     card.classList.remove('swap'); void card.offsetWidth; card.classList.add('swap');
   }
+  // The time of day for this car here: the badge, and the Day / Night buttons when it can race both
+  function showTime(def) {
+    const setup = raceSetup(car, def, time), options = timesFor(car, def);
+    const badges = [TIME[setup.time], def.type === 'street' ? 'Street circuit' : 'Permanent circuit'];
+    if (setup.lighting === 'pits') badges.push('Only the pit straight lit');
+    if (def.banking?.length) badges.push('Banked corners');
+    $('c-badges').innerHTML = badges.map((b, k) => `<span class="${k === 0 ? 't-' + setup.time : ''}">${b}</span>`).join('');
+    const row = $('time-row');
+    row.classList.toggle('hidden', options.length < 2);
+    $('opt-time').innerHTML = options.map((t) =>
+      `<button type="button" class="${t === setup.time ? 'on' : ''}" data-v="${t}">${TIME_SHORT[t] ?? t}</button>`).join('');
+  }
+  function pickTime(t) {
+    if (!t || t === time) return;
+    time = t; save({ time });
+    showTime(current());
+    onTime?.(time);
+  }
+  $('opt-time').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) pickTime(b.dataset.v); });
+  function toggleTime() { // N / B on a controller: the other time of day, where there's a choice
+    const options = timesFor(car, current());
+    if (options.length < 2) return;
+    const now = raceSetup(car, current(), time).time;
+    pickTime(options[(options.indexOf(now) + 1) % options.length]);
+  }
+
+  // ---- car picker: one button per car (↑ ↓ to change) ----
+  function showCars() {
+    $('car-pick').innerHTML = cars.map((c) =>
+      `<button type="button" class="${c === car ? 'on' : ''}" data-car="${esc(c.id)}" role="radio" aria-checked="${c === car}">` +
+      `<b>${esc(c.name)}</b><span>${esc(c.car)}</span></button>`).join('');
+    $('car-spec').textContent = (car.specs ?? []).join(' · ');
+  }
+  function pickCar(c) {
+    if (!c || c === car) return;
+    car = c; showCars(); showTime(current());
+    onCar?.(car.id);
+  }
+  $('car-pick').addEventListener('click', (e) => { const b = e.target.closest('button[data-car]'); if (b) pickCar(cars.find((c) => c.id === b.dataset.car)); });
+  const stepCar = (step) => pickCar(cars[(cars.indexOf(car) + step + cars.length) % cars.length]);
+  showCars();
   function choose(step) {
     const i = (tracks.findIndex((t) => t.id === select.value) + step + tracks.length) % tracks.length;
     select.value = tracks[i].id;
@@ -123,15 +174,20 @@ export function setupMenu({ tracks, onStart }) {
   $('c-next').addEventListener('click', () => choose(1));
   showDef(tracks.find((t) => t.id === select.value) ?? tracks[0]);
 
-  // ---- keyboard: ← → circuits, Enter to race ----
+  // ---- keyboard: ↑ ↓ car, ← → circuits, N day / night, Enter to race ----
   window.addEventListener('keydown', (e) => {
     if (menu.classList.contains('hidden') || ['SELECT', 'INPUT'].includes(e.target.tagName)) return;
     if (e.code === 'ArrowLeft') choose(-1);
     else if (e.code === 'ArrowRight') choose(1);
+    else if (e.code === 'ArrowUp') { e.preventDefault(); stepCar(-1); }
+    else if (e.code === 'ArrowDown') { e.preventDefault(); stepCar(1); }
+    else if (e.code === 'KeyN') toggleTime();
     else if (e.code === 'Enter') onStart();
   });
 
   return {
+    // The circuit in the select changed from outside (the lobby showing the host's pick): show it
+    refresh() { showDef(current(), false); },
     // Exact numbers once the circuit has been built
     setTrackInfo(track) {
       let lo = Infinity, hi = -Infinity;

@@ -63,8 +63,14 @@ if (typeof window !== 'undefined') window.clearTyreMarks = clearTyreMarks;   // 
 export const MARK_GRID = { along: 0.25, across: 0.125, lat: 10, cols: 160 };
 const { along: CELL_S, across: CELL_L, lat: LAT, cols: COLS } = MARK_GRID;
 
-// Where the wheels are relative to the car's centre: [metres forward, metres left, how much rubber]
+// Where the wheels are relative to the car's centre: [metres forward, metres left, how much rubber] (the F1
+// car's; every other car's come from its wheelbase and trackWidth, src/cars/)
 const WHEELS = [[1.75, 0.8, 0.7], [1.75, -0.8, 0.7], [-1.75, 0.8, 1], [-1.75, -0.8, 1]];
+const wheelsFor = (p) => {
+  if (!p?.trackWidth) return WHEELS;
+  const f = p.wheelbase / 2 - 0.05, l = p.trackWidth / 2;
+  return [[f, l, 0.7], [f, -l, 0.7], [-f, l, 1], [-f, -l, 1]];
+};
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class TyreMarks {
@@ -126,8 +132,9 @@ export class TyreMarks {
     const fx = Math.sin(car.h), fz = Math.cos(car.h);
     const slide = car.lockF ? 1 : smooth(1.2, 5, car.slip ?? 0);
     const amount = MARKS.lap + MARKS.slide * slide;
+    const wheels = wheelsFor(car.spec?.physics);
     for (let w = 0; w < 4; w++) {
-      const [f, l, k] = WHEELS[w];
+      const [f, l, k] = wheels[w];
       const ox = fx * f + fz * l, oz = fz * f - fx * l;  // wheel offset in the world
       let s = car.s + ox * t.tx[i] + oz * t.tz[i];
       const lat = car.lateral + ox * t.nx[i] + oz * t.nz[i];

@@ -5,7 +5,7 @@
 //              a chart of your lap times, your 10 fastest laps and your recent sessions there
 // The numbers are recorded by stats.js while you drive; this file only shows them.
 import { getStats, resetStats, LIMITS } from './stats.js';
-import { DEFAULT_CAR } from './cars/index.js';
+import { CARS, DEFAULT_CAR, getCar } from './cars/index.js';
 import { formatTime } from './race.js';
 
 const $ = (id) => document.getElementById(id);
@@ -101,7 +101,9 @@ export class StatsScreen {
 
   get visible() { return !this.el.classList.contains('hidden'); }
 
-  open() {
+  // car: whose records to show first (the car picked in the menu); the buttons at the top switch car
+  open(car = this.car) {
+    this.car = getCar(car).id;
     this.data = getStats(this.car);
     this.view = 'circuits'; this.circuit = null;
     this.el.classList.remove('hidden');
@@ -134,6 +136,7 @@ export class StatsScreen {
     if (t.dataset.circuit) { this.openCircuit(t.dataset.circuit); return; }
     switch (t.dataset.act) {
       case 'tab': this.view = t.dataset.v; this.render(); break;
+      case 'car': this.car = t.dataset.v; this.data = getStats(this.car); this.filter.c = 'all'; this.render(); break;
       case 'more': this.filter.shown += PAGE; this.render({ keepScroll: true }); break;
       case 'laps-here': Object.assign(this.filter, { c: this.circuit, shown: PAGE }); this.view = 'laps'; this.circuit = null; this.render(); break;
       case 'reset':
@@ -158,7 +161,8 @@ export class StatsScreen {
     const def = this.view === 'circuit' ? this.tracks.find((t) => t.id === this.circuit) : null;
     if (this.view === 'circuit' && !def) this.view = 'circuits';
     const c = def ? this.data.circuits[def.id] : null;
-    $('st-kicker').textContent = def ? [def.round ? `Round ${def.round}` : null, def.country].filter(Boolean).join(' · ') : 'Driver profile';
+    const carName = getCar(this.car).name;
+    $('st-kicker').textContent = def ? [def.round ? `Round ${def.round}` : null, def.country, carName].filter(Boolean).join(' · ') : 'Driver profile';
     $('st-title').textContent = def ? def.name : 'Your stats';
     $('st-sub').textContent = def
       ? (c?.first ? `First driven ${fmtDate(c.first)} · last ${fmtDate(c.last)}` : 'Not driven yet')
@@ -167,7 +171,7 @@ export class StatsScreen {
     $('st-back').querySelector('span').textContent = def ? '‹ Back' : '‹ Menu';
 
     if (def) this.body.innerHTML = this.circuitPage(def);
-    else this.body.innerHTML = this.totals() + this.tabs() + (this.view === 'laps' ? this.lapsPage() : this.circuitsPage()) + this.footer();
+    else this.body.innerHTML = this.cars() + this.totals() + this.tabs() + (this.view === 'laps' ? this.lapsPage() : this.circuitsPage()) + this.footer();
     if (def) this.drawChart();
     if (focus && this.body.contains($(focus))) $(focus).focus({ preventScroll: true });
     if (!keepScroll) this.el.scrollTop = 0;
@@ -179,11 +183,21 @@ export class StatsScreen {
     return this.thumbs.get(def.id);
   }
 
+  // Which car's records: each car has its own (a GT3 lap never competes with an F1 lap)
+  cars() {
+    const all = getStats();
+    return `<div class="st-cars" role="tablist" aria-label="Car">${CARS.map((c) => {
+      const laps = all.cars?.[c.id]?.total?.laps ?? 0;
+      return `<button type="button" class="st-car${c.id === this.car ? ' on' : ''}" data-act="car" data-v="${esc(c.id)}">` +
+        `<b>${esc(c.name)}</b><span>${laps ? plural(laps, 'lap') : 'No laps yet'}</span></button>`;
+    }).join('')}</div>`;
+  }
+
   totals() {
     const t = this.data.total;
     if (!t.sessions) {
-      return '<div class="st-empty"><b>No laps yet</b><span>Every lap you drive is recorded here: lap and sector times, top speed, ' +
-        'valid laps and race results, for every circuit. Go and set some times.</span></div>';
+      return `<div class="st-empty"><b>No laps yet with the ${esc(getCar(this.car).car)}</b><span>Every lap you drive is recorded here: lap and sector times, top speed, ` +
+        'valid laps and race results, for every circuit and every car. Go and set some times.</span></div>';
     }
     const practice = t.sessions - t.races;
     const driven = this.tracks.filter((def) => this.data.circuits[def.id]?.sessions).length;

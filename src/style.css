@@ -321,6 +321,23 @@ button.primary:hover { filter: brightness(1.1); }
 .seg button:hover { background: rgba(255, 255, 255, 0.08); }
 .seg button.on { background: var(--red); color: #fff; box-shadow: 0 4px 14px rgba(225, 6, 0, 0.45); }
 .seg-row.off { opacity: 0.35; pointer-events: none; }            /* AI skill when there are no AI cars */
+.seg-row .row-key { flex: none; }
+
+/* ---- car picker (menu.js; the cars are in src/cars/) ---- */
+.car-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 6px; }
+.car-pick button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; margin: 0; padding: 9px 10px 8px;
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04);
+  text-align: left; text-transform: none; letter-spacing: 0; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.car-pick button:hover { background: rgba(255, 255, 255, 0.08); }
+.car-pick b { font-size: 16px; font-weight: 900; font-style: italic; letter-spacing: 0.06em; text-transform: uppercase; color: #fff; }
+.car-pick span { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.car-pick button.on { background: linear-gradient(160deg, rgba(225, 6, 0, 0.32), rgba(225, 6, 0, 0.12)); border-color: var(--red);
+  box-shadow: 0 6px 18px rgba(225, 6, 0, 0.3); }
+.car-pick button.on span { color: #ffd9d6; }
+.car-spec { min-height: 16px; margin: 0 2px 12px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+.lb-seg.lb-cars button { font-size: 13px; }
 .ai-count { flex: 1; display: flex; align-items: center; gap: 12px; }
 .ai-count input { flex: 1; accent-color: var(--red); height: 4px; cursor: pointer; }
 .ai-count b { min-width: 74px; text-align: center; padding: 5px 8px; border-radius: 7px; background: rgba(255, 255, 255, 0.07); font-size: 14px; }
@@ -634,6 +651,16 @@ button.st-back { display: flex; align-items: center; gap: 10px; width: auto; fle
 .st-tile > small { display: block; margin: 3px 0 0; font-size: 12px; color: var(--muted); font-weight: 600; }
 
 /* tabs */
+/* which car's records (each car has its own) */
+.st-cars { display: flex; gap: 8px; margin: 0 0 18px; flex-wrap: wrap; }
+button.st-car {
+  width: auto; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin: 0; padding: 8px 16px 7px;
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); text-transform: none; letter-spacing: 0;
+}
+button.st-car:hover { background: rgba(255, 255, 255, 0.08); }
+button.st-car b { font-size: 15px; font-weight: 900; font-style: italic; letter-spacing: 0.06em; text-transform: uppercase; color: #fff; }
+button.st-car span { font-size: 12px; font-weight: 600; color: var(--muted); }
+button.st-car.on { border-color: var(--red); background: linear-gradient(160deg, rgba(225, 6, 0, 0.3), rgba(225, 6, 0, 0.1)); }
 .st-tabs { display: flex; gap: 6px; margin: 26px 0 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
 button.st-tab { width: auto; margin: 0 0 -1px; padding: 10px 18px 9px; border: 0; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0;
   background: transparent; font-size: 15px; font-weight: 900; letter-spacing: 0.14em; color: var(--muted); }

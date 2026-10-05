@@ -62,7 +62,7 @@
       </div>
     </div>
 
-    <div class="cam-hint">[Shift] ERS · [C] <span id="cam-name">Chase</span> · [T] tower · [Q] look back · [V] mirror · [R] reset · [M] mute · [G] graphics · [Esc] pause</div>
+    <div class="cam-hint">[Shift] ERS · [C] <span id="cam-name">Chase</span> · [T] tower · [Q] look back · [V] mirror · [H] lights · [R] reset · [M] mute · [G] graphics · [Esc] pause</div>
     <div id="toast"></div>
     <div id="wrongway">WRONG WAY</div>
     <!-- Track limits (race.js TRACK_LIMITS, hud.js) -->
@@ -93,7 +93,11 @@
     </section>
 
     <section class="setup">
-      <div class="setup-head"><span>Race setup</span><span class="hint"><kbd>←</kbd><kbd>→</kbd> circuit</span></div>
+      <div class="setup-head"><span>Race setup</span><span class="hint"><kbd>↑</kbd><kbd>↓</kbd> car <kbd>←</kbd><kbd>→</kbd> circuit</span></div>
+
+      <!-- Car picker: buttons drawn by menu.js from src/cars/ -->
+      <div id="car-pick" class="car-pick" role="radiogroup" aria-label="Car"></div>
+      <div id="car-spec" class="car-spec"></div>
 
       <div class="circuit-card">
         <div class="c-map-wrap">
@@ -113,6 +117,8 @@
         </div>
         <select id="opt-track" class="sr-only" aria-label="Circuit"></select>
       </div>
+      <!-- Day / Night: only where the car can race both (src/cars/: times) -->
+      <div class="seg-row hidden" id="time-row"><span>Time</span><div class="lb-seg" id="opt-time"></div><kbd class="row-key">N</kbd></div>
 
       <div class="seg-row"><span>Laps</span><div class="seg" data-for="opt-laps"></div></div>
       <select id="opt-laps" class="sr-only" aria-label="Laps">
@@ -207,6 +213,8 @@
           <div class="lb-track-box"><div id="lb-track" class="lb-track">Circuit</div><div id="lb-track-sub" class="lb-track-sub"></div></div>
           <button type="button" class="lb-arrow" id="lb-next" aria-label="Next circuit">›</button>
         </div>
+        <div class="seg-row"><span>Car</span><div class="lb-seg lb-cars" id="lb-car"></div></div>
+        <div class="seg-row hidden" id="lb-time-row"><span>Time</span><div class="lb-seg" id="lb-time"></div></div>
         <div class="seg-row"><span>Laps</span><div class="lb-seg" id="lb-laps"></div></div>
         <div class="seg-row"><span>AI cars</span>
           <div class="ai-count"><input id="lb-ai" type="range" min="0" max="19" step="1" value="0" aria-label="Number of AI cars" /><b id="lb-ai-label">None</b></div>
@@ -259,7 +267,7 @@
           <span><kbd>W</kbd><kbd>S</kbd> go / brake</span><span><kbd>A</kbd><kbd>D</kbd> steer</span>
           <span><kbd>C</kbd> camera</span><span><kbd>Q</kbd> look back</span><span><kbd>V</kbd> mirror</span>
           <span><kbd>R</kbd> reset car</span><span><kbd>T</kbd> tower gaps</span><span><kbd>M</kbd> mute</span>
-          <span><kbd>G</kbd> graphics</span><span><kbd>F</kbd> frame rate</span>
+          <span><kbd>H</kbd> headlights</span><span><kbd>G</kbd> graphics</span><span><kbd>F</kbd> frame rate</span>
         </div>
       </div>
     </div>
