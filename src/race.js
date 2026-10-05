@@ -38,6 +38,19 @@ export const DIFFICULTY = {
   expert: { pace: 1.0,  grip: 1.15, safety: 1.0,  brakeUse: 1.0 },
 };
 
+// Track limits. The white line is the edge of the track: the kerbs are fine, but take all four wheels past the
+// line (the car's centre more than `margin` beyond it) and the lap is invalidated. The HUD says so straight away
+// (hud.js), the lap time doesn't count as a best lap, and your stats mark it (stats.js). Driving into the pit
+// lane is fine. resetInvalidates: pressing R (back onto the track) invalidates the lap too.
+export const TRACK_LIMITS = {
+  enabled: true,
+  margin: 1.0,             // metres: half a car's width, so it's "all four wheels" past the white line
+  minSpeed: 3,             // m/s: don't count a car that's crawling (it got there at speed anyway)
+  deleteLapTimes: true,    // invalid laps don't count as anyone's best lap (or the fastest lap)
+  resetInvalidates: true,
+};
+const sectorOf = (s, L) => (s >= (2 * L) / 3 ? 2 : s >= L / 3 ? 1 : 0); // the HUD's S1 / S2 / S3
+
 export class Race {
   // aiCount: how many AI cars (0 = Practice, just you). playerName: shown in the tower and results.
   // Online races (see net/session.js) also pass:
@@ -81,6 +94,9 @@ export class Race {
         lapsDone: -1, prevS: state.s, progress: 0,
         lapStart: 0, lastLap: null, bestLap: null, finishTime: null,
         position: slot + 1, gap: 0, grid: slot + 1,
+        // track limits: this lap invalid? which sectors? (and the same for the lap just finished)
+        lapInvalid: false, offSec: [false, false, false], lastLapInvalid: false, lastOffSec: [false, false, false],
+        crossedBack: false, // reversed back over the line: crossing it again carries on the same lap
       };
       if (!human) {
         const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.0015); // front-runners a touch quicker
@@ -119,6 +135,7 @@ export class Race {
       const input = car.ai ? car.ai.update(dt, states) : playerInput;
       stepCar(car.state, input, this.track, dt);
       this.updateLap(car);
+      this.checkLimits(car);
       if (car.ai) { // AI wedged against a wall or another car for a while: put it back on the track (like pressing R)
         car.stuck = car.state.speed < 1.5 ? (car.stuck ?? 0) + dt : 0;
         if (car.stuck > 2.5) {
@@ -136,33 +153,63 @@ export class Race {
     const L = this.track.length, s = car.state.s;
     if (car.prevS > L * 0.75 && s < L * 0.25) {
       car.lapsDone++;
-      if (car.lapsDone >= 1 && car.finishTime == null) {
-        const lap = this.time - car.lapStart;
-        car.lastLap = lap; car.lapStart = this.time;
-        if (car.bestLap == null || lap < car.bestLap) {
-          car.bestLap = lap;
-          if (car.isPlayer) this.events.push({ type: 'bestLap', time: lap });
-        }
-        if (this.bestLapOverall == null || lap < this.bestLapOverall.time) {
-          this.bestLapOverall = { time: lap, name: car.team.name };
-        }
-      }
-      if (car.lapsDone >= this.laps && car.finishTime == null) {
-        car.finishTime = this.time;
-        if (car.isPlayer) {
-          this.state = 'finished';
-          this.events.push({ type: 'finish' });
-          // Hand the player's car to the AI for a cool-down lap.
-          car.ai = new AIDriver(car.state, this.track, this.playerProfile, 0.7);
-        }
-      } else if (car.isPlayer && car.lapsDone === this.laps - 1 && car.lapsDone >= 1) {
-        this.events.push({ type: 'finalLap' });
-      }
+      if (car.crossedBack) car.crossedBack = false; // back over the line after rolling back across it: same lap, carry on
+      else this.completeLap(car);
     } else if (car.prevS < L * 0.25 && s > L * 0.75) {
-      car.lapsDone--; // crossed the line backwards
+      car.lapsDone--; car.crossedBack = true; // crossed the line backwards
     }
     car.prevS = s;
     car.progress = car.lapsDone * L + s;
+  }
+
+  // Crossed the line (forwards): time the lap, start the next one, maybe the flag.
+  completeLap(car) {
+    const valid = !car.lapInvalid;
+    car.lastLapInvalid = car.lapInvalid; car.lastOffSec = car.offSec;
+    car.lapInvalid = false; car.offSec = [false, false, false];
+    if (car.lapsDone >= 1 && car.finishTime == null) {
+      const lap = this.time - car.lapStart;
+      car.lastLap = lap; car.lapStart = this.time;
+      const counts = valid || !TRACK_LIMITS.deleteLapTimes; // an invalidated lap can't be a best lap
+      if (counts && (car.bestLap == null || lap < car.bestLap)) {
+        car.bestLap = lap;
+        if (car.isPlayer) this.events.push({ type: 'bestLap', time: lap });
+      }
+      // every lap you complete, for your stats (stats.js). at: race clock when you crossed the line;
+      // valid / offSec: track limits (which sectors you went off in)
+      if (car.isPlayer) this.events.push({ type: 'lap', lap: car.lapsDone, time: lap, at: this.time, valid, offSec: car.lastOffSec });
+      if (counts && (this.bestLapOverall == null || lap < this.bestLapOverall.time)) {
+        this.bestLapOverall = { time: lap, name: car.team.name };
+      }
+    }
+    if (car.lapsDone >= this.laps && car.finishTime == null) {
+      car.finishTime = this.time;
+      if (car.isPlayer) {
+        this.state = 'finished';
+        this.events.push({ type: 'finish' });
+        // Hand the player's car to the AI for a cool-down lap.
+        car.ai = new AIDriver(car.state, this.track, this.playerProfile, 0.7);
+      }
+    } else if (car.isPlayer && car.lapsDone === this.laps - 1 && car.lapsDone >= 1) {
+      this.events.push({ type: 'finalLap' });
+    }
+  }
+
+  // Track limits (TRACK_LIMITS above), checked every physics step for the cars driven here.
+  checkLimits(car) {
+    const st = car.state, i = st.trackIndex, T = TRACK_LIMITS;
+    if (!T.enabled || car.lapsDone < 0 || car.finishTime != null || i < 0 || st.inPitLane) return;
+    if (st.speed < T.minSpeed || Math.abs(st.lateral) <= this.track.hw[i] + T.margin) return;
+    this.invalidate(car, 'limits');
+  }
+
+  // Mark the lap (and this sector) invalid. The first time in a lap, tell the HUD: { type: 'invalid', why, lap, sector }
+  invalidate(car, why) {
+    const k = sectorOf(car.state.s, this.track.length);
+    car.offSec[k] = true;
+    if (car.lapInvalid) return;
+    car.lapInvalid = true;
+    if (car.isPlayer) this.events.push({ type: 'invalid', why, lap: car.lapsDone + 1, sector: k + 1 });
   }
 
   // Online: someone else's car. Its owner times its laps; here we only count them, so it's ranked smoothly.
@@ -242,7 +289,8 @@ export class Race {
   }
 
   resetPlayer() {
-    const s = this.player.state;
+    const p = this.player, s = p.state;
+    if (TRACK_LIMITS.enabled && TRACK_LIMITS.resetInvalidates && p.lapsDone >= 0 && p.finishTime == null) this.invalidate(p, 'reset');
     placeCar(s, this.track, s.s, 0);
   }
 

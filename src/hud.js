@@ -22,7 +22,9 @@ export class HUD {
       sectors: [1, 2, 3].map((k) => $('sec' + k)),
       standings: $('standings'), mode: $('tower-mode'), mapName: $('map-name'),
       toast: $('toast'), lights: $('lights'), wrong: $('wrongway'), cam: $('cam-name'),
+      limits: $('limits'), limitsWhy: $('limits-why'), invalid: $('t-invalid'), // track limits (race.js)
     };
+    this.limitsTimer = 0;
     this.el.revlights.innerHTML = Array.from({ length: REV_LEDS }, (_, k) =>
       `<span class="${k < 5 ? 'g' : k < 10 ? 'r' : 'b'}"></span>`).join('');
     this.leds = [...this.el.revlights.children];
@@ -183,7 +185,7 @@ export class HUD {
       if (car.finishTime != null && rec.laps >= race.laps) continue;
       if (car.lapsDone > rec.laps) {                       // crossed the line
         if (rec.laps >= 0 && rec.idx === 2) {
-          const t = car.lapStart - rec.start, cls = this.sectorColour(car, 2, t);
+          const t = car.lapStart - rec.start, cls = car.lastOffSec?.[2] ? 'invalid' : this.sectorColour(car, 2, t); // off track: no best
           if (car.isPlayer) { this.shown[2] = { t, cls }; this.holdPrev = 3; }
         }
         rec.laps = car.lapsDone; rec.idx = 0; rec.start = car.lapStart;
@@ -193,7 +195,7 @@ export class HUD {
       if (car.lapsDone < 0) continue;                        // still behind the line at the start
       const idx = car.state.s >= (2 * L) / 3 ? 2 : car.state.s >= L / 3 ? 1 : 0;
       if (idx === rec.idx + 1) {
-        const t = race.time - rec.start, cls = this.sectorColour(car, rec.idx, t);
+        const t = race.time - rec.start, cls = car.offSec?.[rec.idx] ? 'invalid' : this.sectorColour(car, rec.idx, t);
         if (car.isPlayer) {
           if (rec.idx === 0) this.shown = [null, null, null];
           this.shown[rec.idx] = { t, cls };
@@ -279,6 +281,12 @@ export class HUD {
     const running = race.state === 'racing' && p.finishTime == null;
     this.el.cur.textContent = running ? formatTime(race.time - p.lapStart) : formatTime(p.finishTime ?? 0);
     this.el.last.textContent = formatTime(p.lastLap);
+    // track limits: the running lap and the last lap are struck through while they're invalid
+    const invalid = running && !!p.lapInvalid;
+    this.el.cur.classList.toggle('invalid', invalid);
+    this.el.invalid?.classList.toggle('hidden', !invalid);
+    this.el.last.classList.toggle('invalid', p.lastLap != null && !!p.lastLapInvalid);
+    if (this.limitsTimer > 0) { this.limitsTimer -= dt; if (this.limitsTimer <= 0) this.el.limits?.classList.remove('show'); }
     this.el.best.textContent = formatTime(p.bestLap);
     this.el.best.classList.toggle('overall', p.bestLap != null && race.bestLapOverall?.time === p.bestLap);
 
@@ -313,6 +321,15 @@ export class HUD {
     this.drawMinimap(race);
   }
 
+  // Track limits: "Lap invalidated" banner. e: the 'invalid' event from race.js { why, lap, sector }
+  invalidated(e, seconds = 2.6) {
+    if (!this.el.limits) return;
+    this.el.limitsWhy.textContent = e.why === 'reset' ? `Car reset · lap ${e.lap}` : `Track limits · sector ${e.sector} · lap ${e.lap}`;
+    this.el.limits.classList.remove('show'); void this.el.limits.offsetWidth; // restart the slide-in
+    this.el.limits.classList.add('show');
+    this.limitsTimer = seconds;
+  }
+
   toast(text, seconds = 2.2) {
     this.el.toast.textContent = text;
     this.el.toast.classList.add('show');
@@ -320,5 +337,9 @@ export class HUD {
   }
 
   setCamera(name) { this.el.cam.textContent = name; }
-  show(v) { this.el.hud.classList.toggle('hidden', !v); if (v) this.resetTiming(); }
+  show(v) {
+    this.el.hud.classList.toggle('hidden', !v);
+    if (v) this.resetTiming();
+    this.limitsTimer = 0; this.el.limits?.classList.remove('show'); // no banner left over from the last race
+  }
 }

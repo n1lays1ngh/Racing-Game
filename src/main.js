@@ -17,6 +17,8 @@ import { Lobby } from './lobby.js';
 import { NameTags } from './nametags.js';
 import { createRemoteModel, syncModels } from './carLod.js';
 import { keepTicking, stopTicking } from './net/background.js';
+import { StatsRun } from './stats.js';
+import { StatsScreen } from './statsScreen.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -183,6 +185,7 @@ trackSelect.addEventListener('change', () => loadTrack(trackSelect.value)); // p
 
 // ---------- game state ----------
 let race = null;
+let statsRun = null; // records your stats for the race you're in (stats.js)
 let models = [];
 let paused = false;
 let playerColor = 0xe10600;
@@ -203,12 +206,14 @@ function soloConfig() {
 }
 
 function newRace(cfg = soloConfig()) {
+  statsRun?.end(); // restarting: what you drove in the last one still counts (stats.js)
   for (const m of models) scene.remove(m);
   if (trackSelect.value !== cfg.track) trackSelect.value = cfg.track;
   loadTrack(cfg.track);
   showcase.stop();
   race = new Race(track, cfg);
   lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
+  statsRun = new StatsRun(race, { online: !!lobby.session }); // your stats: time, laps, sectors, result
   models = race.cars.map((c) => {
     const m = c.isHuman && !c.isPlayer ? createRemoteModel(c.team) : createCarModel(c.team, { player: c.isPlayer });
     scene.add(m);
@@ -244,6 +249,13 @@ const lobby = new Lobby({
   onSession: (on) => (on ? keepTicking(tick) : stopTicking()), // keep racing in a background tab
 });
 window.addEventListener('pagehide', () => lobby.session?.leave());
+window.addEventListener('pagehide', () => statsRun?.end());                                 // closing the tab mid-race
+document.addEventListener('visibilitychange', () => { if (document.hidden) statsRun?.flush(); }); // save what's driven so far
+
+// Your stats (main menu → Your stats; statsScreen.js)
+const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
+document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(); });
+
 loadTrack(trackSelect.value);                               // first circuit + live race behind the menu
 carModelReady.then(() => { if (!race) showcase.start(track); }); // swap in the RB19 once it has loaded
 
@@ -267,6 +279,7 @@ document.getElementById('btn-restart').addEventListener('click', () => { setPaus
 
 // Clear the race away; the live race plays behind the menus again
 function exitRace() {
+  statsRun?.end(); statsRun = null;
   results.classList.add('hidden'); pauseEl.classList.add('hidden');
   hud.show(false); nameTags.clear();
   paused = false; audio.suspend(); rearView.hide();
@@ -277,6 +290,7 @@ function exitRace() {
 function toMenu() {
   lobby.leave(); lobby.hide(); // online: leaving the menu means leaving the room
   exitRace();
+  statsScreen.refreshButton();
   menu.classList.remove('hidden');
 }
 // Online: the host ends the race for everyone; anyone else just leaves it (and retires if still going)
@@ -417,7 +431,7 @@ function tick(timestamp) {
   if (wasPressed('KeyG')) cyclePreset(); // graphics: Low → Medium → High
   if (wasPressed('KeyC')) { camMode = (camMode + 1) % CAMERAS.length; hud.setCamera(CAMERAS[camMode]); snapCamera(); }
   if (wasPressed('KeyM')) audio.setMuted(!audio.muted);
-  if (wasPressed('KeyR') && race.state === 'racing' && race.player.finishTime == null) race.resetPlayer();
+  if (wasPressed('KeyR') && race.state === 'racing' && race.player.finishTime == null) race.resetPlayer(); // (invalidates the lap: race.js)
 
   const input = readInput(dt);
   const session = lobby.session;
@@ -425,16 +439,27 @@ function tick(timestamp) {
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
     const steps = Math.ceil(dt / (1 / 120));
     for (let i = 0; i < steps; i++) race.step(dt / steps, paused ? IDLE : input);
+    // Messages for this frame, put together so a circuit record isn't hidden by "Final lap" in the same moment
+    let msg = null, secs = 2.2;
     for (const e of race.takeEvents()) {
-      if (e.type === 'go') hud.toast('GO! GO! GO!', 1.2);
-      if (e.type === 'bestLap') hud.toast(`Personal best  ${formatTime(e.time)}`);
-      if (e.type === 'finalLap') hud.toast('Final lap');
+      if (e.type === 'go') { msg = 'GO! GO! GO!'; secs = 1.2; }
+      if (e.type === 'bestLap') msg = `Personal best  ${formatTime(e.time)}`;
+      if (e.type === 'invalid') hud.invalidated(e); // track limits: "Lap invalidated" banner (race.js, hud.js)
+      if (e.type === 'lap') { // every lap you complete → your stats; beat your best ever here → say so
+        const r = statsRun?.lap(e);
+        if (r?.best && r.prevBest != null) { msg = `Circuit record  ${formatTime(r.lap.t)}  −${(r.prevBest - r.lap.t).toFixed(3)}`; secs = 3; }
+        else if (e.valid === false) msg ??= `Lap deleted  ${formatTime(e.time)}`; // invalidated: doesn't count
+      }
+      if (e.type === 'finalLap') msg = msg ? `${msg}  ·  Final lap` : 'Final lap';
       if (e.type === 'finish') {
-        hud.toast('Chequered flag!', 2.5);
+        msg = msg ? `Chequered flag!  ·  ${msg}` : 'Chequered flag!'; secs = Math.max(secs, 2.5);
+        statsRun?.finish();
         const finished = race;
         setTimeout(() => { if (race === finished) showResults(); }, 2500);
       }
     }
+    if (msg) hud.toast(msg, secs);
+    statsRun?.update(dt, true); // time on track, distance, top speed, sectors, track limits
   }
 
   session?.tick(dt, timestamp); // online: swap car positions with the others

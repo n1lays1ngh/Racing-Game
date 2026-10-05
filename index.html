@@ -32,7 +32,7 @@
     <div id="right-top">
     <div id="timing" class="hud-panel">
       <div class="t-row">
-        <div><label>Current lap</label><span id="t-cur" class="t-big">0:00.000</span></div>
+        <div><label>Current lap<b id="t-invalid" class="t-invalid hidden">Invalid</b></label><span id="t-cur" class="t-big">0:00.000</span></div>
         <div class="t-right"><label>Best</label><span id="t-best" class="t-best">--:--.---</span></div>
       </div>
       <div class="sectors">
@@ -65,6 +65,8 @@
     <div class="cam-hint">[Shift] ERS · [C] <span id="cam-name">Chase</span> · [T] tower · [Q] look back · [V] mirror · [R] reset · [M] mute · [G] graphics · [Esc] pause</div>
     <div id="toast"></div>
     <div id="wrongway">WRONG WAY</div>
+    <!-- Track limits (race.js TRACK_LIMITS, hud.js) -->
+    <div id="limits"><span id="limits-why">Track limits</span><b>Lap invalidated</b></div>
   </div>
 
   <div id="lights">
@@ -145,6 +147,7 @@
 
       <button id="btn-start" class="start"><span>Start race</span><kbd>Enter</kbd></button>
       <button id="btn-mp" class="mp-open" type="button"><span class="mp-ico"><i></i><i></i></span><span class="mp-txt"><b>Multiplayer</b><small>Race your friends online</small></span><span class="mp-go">›</span></button>
+      <button id="btn-stats" class="mp-open stats-open" type="button"><span class="st-ico"><i></i><i></i><i></i></span><span class="mp-txt"><b>Your stats</b><small id="st-open-sub">Lap records for every circuit</small></span><span class="mp-go">›</span></button>
 
       <div class="keys">
         <span><kbd>W</kbd><kbd>S</kbd> go / brake</span>
@@ -216,6 +219,24 @@
 
       <div id="lb-status" class="lb-status"></div>
     </section>
+  </div>
+
+  <!-- ===== Your stats (statsScreen.js; recorded by stats.js); the live race keeps playing behind it ===== -->
+  <div id="stats" class="overlay hidden">
+    <div class="st-screen">
+      <header class="st-head">
+        <div class="st-head-l">
+          <div id="st-art" class="st-art"></div>
+          <div>
+            <div class="res-kicker"><span class="slash"></span><span id="st-kicker">Driver profile</span></div>
+            <h2 id="st-title" class="st-title">Your stats</h2>
+            <div id="st-sub" class="res-sub"></div>
+          </div>
+        </div>
+        <button id="st-back" class="st-back" type="button"><span>‹ Menu</span><kbd>Esc</kbd></button>
+      </header>
+      <div id="st-body"></div>
+    </div>
   </div>
 
   <!-- ===== Intro (plays once on load) ===== -->

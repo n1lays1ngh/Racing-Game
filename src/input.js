@@ -11,7 +11,8 @@
 //   Race:     Y camera · B (hold) look back · LB mirror · D-pad down tower gaps · D-pad up mute
 //             View/Share reset · Menu/Options pause
 //   Pause:    A resume · Y restart · B quit
-//   Menus:    D-pad or LB/RB change circuit · A start · Y multiplayer · Menu/Options (lobby host) start race
+//   Menus:    D-pad or LB/RB change circuit · A start · Y multiplayer · X your stats · Menu/Options (lobby host) start race
+//   Stats:    B or Menu/Options back
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
 // Switch Pro and most others in Chrome, Edge, Firefox and Safari).
 import { triggerFeedback } from './dualsense.js';
@@ -98,11 +99,13 @@ function screen() {
   if (visible('lobby')) return 'lobby';
   if (visible('results')) return 'results';
   if (visible('pause')) return 'pause';
+  if (visible('stats')) return 'stats';
   return 'race';
 }
 // button index (standard layout) → what it does on each screen: a key code, or 'click:<button id>'
 const MAP = {
-  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 3: 'click:btn-mp' },
+  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 3: 'click:btn-mp', 2: 'click:btn-stats' },
+  stats:   { 1: 'click:st-back', 9: 'click:st-back' },                       // B / Menu: back
   lobby:   { 9: 'click:lb-go' },
   race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM' }, // RB (5): ERS, read in readInput
   pause:   { 9: 'Escape', 0: 'click:btn-resume', 3: 'click:btn-restart', 1: 'click:btn-quit' },
