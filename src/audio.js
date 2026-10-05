@@ -1,26 +1,35 @@
 // Engine and car sounds, synthesised live with the Web Audio API (no sound files).
 //
-// The engine is built the way a real one makes noise: a stream of exhaust pulses, one per
-// cylinder firing (a V10 at 18,000 rpm fires 1,500 times a second), each cylinder slightly
-// different, shaped by exhaust-pipe resonances and a little distortion. On top of that:
-// turbo whistle and hybrid (MGU-K) whine on the V6, gearshift cuts and clunks, the rev limiter, pops and
-// crackles when you lift off, tyre squeal, kerb rumble, gravel, wind and impacts.
-// The three nearest AI cars have their own engines, panned left/right with the Doppler
-// effect, so you hear them come past.
+// The engine is built the way a real one makes noise: a stream of exhaust pulses, one per cylinder
+// firing, each cylinder slightly different, shaped by exhaust-pipe resonances. The default engine is
+// 'smooth': a low, warm, steady hum that only rises a little with the revs: no scream, no rasp, no pops.
+// The old screaming engines ('v10', 'v8', 'v6') are still here: set SOUND.engineType to use one.
+//
+// Everything else (tyre squeal, kerb rumble, grass and gravel, wind, impacts, gearshift clicks, pops and
+// crackles when you lift off or brake) is off by default, so you only hear the engine. Each one has its own
+// volume in SOUND below: set it above 0 to bring it back.
+// The nearest AI cars have their own (quieter) engines, panned left/right as they pass you.
 //
 // Browsers only allow sound after a click, so start() is called from the Start button.
 import { gearbox } from './physics.js';
 
 // Engine sounds. Pick one with SOUND.engineType; tweak a preset to taste.
-//   rpmScale: multiplies the gearbox revs (the V8/V10 era revved to 18–19,000)
+//   fire:     (smooth only) the engine's note in Hz at idle and at the redline: { rpm: [idle, redline], hz: [low, high] }.
+//             The closer the two hz numbers, the more steady (monotone) it sounds; lower numbers = deeper.
+//   rpmScale: (the others) multiplies the gearbox revs (the V8/V10 era revved to 18–19,000)
 //   bank:     loudness of alternate firings (below 1 = the two cylinder banks sound different → deeper, richer)
 //   pulse:    length of each exhaust pulse (smaller = buzzier, larger = smoother)
-//   noise:    combustion rasp;  body: low crank rumble;  drive: distortion [idle, full throttle]
-//   cutoff:   top-end filter in Hz [idle, full throttle] (lower = less shrill)
+//   noise:    combustion rasp;  body: low hum under it all;  drive: distortion [idle, full throttle]
+//   cutoff:   top-end filter in Hz [idle, full throttle] (lower = softer, less shrill)
 //   res:      exhaust resonances [Hz, Q, gain] (low Q = broad and warm, high Q = whistly)
+//   pops:     crackles and pops when you lift off / brake and on gearshifts
+//   rough:    how uneven the firings are (0 = perfectly even, 0.16 = lumpy)
 export const ENGINES = {
+  smooth: { cylinders: 8, fire: { rpm: [4000, 13000], hz: [54, 92] }, bank: 0.88, pulse: 0.6, noise: 0.03, body: 0.55,
+            crankRatio: 1, drive: [0.5, 0.75], cutoff: [600, 950], pops: false, rough: 0.05, jitter: 0.004,
+            res: [[92, 0.7, 0.5], [185, 0.9, 0.42], [370, 1.1, 0.16]] },
   v6: { cylinders: 6, rpmScale: 1, bank: 1, pulse: 0.28, noise: 0.5, body: 0.1, drive: [0.9, 1.6], cutoff: [2500, 6000],
-        res: [[155, 1.6, 1], [430, 2.4, 0.7], [1150, 3.2, 0.42], [2700, 4, 0.22]] },
+        pops: false, res: [[155, 1.6, 1], [430, 2.4, 0.7], [1150, 3.2, 0.42], [2700, 4, 0.22]] },
   v8: { cylinders: 8, rpmScale: 1.38, bank: 0.5, pulse: 0.08, noise: 0.25, body: 0.28, drive: [1.1, 2.0], cutoff: [4200, 7500],
         res: [[260, 0.7, 0.6], [640, 0.9, 0.9], [1400, 1.5, 0.2], [3300, 1, 0.5], [5000, 1.4, 0.3]] },
   v10: { cylinders: 10, rpmScale: 1.4, bank: 0.5, pulse: 0.07, noise: 0.25, body: 0.28, drive: [1.1, 2.0], cutoff: [4500, 8000],
@@ -28,18 +37,34 @@ export const ENGINES = {
 };
 
 export const SOUND = {
-  engineType: 'v10',   // 'v6' turbo hybrid (today), 'v8' (2006–13), 'v10' (2000–05 scream)
+  engineType: 'v6', // 'smooth' (low, calm hum), or the originals: 'v10' (2000–05 scream), 'v8' (2006–13), 'v6' turbo hybrid
   volume: 0.8,
-  engine: 0.55,        // your engine
-  traffic: 0.7,        // other cars
-  turbo: 0.018,        // turbo whistle (only on the V6)
-  hybrid: 0.012,       // electric whine (only on the V6)
-  tyres: 0.22,
-  kerbs: 1.0,          // kerb rumble (it's mixed to be heard over the engine; lower it if it's too much)
-  wind: 0.12,
-  aiVoices: 3,         // how many AI engines you can hear at once
+  engine: 0.7,          // your engine
+  idleLevel: 0.75,      // how loud the engine is off the throttle compared with flat out (1 = the same: steadiest)
+  glide: 0.14,          // seconds the note takes to follow the revs (higher = smoother slides between gears)
+  traffic: 0.35,        // other cars' engines (0 = off)
+  doppler: [0.88, 1.15],// how much other cars' pitch may rise / fall as they pass (1, 1 = not at all)
+  aiVoices: 3,          // how many AI engines you can hear at once
+  // Everything below is off (0 / false): only the engine. Turn any of them back on here.
+  liftLoad: 0.45,       // off the throttle at speed, the engine still sounds this strong (0 = thin and quiet, 1 = like flat out)
+  shiftSnap: 0.015,     // gearshifts: seconds the revs take to jump to the new gear (small = you hear each shift as it happens)
+  snapTime: 0.12,       // …for this long after the shift; then the revs follow with `glide` again
+  downshiftLoud: 1.35,  // downshifts: the engine is this much louder as the revs jump (1 = no louder)
+  loudTime: 0.3,        // …fading back to normal over this many seconds
+  shiftCut: false,      // the engine cutting out for a moment on each gearshift
+  shiftClick: 0,        // gearshift click (was 1)
+  limiter: false,       // rev limiter stutter
+  tyres: 0,             // tyre squeal when sliding or locking the brakes (was 0.22)
+  kerbs: 1.0,             // kerb rumble (was 1.0)
+  offTrack: 1.0,          // grass and gravel crunch (was 1.0)
+  wind: 0.3,              // wind at speed (was 0.12)
+  air: 0,               // intake air rush (was 1.0)
+  impacts: 0,           // thud when you hit something (was 1.0)
+  turbo: 0.018,         // turbo whistle (only on the 'v6')
+  hybrid: 0.012,        // electric whine (only on the 'v6')
 };
-const PRESET = () => ENGINES[SOUND.engineType] ?? ENGINES.v6;
+const PRESET = () => ENGINES[SOUND.engineType] ?? ENGINES.smooth;
+const usesRpmScale = () => !PRESET().fire; // 'smooth' sets its note directly from the revs
 
 // ---------- engine synthesiser (runs on the audio thread) ----------
 const WORKLET = `
@@ -56,8 +81,8 @@ class EngineVoice extends AudioWorkletProcessor {
     super();
     const o = options.processorOptions || {};
     this.cyl = o.cylinders || 6; this.o = o;
-    // every cylinder is a little different: that's what gives an engine its growl
-    this.amp = Array.from({ length: this.cyl }, () => 0.75 + Math.random() * 0.5);
+    // every cylinder is a little different: that's what gives an engine its character
+    this.amp = Array.from({ length: this.cyl }, () => 0.75 + Math.random() * 0.5 * Math.min(1, (o.rough ?? 0.16) / 0.16));
     this.phase = 0; this.n = 0;
     this.pulse = 0; this.crack = 0; this.pop = 0; this.popLp = 0;
     this.lp = 0; this.dcX = 0; this.dcY = 0;
@@ -67,14 +92,19 @@ class EngineVoice extends AudioWorkletProcessor {
     this.crank = 0;
   }
   process(inputs, outputs, p) {
-    const out = outputs[0][0], sr = sampleRate;
+    const out = outputs[0][0], sr = sampleRate, o = this.o;
     const pitch = p.pitch[0], rpm = Math.max(p.rpm[0], 600) * pitch, load = p.load[0], cut = p.cut[0];
-    const fireHz = (rpm / 60) * (this.cyl / 2);                   // firings per second
+    let fireHz;                                                     // firings per second
+    if (o.fire) {                                                   // 'smooth': a set range of notes
+      const f = o.fire, u = (Math.max(p.rpm[0], 600) - f.rpm[0]) / (f.rpm[1] - f.rpm[0]);
+      fireHz = (f.hz[0] + (f.hz[1] - f.hz[0]) * Math.max(-0.3, Math.min(1.1, u))) * pitch;
+    } else fireHz = (rpm / 60) * (this.cyl / 2);
     const dPhase = fireHz / sr;
-    const o = this.o, pulseDecay = Math.exp(-1 / (sr * Math.max((o.pulse ?? 0.28) / fireHz, 0.00012)));
+    const pulseDecay = Math.exp(-1 / (sr * Math.max((o.pulse ?? 0.28) / fireHz, 0.00012)));
     const crackDecay = Math.exp(-1 / (sr * 0.0006));
     const popDecay = Math.exp(-1 / (sr * 0.012));
-    const overrun = load < 0.08 && rpm > 7000 * pitch;
+    const pops = o.pops !== false, overrun = pops && load < 0.08 && rpm > 7000 * pitch;
+    const jitter = o.jitter ?? 0.02, rough = o.rough ?? 0.16;
     // band-pass resonator coefficients (RBJ, constant 0 dB peak)
     for (const r of this.res) {
       const w = 2 * Math.PI * Math.min(r.f * pitch, sr * 0.45) / sr, al = Math.sin(w) / (2 * r.q), a0 = 1 + al;
@@ -82,30 +112,30 @@ class EngineVoice extends AudioWorkletProcessor {
     }
     const dr = o.drive || [0.9, 1.6], co = o.cutoff || [2500, 6000];
     const drive = dr[0] + load * (dr[1] - dr[0]), lpA = Math.exp(-2 * Math.PI * (co[0] + load * (co[1] - co[0])) / sr);
-    const dCrank = (rpm / 60) / sr, body = (o.body ?? 0) * (0.4 + 0.6 * load) * (1 - cut);
+    const dCrank = (o.crankRatio ? fireHz * o.crankRatio : rpm / 60) / sr, body = (o.body ?? 0) * (0.4 + 0.6 * load) * (1 - cut);
     for (let i = 0; i < out.length; i++) {
-      this.phase += dPhase * (1 + (Math.random() - 0.5) * 0.02);  // tiny timing jitter
+      this.phase += dPhase * (1 + (Math.random() - 0.5) * jitter);  // tiny timing jitter
       if (this.phase >= 1) {
         this.phase -= 1;
         const c = this.n++ % this.cyl;
         const bank = c % 2 ? (o.bank ?? 1) : 1;                           // alternate banks sound different
-        const a = this.amp[c] * bank * (1 - cut) * (0.3 + 0.7 * load) * (0.92 + Math.random() * 0.16);
+        const a = this.amp[c] * bank * (1 - cut) * (0.3 + 0.7 * load) * (1 - rough / 2 + Math.random() * rough);
         this.pulse += a; this.crack += a * (o.noise ?? 0.5) * (0.5 + load);
         if (overrun && Math.random() < 0.035) this.pop = 1.2 + Math.random();   // crackle on the overrun
-        if (cut > 0.5 && Math.random() < 0.08) this.pop = 0.8;                  // pops on shifts / limiter
+        if (pops && cut > 0.5 && Math.random() < 0.08) this.pop = 0.8;          // pops on shifts / limiter
       }
       this.pulse *= pulseDecay; this.crack *= crackDecay; this.pop *= popDecay;
       const noise = Math.random() * 2 - 1;
       const x = this.pulse + this.crack * noise;
-      this.crank = (this.crank + dCrank) % 1;                            // crankshaft rumble
+      this.crank = (this.crank + dCrank) % 1;                            // the low hum underneath
       let y = x * 0.35 + body * Math.sin(2 * Math.PI * this.crank) * (1 + 0.3 * Math.sin(4 * Math.PI * this.crank));
       for (const r of this.res) {
         const v = r.b0 * x + r.b2 * r.x2 - r.a1 * r.y1 - r.a2 * r.y2;
         r.x2 = r.x1; r.x1 = x; r.y2 = r.y1; r.y1 = v; y += v * r.g * 3;
       }
       this.popLp += (noise * this.pop - this.popLp) * 0.35; y += this.popLp * 1.4;
-      y = Math.tanh(y * drive) / Math.tanh(drive);                  // rasp, more under load
-      this.lp = y + (this.lp - y) * lpA;                            // tame the fizz
+      y = Math.tanh(y * drive) / Math.tanh(drive);                  // rasp, more under load (little on 'smooth')
+      this.lp = y + (this.lp - y) * lpA;                            // soften the top end
       const dc = this.lp - this.dcX + 0.995 * this.dcY; this.dcX = this.lp; this.dcY = dc; // remove DC
       out[i] = dc * 0.5;
     }
@@ -147,41 +177,49 @@ export class EngineAudio {
   filter(type, f, q = 1) { const b = this.ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; }
   gain(v = 0) { const g = this.ctx.createGain(); g.gain.value = v; return g; }
 
-  // Everything except the engines themselves
+  // Everything except the engines themselves. Each layer is only built if it's switched on in SOUND.
   buildLayers() {
     const ctx = this.ctx, out = this.comp;
-    // turbo whistle and hybrid whine: pure tones
-    this.turbo = ctx.createOscillator(); this.turbo.type = 'sine'; this.turboGain = this.gain();
-    this.turbo.connect(this.turboGain).connect(out); this.turbo.start();
-    this.whine = ctx.createOscillator(); this.whine.type = 'triangle'; this.whineGain = this.gain();
-    this.whine.connect(this.filter('lowpass', 5000)).connect(this.whineGain).connect(out); this.whine.start();
-    // intake / turbo air rush
-    this.airGain = this.gain(); this.airFilter = this.filter('bandpass', 1200, 0.8);
-    this.noise().connect(this.airFilter).connect(this.airGain).connect(out);
-    // tyre squeal: two resonant bands with a wobble
-    this.squealGain = this.gain();
-    const sq = this.noise(), b1 = this.filter('bandpass', 1050, 12), b2 = this.filter('bandpass', 2300, 9);
-    sq.connect(b1).connect(this.squealGain); sq.connect(b2).connect(this.squealGain);
-    const wob = ctx.createOscillator(); wob.frequency.value = 7; const wobG = this.gain(120);
-    wob.connect(wobG).connect(b1.frequency); wob.start();
-    this.squealGain.connect(out);
-    // kerbs: a deep rumble chopped at the stripe rate, plus a rasping buzz from the ridges in the kerb
-    // (in the mid range, so you hear it on laptop speakers too, not just headphones)
-    this.kerbGain = this.gain(); this.kerbChop = this.gain(0.5);
-    this.kerbLfo = ctx.createOscillator(); this.kerbLfo.type = 'square'; const lfoAmt = this.gain(0.5);
-    this.kerbLfo.connect(lfoAmt).connect(this.kerbChop.gain); this.kerbLfo.start();
-    this.noise().connect(this.filter('lowpass', 320, 1.5)).connect(this.gain(1.6)).connect(this.kerbChop);
-    this.kerbBuzz = ctx.createOscillator(); this.kerbBuzz.type = 'sawtooth';
-    this.kerbBuzz.connect(this.filter('bandpass', 420, 0.9)).connect(this.gain(0.9)).connect(this.kerbChop); this.kerbBuzz.start();
-    this.noise().connect(this.filter('bandpass', 900, 1.2)).connect(this.gain(0.8)).connect(this.kerbChop);
-    this.kerbChop.connect(this.kerbGain).connect(out);
-    // grass and gravel: crunchy noise
-    this.offGain = this.gain(); this.offFilter = this.filter('bandpass', 700, 0.7);
-    this.noise().connect(this.offFilter).connect(this.offGain).connect(out);
-    // wind
-    this.windGain = this.gain(); this.windFilter = this.filter('lowpass', 500, 0.5);
-    this.noise().connect(this.windFilter).connect(this.windGain).connect(out);
+    if (SOUND.engineType === 'v6') {
+      // turbo whistle and hybrid whine: pure tones
+      this.turbo = ctx.createOscillator(); this.turbo.type = 'sine'; this.turboGain = this.gain();
+      this.turbo.connect(this.turboGain).connect(out); this.turbo.start();
+      this.whine = ctx.createOscillator(); this.whine.type = 'triangle'; this.whineGain = this.gain();
+      this.whine.connect(this.filter('lowpass', 5000)).connect(this.whineGain).connect(out); this.whine.start();
+    }
+    if (SOUND.air > 0) { // intake / turbo air rush
+      this.airGain = this.gain(); this.airFilter = this.filter('bandpass', 1200, 0.8);
+      this.noise().connect(this.airFilter).connect(this.airGain).connect(out);
+    }
+    if (SOUND.tyres > 0) { // tyre squeal: two resonant bands with a wobble
+      this.squealGain = this.gain();
+      const sq = this.noise(), b1 = this.filter('bandpass', 1050, 12), b2 = this.filter('bandpass', 2300, 9);
+      sq.connect(b1).connect(this.squealGain); sq.connect(b2).connect(this.squealGain);
+      const wob = ctx.createOscillator(); wob.frequency.value = 7; const wobG = this.gain(120);
+      wob.connect(wobG).connect(b1.frequency); wob.start();
+      this.squealGain.connect(out);
+    }
+    if (SOUND.kerbs > 0) {
+      // kerbs: a deep rumble chopped at the stripe rate, plus a rasping buzz from the ridges in the kerb
+      this.kerbGain = this.gain(); this.kerbChop = this.gain(0.5);
+      this.kerbLfo = ctx.createOscillator(); this.kerbLfo.type = 'square'; const lfoAmt = this.gain(0.5);
+      this.kerbLfo.connect(lfoAmt).connect(this.kerbChop.gain); this.kerbLfo.start();
+      this.noise().connect(this.filter('lowpass', 320, 1.5)).connect(this.gain(1.6)).connect(this.kerbChop);
+      this.kerbBuzz = ctx.createOscillator(); this.kerbBuzz.type = 'sawtooth';
+      this.kerbBuzz.connect(this.filter('bandpass', 420, 0.9)).connect(this.gain(0.9)).connect(this.kerbChop); this.kerbBuzz.start();
+      this.noise().connect(this.filter('bandpass', 900, 1.2)).connect(this.gain(0.8)).connect(this.kerbChop);
+      this.kerbChop.connect(this.kerbGain).connect(out);
+    }
+    if (SOUND.offTrack > 0) { // grass and gravel: crunchy noise
+      this.offGain = this.gain(); this.offFilter = this.filter('bandpass', 700, 0.7);
+      this.noise().connect(this.offFilter).connect(this.offGain).connect(out);
+    }
+    if (SOUND.wind > 0) {
+      this.windGain = this.gain(); this.windFilter = this.filter('lowpass', 500, 0.5);
+      this.noise().connect(this.windFilter).connect(this.windGain).connect(out);
+    }
     this.lastGear = 'N'; this.lastHit = 0;
+    this.snapUntil = 0; this.loudAt = -10; this.lastUp = -10; // gearshifts
   }
 
   voice(pan = false) {
@@ -197,54 +235,68 @@ export class EngineAudio {
     // your engine: a touch more body in the low end
     const shelf = this.filter('lowshelf', 220); shelf.gain.value = 5;
     this.me.g.disconnect(); this.me.g.connect(shelf).connect(this.comp);
-    this.others = Array.from({ length: SOUND.aiVoices }, () => this.voice(true));
+    this.others = SOUND.traffic > 0 ? Array.from({ length: SOUND.aiVoices }, () => this.voice(true)) : [];
     this.ready = true;
   }
 
   // Your car. Called every frame.
   update({ rpm, throttle, slip, surface, speed, hit, gear = 'N', brake = 0 }) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime, r = rpm * PRESET().rpmScale, hybrid = SOUND.engineType === 'v6' ? 1 : 0;
+    const t = this.ctx.currentTime, r = rpm * (usesRpmScale() ? PRESET().rpmScale ?? 1 : 1);
     if (this.ready) {
       const m = this.me;
-      m.rpm.setTargetAtTime(r, t, 0.02);
-      m.load.setTargetAtTime(throttle, t, 0.03);
-      // gearshifts: a short ignition cut on the way up, a blip on the way down
+      // gearshifts: the revs jump to the new gear straight away, so you hear each shift as it happens
       if (gear !== this.lastGear && gear !== 'N' && this.lastGear !== 'N') {
         const up = Number(gear) > Number(this.lastGear);
-        m.cut.cancelScheduledValues(t); m.cut.setValueAtTime(up ? 1 : 0.6, t); m.cut.setValueAtTime(0, t + (up ? 0.05 : 0.09));
-        this.clunk(up ? 0.22 : 0.14);
+        if (SOUND.shiftCut) { m.cut.cancelScheduledValues(t); m.cut.setValueAtTime(up ? 1 : 0.6, t); m.cut.setValueAtTime(0, t + (up ? 0.05 : 0.09)); }
+        if (SOUND.shiftClick > 0) this.clunk((up ? 0.22 : 0.14) * SOUND.shiftClick);
+        this.snapUntil = t + SOUND.snapTime;
+        if (up) this.lastUp = t;
+        else if (t - this.lastUp > 0.3) this.loudAt = t; // louder on a real downshift (not the gear flickering at a gear's top speed)
       }
+      m.rpm.setTargetAtTime(r, t, t < this.snapUntil ? SOUND.shiftSnap : SOUND.glide); // snap on shifts, glide otherwise
+      const load = speed > 3 ? Math.max(throttle, SOUND.liftLoad) : throttle; // engine braking still sounds strong
+      m.load.setTargetAtTime(load, t, 0.08);
       // rev limiter bouncing
-      if (rpm > 12900 && throttle > 0.6) m.cut.setValueAtTime(Math.floor(t * 26) % 2, t);
-      m.g.gain.setTargetAtTime(SOUND.engine * (0.55 + throttle * 0.45), t, 0.05);
+      if (SOUND.limiter && rpm > 12900 && throttle > 0.6) m.cut.setValueAtTime(Math.floor(t * 26) % 2, t);
+      const idle = Math.min(1, Math.max(0, SOUND.idleLevel));
+      const since = t - this.loudAt, loud = since < SOUND.loudTime ? 1 + (SOUND.downshiftLoud - 1) * (1 - since / SOUND.loudTime) : 1;
+      m.g.gain.setTargetAtTime(SOUND.engine * (idle + throttle * (1 - idle)) * loud, t, loud > 1 ? 0.02 : 0.15);
     }
     this.lastGear = gear;
     const revs = smooth(5000, 13000, rpm), boost = revs * (0.3 + 0.7 * throttle);
-    this.turbo.frequency.setTargetAtTime(1800 + boost * 5200, t, 0.25);
-    this.turboGain.gain.setTargetAtTime(SOUND.turbo * boost * hybrid, t, 0.3);
-    this.whine.frequency.setTargetAtTime(160 + speed * 30, t, 0.05);
-    this.whineGain.gain.setTargetAtTime(SOUND.hybrid * hybrid * (0.4 + brake * 1.6) * smooth(2, 20, speed), t, 0.1);
-    this.airFilter.frequency.setTargetAtTime(700 + revs * 2400, t, 0.1);
-    this.airGain.gain.setTargetAtTime(0.03 * throttle * revs, t, 0.08);
-
-    const squeal = smooth(1.3, 5, slip) * (speed > 5 ? 1 : 0);
-    this.squealGain.gain.setTargetAtTime(SOUND.tyres * squeal, t, 0.05);
-    this.kerbLfo.frequency.setTargetAtTime(Math.max(speed / 1.75, 1), t, 0.02);
-    this.kerbBuzz.frequency.setTargetAtTime(Math.min(60 + speed * 5, 480), t, 0.02); // ridges go by faster
-    this.kerbGain.gain.setTargetAtTime(surface === 'kerb' && speed > 3 ? SOUND.kerbs * (0.9 + 0.8 * smooth(5, 60, speed)) : 0, t, 0.02);
-    const off = surface === 'grass' || surface === 'gravel' || surface === 'runoff';
-    this.offFilter.frequency.setTargetAtTime(surface === 'gravel' ? 2600 : 500, t, 0.05);
-    this.offGain.gain.setTargetAtTime(off && speed > 2 ? Math.min(0.5, speed * 0.012) : 0, t, 0.05);
-    this.windFilter.frequency.setTargetAtTime(300 + speed * 12, t, 0.2);
-    this.windGain.gain.setTargetAtTime(SOUND.wind * smooth(10, 90, speed), t, 0.2);
-    if (hit > 0.25 && this.lastHit <= 0.25) this.thump(hit);
+    if (this.turbo) {
+      this.turbo.frequency.setTargetAtTime(1800 + boost * 5200, t, 0.25);
+      this.turboGain.gain.setTargetAtTime(SOUND.turbo * boost, t, 0.3);
+      this.whine.frequency.setTargetAtTime(160 + speed * 30, t, 0.05);
+      this.whineGain.gain.setTargetAtTime(SOUND.hybrid * (0.4 + brake * 1.6) * smooth(2, 20, speed), t, 0.1);
+    }
+    if (this.airGain) {
+      this.airFilter.frequency.setTargetAtTime(700 + revs * 2400, t, 0.1);
+      this.airGain.gain.setTargetAtTime(0.03 * SOUND.air * throttle * revs, t, 0.08);
+    }
+    if (this.squealGain) this.squealGain.gain.setTargetAtTime(SOUND.tyres * smooth(1.3, 5, slip) * (speed > 5 ? 1 : 0), t, 0.05);
+    if (this.kerbGain) {
+      this.kerbLfo.frequency.setTargetAtTime(Math.max(speed / 1.75, 1), t, 0.02);
+      this.kerbBuzz.frequency.setTargetAtTime(Math.min(60 + speed * 5, 480), t, 0.02); // ridges go by faster
+      this.kerbGain.gain.setTargetAtTime(surface === 'kerb' && speed > 3 ? SOUND.kerbs * (0.9 + 0.8 * smooth(5, 60, speed)) : 0, t, 0.02);
+    }
+    if (this.offGain) {
+      const off = surface === 'grass' || surface === 'gravel' || surface === 'runoff';
+      this.offFilter.frequency.setTargetAtTime(surface === 'gravel' ? 2600 : 500, t, 0.05);
+      this.offGain.gain.setTargetAtTime(off && speed > 2 ? SOUND.offTrack * Math.min(0.5, speed * 0.012) : 0, t, 0.05);
+    }
+    if (this.windGain) {
+      this.windFilter.frequency.setTargetAtTime(300 + speed * 12, t, 0.2);
+      this.windGain.gain.setTargetAtTime(SOUND.wind * smooth(10, 90, speed), t, 0.2);
+    }
+    if (SOUND.impacts > 0 && hit > 0.25 && this.lastHit <= 0.25) this.thump(hit * SOUND.impacts);
     this.lastHit = hit;
   }
 
-  // Other cars, heard from the camera: louder when close, panned, Doppler-shifted.
+  // Other cars, heard from the camera: louder when close, panned, a little Doppler as they pass.
   updateTraffic(cars, player, camera) {
-    if (!this.ready) return;
+    if (!this.ready || !this.others.length) return;
     const t = this.ctx.currentTime, e = camera.matrixWorld.elements;
     const lx = e[12], ly = e[13], lz = e[14], rx = e[0], rz = e[2];       // listener position, right vector
     const lvx = player ? player.state.vx : 0, lvz = player ? player.state.vz : 0;
@@ -253,7 +305,8 @@ export class EngineAudio {
       return { c, d: Math.hypot(dx, dy, dz), dx, dz };
     }).filter((o) => o.d < 220).sort((a, b) => a.d - b.d).slice(0, this.others.length);
     const keep = new Set(near.map((o) => o.c));
-    for (const v of this.others) if (v.car && !keep.has(v.car)) { v.car = null; v.g.gain.setTargetAtTime(0, t, 0.08); }
+    for (const v of this.others) if (v.car && !keep.has(v.car)) { v.car = null; v.g.gain.setTargetAtTime(0, t, 0.15); }
+    const [dLo, dHi] = SOUND.doppler;
     for (const o of near) {
       let v = this.others.find((x) => x.car === o.c) ?? this.others.find((x) => !x.car);
       if (!v) continue;
@@ -261,17 +314,17 @@ export class EngineAudio {
       const s = o.c.state, gb = gearbox(Math.abs(s.vf));
       const inv = 1 / Math.max(o.d, 0.001), ux = o.dx * inv, uz = o.dz * inv;
       const away = (s.vx - lvx) * ux + (s.vz - lvz) * uz;                 // + = moving away
-      const doppler = Math.min(1.6, Math.max(0.6, 343 / (343 + away)));
-      v.rpm.setTargetAtTime(gb.rpm * PRESET().rpmScale, t, 0.03);
-      v.load.setTargetAtTime(s.throttle ?? 0.8, t, 0.05);
-      v.pitch.setTargetAtTime(doppler, t, 0.05);
-      v.g.gain.setTargetAtTime(SOUND.traffic / (1 + (o.d / 14) ** 2), t, 0.05);
+      const doppler = Math.min(dHi, Math.max(dLo, 343 / (343 + away)));
+      v.rpm.setTargetAtTime(gb.rpm * (usesRpmScale() ? PRESET().rpmScale ?? 1 : 1), t, SOUND.glide);
+      v.load.setTargetAtTime(s.throttle ?? 0.8, t, 0.08);
+      v.pitch.setTargetAtTime(doppler, t, 0.1);
+      v.g.gain.setTargetAtTime(SOUND.traffic / (1 + (o.d / 14) ** 2), t, 0.1);
       v.lp.frequency.setTargetAtTime(Math.max(900, 16000 / (1 + o.d / 35)), t, 0.05);   // distant cars sound duller
-      if (v.p) v.p.pan.setTargetAtTime(Math.max(-1, Math.min(1, (ux * rx + uz * rz) * 0.9)), t, 0.05);
+      if (v.p) v.p.pan.setTargetAtTime(Math.max(-1, Math.min(1, (ux * rx + uz * rz) * 0.9)), t, 0.08);
     }
   }
 
-  // one-shot sounds
+  // one-shot sounds (off by default: SOUND.shiftClick, SOUND.impacts)
   clunk(level) {
     const ctx = this.ctx, t = ctx.currentTime, n = ctx.createBufferSource(); n.buffer = this.noiseBuf;
     const f = this.filter('bandpass', 2400, 3), g = this.gain();
