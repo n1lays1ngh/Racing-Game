@@ -14,7 +14,7 @@ import { CAR } from './physics.js';
 
 export const BRAKE_BOARDS = {
   enabled: true,
-  distances: [300,250, 200,150, 100 , 50,10],  // metres before the corner (add 50 for a fourth board)
+  distances: [300, 200, 100],  // metres before the corner (add 50 for a fourth board)
   minDrop: 70,                 // km/h: only braking zones where a fast lap loses at least this much speed …
   minEntry: 200,               // km/h: … and that it arrives at at least this fast
   size: [1.6, 1.15],           // board width and height (m)
@@ -117,6 +117,7 @@ export function buildBrakeBoards(track, heightAt) {
       if (d > room + braking) continue;                                          // would stand in the last corner
       const i = Math.floor(mod(z.s - d, length) / ds) % n;
       if (Math.abs(track.curv[i]) > B.straightOnly) continue;                   // not on a bend
+      if (track.forest?.[i]) continue;                                          // nor in the woods (only trees there)
       const side = z.side, E = track.hw[i] + track.kerb;
       let wall = side > 0 ? track.wallL[i] : track.wallR[i];
       const pit = track.pitLane;

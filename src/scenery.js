@@ -1,8 +1,8 @@
 // Everything you see that isn't a car.
 //   buildWorld()   – sky, sun, lights, ground: built once.
 //   buildCircuit() – tarmac, kerbs, gravel, start gantry and trees for one circuit, plus the barriers
-//                    (barriers.js), grandstands and pit building (venue.js) and city buildings (buildings.js).
-//                    Rebuilt whenever you pick a different track.
+//                    (barriers.js), grandstands and pit building (venue.js), city buildings (buildings.js) and
+//                    the woods along forest stretches (forest.js). Rebuilt whenever you pick a different track.
 // Tarmac, grass and gravel are photo scans from public/textures/ (see photoTextures() below), with the
 // rubbered racing line, edge lines, skid marks and mowing stripes painted on top in the shaders.
 // If a photo can't be loaded, that surface is drawn in code instead. Tweak the look with LOOK below.
@@ -20,6 +20,7 @@ import { buildGrandstands, buildPits, buildPitLane, setVenueLights } from './ven
 import { GRAPHICS } from './settings.js';
 import { TyreMarks, MARKS, MARK_GRID } from './tyreMarks.js';
 import { buildBrakeBoards } from './brakeBoards.js';
+import { buildForest, forestLand, nearestSample } from './forest.js';
 
 export const LOOK = {
   asphaltTile: 2,       // metres per repeat of the asphalt texture (the real size of the scanned patch)
@@ -496,13 +497,9 @@ function roadGeometry(track, y) {
   return g;
 }
 
-function nearestTrack(track, x, z) {
-  let best = Infinity, bi = 0;
-  for (let i = 0; i < track.n; i += 3) {
-    const d = (x - track.cx[i]) ** 2 + (z - track.cz[i]) ** 2;
-    if (d < best) { best = d; bi = i; }
-  }
-  return { d: Math.sqrt(best), i: bi };
+function nearestTrack(track, x, z) { // (a grid search: forest.js)
+  const near = nearestSample(track, x, z);
+  return { d: near.d, i: Math.max(0, near.i) };
 }
 
 // Local frame at sample i on one side: X along the track, Z away from the track.
@@ -731,8 +728,12 @@ function buildTrees(track, ground, count, ok, heightAt) {
   const K = treeKit(), group = new THREE.Group();
   group.userData.trees = true; // main.js: the graphics preset can turn tree shadows off
   seed = 11 + (Math.abs(Math.round(track.cx[0] * 7 + track.cz[0])) % 100000); // the same trees every time
-  const beside = (from, to) => { // a spot from–to metres beyond the barrier, somewhere round the lap
-    const i = Math.floor(rand() * track.n), side = rand() < 0.5 ? 1 : -1;
+  // somewhere round the lap, but not along forest stretches: they have their own woods (forest.js)
+  const open = [];
+  for (let i = 0; i < track.n; i++) if (!track.forest?.[i]) open.push(i);
+  if (!open.length) count = 0;
+  const beside = (from, to) => { // a spot from–to metres beyond the barrier
+    const i = open[Math.floor(rand() * open.length)], side = rand() < 0.5 ? 1 : -1;
     const off = (side > 0 ? track.wallL[i] : track.wallR[i]) + from + rand() ** 1.4 * (to - from);
     return [track.cx[i] + track.nx[i] * side * off, track.cz[i] + track.nz[i] * side * off];
   };
@@ -791,6 +792,7 @@ function buildTrees(track, ground, count, ok, heightAt) {
 }
 
 // ---------- once: sky, sun, ground ----------
+let WORLD_GROUND = null;
 export function buildWorld(scene, renderer) {
   const sky = new Sky();
   sky.scale.setScalar(5000);
@@ -799,6 +801,10 @@ export function buildWorld(scene, renderer) {
   u.cloudCoverage.value = LOOK.clouds; u.cloudDensity.value = 0.55; u.cloudScale.value = 0.00025; // fuller, softer clouds
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(58), THREE.MathUtils.degToRad(210));
   u.sunPosition.value.copy(sunDir);
+  // The sky is a box 5 km across: keep it centred on whichever camera is drawing, or on a big circuit (the
+  // Nordschleife reaches 3.7 km from the middle) the camera ends up outside it and the sky goes black.
+  sky.frustumCulled = false;
+  sky.onBeforeRender = (renderer, scene, camera) => { sky.position.copy(camera.position); sky.updateMatrixWorld(); };
   scene.add(sky);
 
   scene.fog = new THREE.Fog(0xbfd4e6, 300, 3200);
@@ -825,6 +831,7 @@ export function buildWorld(scene, renderer) {
   ground.rotation.x = -Math.PI / 2; ground.position.y = -150; // hidden in the haze beyond each circuit's terrain
   ground.receiveShadow = true;
   scene.add(ground);
+  WORLD_GROUND = ground; // buildCircuit() lowers it below a circuit's deepest valley
 
   return { sun, sunDir, sky, hemi, scene, renderer }; // lighting.js changes these for dusk and night races
 }
@@ -838,9 +845,11 @@ export function buildCircuit(track) {
   const hwL = (i) => track.hw[i], hwR = (i) => -track.hw[i];   // tarmac edges (width can vary)
   const n = track.n;
 
-  // Ground that follows the hills (grass, desert sand or city paving)
-  const terrain = buildTerrain(track, M.terrains[track.scenery.ground] ?? M.terrains.grass);
+  // Ground that follows the hills (grass, desert sand or city paving); along forest stretches it rises into
+  // a canopy of treetops further back (forest.js)
+  const terrain = buildTerrain(track, M.terrains[track.scenery.ground] ?? M.terrains.grass, forestLand(track));
   add(terrain.mesh);
+  if (WORLD_GROUND) WORLD_GROUND.position.y = Math.min(-150, terrain.lowest - 60); // the far ground stays out of sight
 
   // Run-off between the tarmac and the barriers: grass, tarmac or gravel (from the circuit file)
   const looks = [[SURFACES.grass, M.runoff, 0.0, 20], [SURFACES.tarmac, M.runoffTarmac, 0.01, 12], [SURFACES.gravel, M.gravel, 0.02, 12]];
@@ -856,13 +865,16 @@ export function buildCircuit(track) {
   const marks = new TyreMarks(track);
   M.road.userData.marks.tex.value = marks.texture; M.road.userData.marks.dims.value.copy(marks.dims);
 
-  // Kerbs where the track bends
-  const bend = new Uint8Array(n);
+  // Kerbs where the track bends; through the woods (forest stretches) only at the apex of the tighter corners
+  const bendL = new Uint8Array(n), bendR = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    if (Math.abs(track.curv[i]) > 0.006) for (let d = -12; d <= 12; d++) bend[(i + d + n) % n] = 1;
+    const k = track.curv[i];
+    if (!track.forest?.[i]) {
+      if (Math.abs(k) > 0.006) for (let d = -12; d <= 12; d++) bendL[(i + d + n) % n] = bendR[(i + d + n) % n] = 1;
+    } else if (Math.abs(k) > 1 / 110) for (let d = -8; d <= 8; d++) (k > 0 ? bendL : bendR)[(i + d + n) % n] = 1; // inside of the corner
   }
   for (const s of [-1, 1]) {
-    const g = kerbGeometry(track, s, bend);
+    const g = kerbGeometry(track, s, s > 0 ? bendL : bendR);
     if (g) add(new THREE.Mesh(g, M.kerb)).receiveShadow = true;
   }
 
@@ -926,10 +938,16 @@ export function buildCircuit(track) {
     if (track.time === 'night') darkenAwayFromTrack(track, city.meshes, 20, 120, 0.3); // lit mostly by their windows
   }
 
-  const trees = buildTrees(track, track.scenery.ground ?? 'grass', TREES,
-    (x, z, extra) => clearOfTrack(x, z, extra) && !blocked.some(([bx, bz, r]) => (x - bx) ** 2 + (z - bz) ** 2 < r * r),
-    terrain.heightAt);
+  const clear = (x, z, extra) => clearOfTrack(x, z, extra) && !blocked.some(([bx, bz, r]) => (x - bx) ** 2 + (z - bz) ** 2 < r * r);
+  const trees = buildTrees(track, track.scenery.ground ?? 'grass', TREES, clear, terrain.heightAt);
   group.add(trees.group);
+  // Woods along forest stretches (forest.js): rows of spruces and beeches right behind the guardrail
+  const forest = buildForest(track, { heightAt: terrain.heightAt, ok: clear, kit: treeKit() });
+  group.add(forest);
+  // The woods and the guardrail are in chunks drawn only near the camera: each time the ground is drawn
+  // (once a frame, and again for the mirror) show the ones near that camera
+  const cull = distanceCuller(group);
+  if (cull) terrain.mesh.onBeforeRender = (renderer, scene, camera) => cull(camera);
   // Dusk and night races: floodlights, lit windows, and dark surroundings away from the track (lighting.js)
   const T = TIMES[track.time] ?? TIMES.day;
   setWindowLights(T.windows);
@@ -938,7 +956,7 @@ export function buildCircuit(track) {
   setLightPools(flood?.userData.pools, T.pools ?? 0);      // pools of light on the track under the floodlights
   if (track.time === 'night') {
     const ground = terrain.mesh.material;
-    darkenAwayFromTrack(track, [terrain.mesh, ...trees.meshes]);
+    darkenAwayFromTrack(track, [terrain.mesh, ...trees.meshes, ...forest.children]);
     // that gives the ground its own copy of the material; keep the ground shader (real-size texture) on it
     Object.assign(terrain.mesh.material, { onBeforeCompile: ground.onBeforeCompile, customProgramCacheKey: ground.customProgramCacheKey });
   }
@@ -946,11 +964,28 @@ export function buildCircuit(track) {
   return { group, lights, marks };
 }
 
+// Objects drawn only near the camera: userData.cull = { from, to, tight } in shares of the graphics preset's
+// view distance (settings.js); shown while the camera is from–to away (tight: measured to the middle of the
+// object, so a chunk and its stand-in swap cleanly; otherwise to its nearest edge).
+function distanceCuller(group) {
+  const list = [];
+  group.traverse((o) => { if (o.userData.cull && (o.boundingSphere ?? o.geometry?.boundingSphere)) list.push(o); });
+  if (!list.length) return null;
+  return (camera) => {
+    const p = camera.position, view = GRAPHICS.viewDistance ?? 5000;
+    for (const o of list) {
+      const c = o.userData.cull, b = o.boundingSphere ?? o.geometry.boundingSphere, d = p.distanceTo(b.center);
+      o.visible = d >= c.from * view && (c.tight ? d : d - b.radius) < c.to * view;
+    }
+  };
+}
+
 // Free GPU memory when switching circuits (materials/textures are shared, so keep them).
 export function disposeCircuit(circuit) {
   circuit.group.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
-    for (const m of o.userData.ownMaterials ?? []) m.dispose(); // per-circuit copies (night lighting)
+    if (o.isInstancedMesh) o.dispose();                          // its per-tree positions and colours on the GPU
+    for (const m of o.userData.ownMaterials ?? []) m.dispose(); // per-circuit copies (night lighting, forest canopy)
   });
   circuit.group.removeFromParent();
   circuit.marks?.dispose();

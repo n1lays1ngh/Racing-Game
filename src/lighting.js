@@ -446,6 +446,7 @@ export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodli
   let side = 1;
   for (let s = 0; s < track.length; s += spacing, side = -side) {
     const i = Math.floor(s / track.ds) % track.n;
+    if (track.forest?.[i]) continue;                  // none in the woods (forest stretches: only trees)
     const wall = side > 0 ? track.wallL[i] : track.wallR[i], lane = track.pitLane;
     let off = wall + 3;
     if (lane && lane.side === side && lane.range[i]) {   // the pit lane (pitlane.js): behind it, none at the garages
@@ -525,7 +526,11 @@ export function darkenAwayFromTrack(track, objects, lit = 35, dark = 200, floor 
       if (o.instanceColor) o.instanceColor.needsUpdate = true;
     } else if (o.isMesh) {
       const pos = o.geometry.attributes.position, col = new Float32Array(pos.count * 3);
-      for (let k = 0; k < pos.count; k++) { const b = bright(pos.getX(k), pos.getZ(k)); col[k * 3] = col[k * 3 + 1] = col[k * 3 + 2] = b; }
+      const old = o.geometry.attributes.color; // keep colours it already has (the forest canopy on the ground: terrain.js)
+      for (let k = 0; k < pos.count; k++) {
+        const b = bright(pos.getX(k), pos.getZ(k));
+        col[k * 3] = b * (old ? old.getX(k) : 1); col[k * 3 + 1] = b * (old ? old.getY(k) : 1); col[k * 3 + 2] = b * (old ? old.getZ(k) : 1);
+      }
       o.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
       o.material = o.material.clone(); o.material.vertexColors = true;
       (o.userData.ownMaterials ??= []).push(o.material);

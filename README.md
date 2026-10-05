@@ -5,6 +5,8 @@ An open-wheel racing game that runs in the browser, built with **Three.js** and 
 banked corners (Zandvoort, Jeddah), grandstands, pit buildings and gravel traps. Street circuits
 (Monaco, Singapore, Baku, Las Vegas…) have concrete walls close to the track and a city around them.
 Night races (Bahrain, Jeddah, Singapore, Las Vegas, Qatar) run under floodlights, and Abu Dhabi starts at sunset.
+Le Mans and Daytona race through the night, and the Nürburgring 24h runs the Grand Prix circuit plus the whole
+Nordschleife: 25 km through the Eifel woods on the real ground, only trees behind a steel guardrail.
 Every circuit is one file in `src/circuits/`, so you can add, remove or fine-tune tracks yourself.
 Up to 19 AI rivals, online multiplayer for up to 10 friends, start lights, lap timing, live standings,
 a minimap, four camera views, a rear-view mirror, synthesised engine sound and gamepad support.
@@ -126,7 +128,8 @@ src/
   track.js          Circuit file → samples, walls, surfaces, racing line; CIRCUIT_DEFAULTS
   elevation.js      Hills and crests from a circuit's elevation list
   banking.js        Banked corners
-  terrain.js        Ground that follows the track's height
+  terrain.js        Ground that follows the track's height (or a circuit's real ground)
+  forest.js         Woods right behind the guardrail along forest stretches (the Nordschleife)
   rearview.js       Mirror and look-behind camera
   lighting.js       Day / dusk / night: sky, floodlights, fog, lit windows
   settings.js       Graphics settings (resolution, shadows, how many trees and buildings)
@@ -229,6 +232,9 @@ can be shrunk without visible loss using glTF-Transform:
 - Le Mans and Daytona: centrelines from tobi/track-atlas (https://github.com/tobi/track-atlas, MIT), built from
   OpenStreetMap data (© OpenStreetMap contributors, ODbL) and, for Daytona, 2021 aerial survey data (Florida DEP).
   Le Mans elevation: Mapzen Terrain Tiles (USGS, NOAA, Copernicus EU-DEM) via markthebault/open-racetrack-db.
+- Nürburgring 24h: centreline, start/finish, pit lane and section names from OpenStreetMap (© OpenStreetMap
+  contributors, ODbL) via markthebault/open-racetrack-db (https://github.com/markthebault/open-racetrack-db);
+  road heights and the ground around the circuit from Mapzen Terrain Tiles (Copernicus EU-DEM, SRTM) via the same.
 
 ## Ideas for what to build next
 

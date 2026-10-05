@@ -5,6 +5,8 @@
 //                          barrier along the pit lane, from track.pitLane: see pitlane.js)
 //
 // On street circuits ('concrete') some stretches are bare concrete instead. The sponsors are made up.
+// Through the woods (forest stretches, forest.js: the Nordschleife) it's a steel guardrail instead (ARMCO below):
+// two W-shaped beams on posts, no sponsors and no fence.
 // Everything is drawn in code when the game starts (no image files).
 import * as THREE from 'three';
 import { bankLift } from './banking.js';
@@ -18,6 +20,16 @@ export const BARRIER = {
   fenceGap: 0.35,     // gap between the back of the barrier and the fence, metres
   fence: 3.8,         // fence height above the ground, metres
 };
+
+// The guardrail in the woods: double Armco, the beams one above the other, bolted to posts.
+export const ARMCO = {
+  beams: [0.4, 0.72], // height of each beam's bottom edge above the road (m); a beam is 31 cm tall
+  post: 2,            // metres between posts
+  chunk: 250,         // metres of guardrail per piece: pieces far from the camera aren't drawn …
+  draw: 0.3,          // … beyond this share of the view distance (settings.js)
+};
+// A W-beam seen end on: [metres back from its face (away from the track), height above its bottom edge].
+const BEAM = [[0.08, 0], [0.005, 0.07], [0.065, 0.155], [0.005, 0.24], [0.08, 0.31]];
 
 // Cross-section: [metres out from the wall line (away from the track), height]; the first point is buried.
 // A vertical face, a rounded top edge (25 cm radius), a flat top and a rounded back edge.
@@ -205,6 +217,9 @@ function materials() {
     face: withLightPools(face), back: withLightPools(back), shared,
     fence: new THREE.MeshStandardMaterial({ map: fenceTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.6 }),
     post: new THREE.MeshStandardMaterial({ color: 0xb4b9bf, metalness: 0.65, roughness: 0.4 }),
+    // galvanised steel guardrail (forest stretches)
+    armco: withLightPools(new THREE.MeshStandardMaterial({ color: 0xb2b7bc, metalness: 0.6, roughness: 0.42, side: THREE.DoubleSide })),
+    armcoPost: withLightPools(new THREE.MeshStandardMaterial({ color: 0x8a8f95, metalness: 0.5, roughness: 0.55 })),
   };
   return MATS;
 }
@@ -291,6 +306,61 @@ function fenceGeometry(track, at, include = null) {
   return g;
 }
 
+// The guardrail along one side of samples c0..c1 where the track runs through the woods (track.forest):
+// both beams, each a strip with the W profile, at the barrier line.
+function armcoGeometry(track, side, c0, c1) {
+  const { n } = track, W = side > 0 ? track.wallL : track.wallR, C = BEAM.length, pos = [], idx = [], rows = new Map();
+  const on = (k) => track.forest[k % n] && track.forest[(k + 1) % n];          // a beam from sample k to k + 1?
+  const row = (k) => {                                                           // vertices across both beams at sample k
+    if (rows.has(k)) return rows.get(k);
+    const i = k % n, base = pos.length / 3, face = W[i], y = hAt(track, i, side * face);
+    for (const b of ARMCO.beams) for (const [back, up] of BEAM) {
+      const lat = side * (face + back);
+      pos.push(track.cx[i] + track.nx[i] * lat, y + b + up, track.cz[i] + track.nz[i] * lat);
+    }
+    rows.set(k, base);
+    return base;
+  };
+  for (let k = c0; k < c1; k++) {
+    if (!on(k)) continue;
+    const a = row(k), c = row(k + 1);
+    for (let b = 0; b < ARMCO.beams.length; b++) for (let j = 0; j < C - 1; j++) {
+      const v0 = a + b * C + j, v1 = v0 + 1, w0 = c + b * C + j, w1 = w0 + 1;
+      if (side > 0) idx.push(v0, w0, v1, v1, w0, w1); else idx.push(v0, v1, w0, v1, w1, w0); // fronts face the track
+    }
+  }
+  if (!idx.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals(); g.computeBoundingSphere();
+  return g;
+}
+
+// Guardrail through the woods, in pieces of ARMCO.chunk metres (each drawn only near the camera: scenery.js).
+function buildArmco(track, M, group) {
+  const { n, ds } = track, CH = Math.max(1, Math.round(ARMCO.chunk / ds)), cull = { from: 0, to: ARMCO.draw };
+  const top = ARMCO.beams[ARMCO.beams.length - 1] + 0.33, postGeo = new THREE.BoxGeometry(0.11, top + 0.3, 0.11).translate(0, (top + 0.3) / 2, 0);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+  for (let c0 = 0; c0 < n; c0 += CH) for (const side of [1, -1]) {
+    const c1 = Math.min(n, c0 + CH), geo = armcoGeometry(track, side, c0, c1);
+    if (!geo) continue;
+    const rail = new THREE.Mesh(geo, M.armco);
+    rail.castShadow = true; rail.receiveShadow = true; rail.userData.cull = cull; rail.visible = false;
+    group.add(rail);
+    const W = side > 0 ? track.wallL : track.wallR, at = [];
+    for (let i = c0; i < c1; i++) {
+      if (!track.forest[i] || Math.floor((i * ds) / ARMCO.post) === Math.floor(((i - 1) * ds) / ARMCO.post)) continue;
+      const lat = side * (W[i] + 0.16);                                            // just behind the beams
+      at.push([track.cx[i] + track.nx[i] * lat, hAt(track, i, side * W[i]) - 0.3, track.cz[i] + track.nz[i] * lat, Math.atan2(track.tx[i], track.tz[i])]);
+    }
+    if (!at.length) continue;
+    const posts = new THREE.InstancedMesh(postGeo, M.armcoPost, at.length);
+    at.forEach(([x, y, z, h], k) => posts.setMatrixAt(k, m.compose(v.set(x, y, z), q.setFromAxisAngle(up, h), one)));
+    posts.receiveShadow = true; posts.computeBoundingSphere(); posts.userData.cull = cull; posts.visible = false;
+    group.add(posts);
+  }
+}
+
 export function buildBarriers(track) {
   const M = materials(), B = BARRIER, group = new THREE.Group(), n = track.n, lane = track.pitLane;
   M.shared.uBare.value = B.bare[track.barrier] ?? 0;
@@ -298,10 +368,13 @@ export function buildBarriers(track) {
   // whole lap), shift (its own sponsors)]. Along the pit lane (pitlane.js) the barrier on that side gives way
   // to the pit wall between the track and the lane, and a barrier along the far side of the lane (none in
   // front of the garages); that one reaches a sample further each end, to meet the barrier it carries on from.
-  const runs = [];
+  // Through the woods (track.forest) the guardrail takes over (buildArmco).
+  const runs = [], forest = track.forest?.some((v) => v) ? track.forest : null;
   for (const side of [1, -1]) {
     const W = side > 0 ? track.wallL : track.wallR;
-    runs.push([(i) => side * W[i], lane && lane.side === side ? lane.range.map((v) => 1 - v) : null, 0]);
+    let include = lane && lane.side === side ? lane.range.map((v) => 1 - v) : null;
+    if (forest) include = (include ?? new Uint8Array(n).fill(1)).map((v, i) => (v && !forest[i] ? 1 : 0));
+    runs.push([(i) => side * W[i], include, 0]);
   }
   if (lane) {
     const s = lane.side, W = s > 0 ? track.wallL : track.wallR;
@@ -330,5 +403,6 @@ export function buildBarriers(track) {
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.computeBoundingSphere();
     group.add(mesh);
   }
+  if (forest) buildArmco(track, M, group);
   return group;
 }

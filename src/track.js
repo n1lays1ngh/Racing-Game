@@ -35,6 +35,7 @@ export function resolveCircuit(def) {
     scenery: { ...base.scenery, ...(def.scenery ?? {}) },
     widths: def.widths ?? [], runoffSections: def.runoffSections ?? [],
     stands: def.stands ?? [], pits: def.pits ?? [], banking: def.banking ?? [], elevation: def.elevation ?? [],
+    forest: def.forest ?? [], meadows: def.meadows ?? [], terrain: def.terrain ?? null,
   };
 }
 
@@ -120,15 +121,27 @@ export function buildTrack(circuit = TRACKS[0], spacing = 2) {
     t.wallR[i] = t.hw[i] + t.kerb + runR[i];
   }
 
+  // Stretches through the woods (`forest` in the circuit file, like the Nordschleife): trees right up to a
+  // steel guardrail, nothing else (no gravel, grandstands, sponsor walls or braking boards; see forest.js).
+  // woodsL / woodsR: how wooded each side is there (1 = forest; `meadows` = open fields, trees further back).
+  t.forest = new Uint8Array(n);
+  t.woodsL = new Float32Array(n); t.woodsR = new Float32Array(n);
+  for (const f of def.forest) forRange(f.from, f.to, (i) => { t.forest[i] = 1; t.woodsL[i] = t.woodsR[i] = 1; });
+  for (const m of def.meadows) forRange(m.from, m.to, (i) => {
+    if (!t.forest[i]) return;
+    if (m.side !== 'R') t.woodsL[i] = m.woods ?? 0.3;
+    if (m.side !== 'L') t.woodsR[i] = m.woods ?? 0.3;
+  });
+
   // Run-off surface: base surface everywhere, gravel traps on top
   const base = SURFACES[def.surface] ?? 0;
   t.surfL.fill(base); t.surfR.fill(base);
   if (def.gravel === 'auto') {
     for (let i = 0; i < n; i++) {
       const k = t.curv[i];
-      if (Math.abs(k) < 1 / 130) continue;
+      if (Math.abs(k) < 1 / 130 || t.forest[i]) continue; // (grass verges in the woods)
       const g = k > 0 ? t.surfR : t.surfL; // outside of the corner
-      for (let d = -5; d <= 35; d++) g[(i + d + n) % n] = SURFACES.gravel; // extends past the exit
+      for (let d = -5; d <= 35; d++) if (!t.forest[(i + d + n) % n]) g[(i + d + n) % n] = SURFACES.gravel; // extends past the exit
     }
   } else if (Array.isArray(def.gravel)) {
     for (const g of def.gravel) forRange(g.from, g.to, (i) => {
@@ -141,6 +154,9 @@ export function buildTrack(circuit = TRACKS[0], spacing = 2) {
   computeRacingLine(t);
   applyElevation(t, def.elevation, startAt);  // hills: t.h, t.grade, t.vcurv
   applyBanking(t, def.banking, startAt);      // banked corners: t.bank
+  // The real ground around the circuit, if the file has it (terrain.js): same heights as `elevation`, so
+  // shifted by the same amount (t.h is relative to the lap's average height).
+  t.terrain = def.terrain ? { ...def.terrain, offset: t.hMean ?? 0 } : null;
 
   // Grandstands and pit buildings, converted to distance from the start line.
   t.stands = def.stands.map((st) => {

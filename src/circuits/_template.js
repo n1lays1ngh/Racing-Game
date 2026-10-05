@@ -50,8 +50,20 @@ export default {
   elevation: [],             // road heights (m), evenly spaced round the lap from points[0]. [] = flat.
                              // Only the shape matters (the game uses heights relative to the average).
 
+  terrain: null,             // optional: the real ground around the circuit, in the same heights as `elevation`:
+                             // { x0, z0, step, cols, rows, heights: [...] } (rows northwards from z0, each row
+                             // westwards from x0, `step` metres apart). null = made-up hills (see nurburgring.js).
+
   // ---- Surroundings ----
   scenery: { ground: 'grass', trees: 350, buildings: 0 }, // ground: 'grass' | 'sand' | 'city'
+  forest: [                  // stretches through the woods: only trees there, right behind a steel guardrail
+                             // (no gravel, grandstands, sponsor walls or braking boards; forest.js)
+    // { from: 4330, to: 24480, name: 'Nordschleife' },
+  ],
+  meadows: [                 // open fields along a forest stretch: the trees start further back.
+                             // woods: 0 = open fields … 1 = forest; side: 'L' | 'R' | 'both'
+    // { from: 21880, to: 23420, side: 'both', woods: 0.1, name: 'Döttinger Höhe' },
+  ],
 
   // ---- Centreline ----
   // [x, z] in metres, in driving order: x = west, z = north (so the minimap shows north up).

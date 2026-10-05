@@ -29,6 +29,7 @@ import zandvoort from './zandvoort.js';
 // endurance classics (not on the F1 calendar, so no round number)
 import lemans from './lemans.js';
 import daytona from './daytona.js';
+import nurburgring from './nurburgring.js';
 
 export const CIRCUITS = [
   bahrain,
@@ -57,4 +58,5 @@ export const CIRCUITS = [
   zandvoort,
   lemans,
   daytona,
+  nurburgring,
 ];

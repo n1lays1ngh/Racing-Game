@@ -34,6 +34,7 @@ export function applyElevation(t, data, startAt) {
   let mean = 0;
   for (let i = 0; i < n; i++) mean += t.h[i] / n;
   for (let i = 0; i < n; i++) t.h[i] -= mean;
+  t.hMean = mean; // what was taken off (terrain.js shifts a circuit's real ground by the same)
   for (let i = 0; i < n; i++) t.grade[i] = (t.h[(i + 1) % n] - t.h[(i - 1 + n) % n]) / (2 * ds);
   smooth(t.grade, 8);
   for (let i = 0; i < n; i++) t.vcurv[i] = (t.grade[(i + 1) % n] - t.grade[(i - 1 + n) % n]) / (2 * ds);
