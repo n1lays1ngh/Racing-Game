@@ -13,11 +13,10 @@ import { PITLANE } from './pitlane.js';
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
-const MAP_SIZE = 200;      // minimap size in CSS pixels
+const MAP_SIZE = 240;      // minimap size in CSS pixels
 const REV_LEDS = 15;       // shift lights: 5 green, 5 red, 5 blue
 const TOWER_EVERY = 12;    // frames between timing tower updates (a gap that changes every frame can't be read)
 const LAP_POPUP = 4;       // s: your lap time stays up this long after the line
-const HINT_FOR = 12;       // s: the key hints at the bottom, from the start of a race
 
 // ---- the rev counter (an SVG arc of segments) ----
 const TC = { cx: 125, cy: 110, r: 98, sweep: 125, segs: 44 }; // centre, radius, ± degrees from straight up, segments
@@ -44,7 +43,7 @@ export class HUD {
       sectors: [1, 2, 3].map((k) => $('sec' + k)),
       battle: $('battle'), ahead: $('bt-ahead'), behind: $('bt-behind'),
       standings: $('standings'), mode: $('tower-mode'), mapName: $('map-name'),
-      toast: $('toast'), lights: $('lights'), wrong: $('wrongway'), cam: $('cam-name'), camChip: $('cam-chip'), hint: $('cam-hint'),
+      toast: $('toast'), lights: $('lights'), wrong: $('wrongway'), cam: $('cam-name'), camChip: $('cam-chip'),
       limits: $('limits'), limitsWhy: $('limits-why'), invalid: $('t-invalid'), // track limits (race.js)
       ers: $('ers'), ersLabel: $('ers-label'), ersFill: $('ers-fill'), ersPct: $('ers-pct'), ersMode: $('ers-mode'),
       abs: $('aid-abs'), tc: $('aid-tc'), lightsLamp: $('aid-lights'), tow: $('tow'), towFill: $('tow-fill'),
@@ -54,7 +53,7 @@ export class HUD {
     this.leds = [...this.el.revlights.children];
     this.lamps = [...this.el.lights.querySelectorAll('.lamp')];
     this.el.limiter.textContent = `Pit limiter ${PITLANE.limit} km/h`;
-    this.toastTimer = 0; this.limitsTimer = 0; this.camTimer = 0; this.hintTimer = 0;
+    this.toastTimer = 0; this.limitsTimer = 0; this.camTimer = 0;
     this.frame = 0;
     this.showLeaderGap = false; // T toggles interval ↔ gap to leader
     this.spec = undefined;
@@ -94,7 +93,10 @@ export class HUD {
     E.lightsLamp.style.display = spec?.headlights ? '' : 'none';
   }
 
-  // ---------- minimap ----------
+  // ---------- minimap: the whole circuit, or a close-up of the road ahead (Z / the controller's Menu button) ----------
+  // Whole circuit: north up, every car as a dot (you with your position), the braking zones in red when the racing
+  // line is on. Close-up: turns with your car so the road ahead is always up, drawn to scale (the real width of the
+  // track), looking further ahead the faster you go, with the racing line in green and red when it's on.
   setupMinimap(track) {
     const c = $('minimap'); this.map = c; this.mapCtx = c.getContext('2d');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -109,19 +111,44 @@ export class HUD {
     const ox = pad + ((span - (maxX - minX)) * scale) / 2, oz = pad + ((span - (maxZ - minZ)) * scale) / 2;
     // Mirror X so north is up (x points west in the game).
     this.toMap = (x, z) => [c.width - (ox + (x - minX) * scale), oz + (maxZ - z) * scale];
-    // Pre-render the circuit once: the road, the pit lane, the sector lines and the start / finish
-    const bg = document.createElement('canvas'); bg.width = bg.height = c.width;
+    this.track = track; this.dpr = dpr; this.zones = null; this.linePaths = null; // (main.js sets the racing line again)
+    // the same circuit in metres, for the close-up (drawn through a canvas transform)
+    const road = new Path2D();
+    for (let i = 0; i <= track.n; i++) { const k = i % track.n; i ? road.lineTo(track.cx[k], track.cz[k]) : road.moveTo(track.cx[k], track.cz[k]); }
+    let w = 0; for (let i = 0; i < track.n; i++) w += track.hw[i] * 2;
+    let pit = null;
+    const lane = track.pitLane;   // the pit lane (pitlane.js), a thin line beside the track
+    if (lane) {
+      pit = new Path2D();
+      for (let k = 0; k <= lane.steps; k++) {
+        const i = (lane.i0 + k) % track.n, lat = lane.side * (lane.inner[i] + lane.out[i]) / 2;
+        const x = track.cx[i] + track.nx[i] * lat, z = track.cz[i] + track.nz[i] * lat;
+        k ? pit.lineTo(x, z) : pit.moveTo(x, z);
+      }
+    }
+    this.world = { road, pit, width: w / track.n };
+    this.drawMapBg();
+    this.setMapMode(this.mapZoom ?? false);
+    this.resetTiming();
+  }
+
+  // The whole-circuit picture, drawn once (again when the racing line is switched): road, pit lane, braking zones,
+  // sector lines and the start / finish
+  drawMapBg() {
+    const track = this.track, dpr = this.dpr, c = this.map;
+    const bg = this.mapBg ?? document.createElement('canvas'); bg.width = bg.height = c.width;
     const g = bg.getContext('2d');
+    g.clearRect(0, 0, bg.width, bg.height);
     g.lineJoin = g.lineCap = 'round';
-    const path = (from, to) => {
+    const path = (from, to, step = 2) => {
       g.beginPath();
-      for (let i = from; i <= to; i += 2) {
+      for (let i = from; i <= to; i += step) {
         const [px, py] = this.toMap(track.cx[i % track.n], track.cz[i % track.n]);
         i === from ? g.moveTo(px, py) : g.lineTo(px, py);
       }
     };
-    path(0, track.n); g.strokeStyle = 'rgba(0,0,0,0.65)'; g.lineWidth = 9 * dpr; g.stroke();
-    const lane = track.pitLane;   // the pit lane (pitlane.js), a thin line beside the track
+    path(0, track.n); g.strokeStyle = 'rgba(0,0,0,0.65)'; g.lineWidth = 10 * dpr; g.stroke();
+    const lane = track.pitLane;
     if (lane) {
       g.beginPath();
       for (let k = 0; k <= lane.steps; k += 2) {
@@ -131,23 +158,60 @@ export class HUD {
       }
       g.strokeStyle = 'rgba(200,208,218,0.55)'; g.lineWidth = 1.4 * dpr; g.stroke();
     }
-    path(0, track.n); g.strokeStyle = '#e9ecef'; g.lineWidth = 3.2 * dpr; g.stroke();
+    path(0, track.n); g.strokeStyle = '#e9ecef'; g.lineWidth = 3.6 * dpr; g.stroke();
+    const zones = this.zones; // braking zones (racing line on)
+    if (zones) {
+      g.strokeStyle = '#ff3b30'; g.lineWidth = 3.6 * dpr;
+      for (let i = 0; i < track.n; i++) {
+        if (zones[i] < 0.5 || zones[(i + track.n - 1) % track.n] >= 0.5) continue;
+        let j = i; while (j < i + track.n && zones[j % track.n] >= 0.5) j++;
+        path(i, j, 1); g.stroke();
+      }
+    }
     const third = Math.floor(track.n / 3);
-    for (const [i, col, w] of [[third, 'rgba(255,255,255,0.55)', 2], [third * 2, 'rgba(255,255,255,0.55)', 2], [0, '#e10600', 3.5]]) {
+    for (const [i, col, w] of [[third, 'rgba(255,255,255,0.6)', 2], [third * 2, 'rgba(255,255,255,0.6)', 2], [0, '#e10600', 3.5]]) {
       const [px, py] = this.toMap(track.cx[i], track.cz[i]);
       const nx = -track.nx[i], nz = -track.nz[i];         // normal in map space (x mirrored, z up)
       g.strokeStyle = col; g.lineWidth = w * dpr; g.beginPath();
-      g.moveTo(px - nx * 6 * dpr, py - nz * 6 * dpr); g.lineTo(px + nx * 6 * dpr, py + nz * 6 * dpr); g.stroke();
+      g.moveTo(px - nx * 7 * dpr, py - nz * 7 * dpr); g.lineTo(px + nx * 7 * dpr, py + nz * 7 * dpr); g.stroke();
     }
-    this.mapBg = bg; this.dpr = dpr;
-    this.el.mapName.textContent = track.name;
-    this.resetTiming();
+    this.mapBg = bg;
+  }
+
+  // zoom: the close-up (true) or the whole circuit (false)
+  setMapMode(zoom) {
+    this.mapZoom = !!zoom;
+    this.el.mapName.textContent = this.mapZoom ? 'Road ahead' : this.track?.name ?? '';
+    $('map-panel').classList.toggle('zoom', this.mapZoom);
+  }
+
+  // The racing line's braking zones (racingLine.js brakeZones), or null when the line is off
+  setRacingLine(zones) {
+    this.zones = zones;
+    this.linePaths = null;
+    if (zones) { // the line in metres for the close-up: one path for the green parts, one for the red
+      const t = this.track, green = new Path2D(), red = new Path2D();
+      let cur = null;
+      for (let i = 0; i <= t.n; i++) {
+        const k = i % t.n, r = zones[k] >= 0.5, p = r ? red : green;
+        if (cur !== p) { if (cur && i) cur.lineTo(t.rx[k], t.rz[k]); p.moveTo(t.rx[(k + t.n - 1) % t.n], t.rz[(k + t.n - 1) % t.n]); cur = p; }
+        p.lineTo(t.rx[k], t.rz[k]);
+      }
+      this.linePaths = { green, red };
+    }
+    if (this.track) this.drawMapBg();
   }
 
   drawMinimap(race) {
+    if (this.mapZoom) { this.drawCloseUp(race); return; }
     const g = this.mapCtx, dpr = this.dpr;
+    g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, this.map.width, this.map.height);
     g.drawImage(this.mapBg, 0, 0);
+    if (this.ghostAt) { // the ghost: a ring
+      const [x, y] = this.toMap(this.ghostAt.x, this.ghostAt.z);
+      g.beginPath(); g.arc(x, y, 6 * dpr, 0, Math.PI * 2); g.lineWidth = 2.2 * dpr; g.strokeStyle = '#9fd6ff'; g.stroke();
+    }
     const rank = (c) => (c.isPlayer ? 2 : c.isHuman ? 1 : 0);
     const cars = race.cars.filter((c) => !c.dnf).sort((a, b) => rank(a) - rank(b)); // you on top, then friends
     for (const car of cars) {
@@ -160,17 +224,82 @@ export class HUD {
         const tag = car.team.name.slice(0, 3).toUpperCase();
         g.strokeText(tag, x + 9 * dpr, y); g.fillStyle = '#fff'; g.fillText(tag, x + 9 * dpr, y);
       } else if (car.isPlayer) { // your marker, with your position in it
-        g.beginPath(); g.arc(x, y, 10 * dpr, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.16)'; g.fill();
-        g.beginPath(); g.arc(x, y, 7.5 * dpr, 0, Math.PI * 2); g.fillStyle = '#e10600'; g.fill();
+        g.beginPath(); g.arc(x, y, 11 * dpr, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.16)'; g.fill();
+        g.beginPath(); g.arc(x, y, 8 * dpr, 0, Math.PI * 2); g.fillStyle = '#e10600'; g.fill();
         g.lineWidth = 2 * dpr; g.strokeStyle = '#fff'; g.stroke();
-        g.fillStyle = '#fff'; g.font = `900 ${9.5 * dpr}px 'Titillium Web', sans-serif`;
+        g.fillStyle = '#fff'; g.font = `900 ${10 * dpr}px 'Titillium Web', sans-serif`;
         g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(car.position), x, y + 0.5 * dpr);
       } else {
-        g.beginPath(); g.arc(x, y, 4.5 * dpr, 0, Math.PI * 2);
+        g.beginPath(); g.arc(x, y, 5 * dpr, 0, Math.PI * 2);
         g.fillStyle = hex(car.team.color); g.fill();
         g.lineWidth = 1.5 * dpr; g.strokeStyle = 'rgba(0,0,0,0.8)'; g.stroke();
       }
     }
+  }
+
+  // The close-up: your car low in the middle, pointing up, the road ahead to scale
+  drawCloseUp(race) {
+    const g = this.mapCtx, dpr = this.dpr, W = this.map.width, H = this.map.height, t = this.track, p = race.player.state;
+    const ahead = 200 + Math.min(Math.abs(p.vf ?? 0), 95) * 3.4;          // metres of road shown ahead of you
+    this.range = this.range == null ? ahead : this.range + (ahead - this.range) * 0.04; // zooms out smoothly as you speed up
+    const s = (H * 0.7) / this.range, ch = Math.cos(p.h), sh = Math.sin(p.h), px = W / 2, py = H * 0.75;
+    // metres (x, z) → canvas: your heading points up (x mirrored as on the whole-circuit map)
+    const a = -ch * s, b = -sh * s, c = sh * s, d = -ch * s;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
+    g.setTransform(a, b, c, d, px - (a * p.x + c * p.z), py - (b * p.x + d * p.z));
+    g.lineJoin = g.lineCap = 'round';
+    const px1 = dpr / s; // one CSS pixel, in metres
+    const { road, pit, width } = this.world;
+    if (pit) { g.strokeStyle = 'rgba(200,208,218,0.35)'; g.lineWidth = Math.max(4, px1 * 2); g.stroke(pit); }
+    g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = width + px1 * 7; g.stroke(road);   // shadow
+    g.strokeStyle = '#d9dde3'; g.lineWidth = width + px1 * 3; g.stroke(road);           // the white edge lines
+    g.strokeStyle = '#4a4f58'; g.lineWidth = width; g.stroke(road);                      // tarmac
+    if (this.linePaths) {
+      g.lineWidth = Math.max(1.2, px1 * 2.6);
+      g.strokeStyle = '#2fd866'; g.stroke(this.linePaths.green);
+      g.strokeStyle = '#ff3b30'; g.stroke(this.linePaths.red);
+    }
+    const third = Math.floor(t.n / 3); // sector lines and the start / finish across the road
+    for (const [i, col, w] of [[third, 'rgba(255,255,255,0.7)', 2], [third * 2, 'rgba(255,255,255,0.7)', 2], [0, '#e10600', 4]]) {
+      const e = t.hw[i] + 3;
+      g.strokeStyle = col; g.lineWidth = px1 * w; g.beginPath();
+      g.moveTo(t.cx[i] - t.nx[i] * e, t.cz[i] - t.nz[i] * e); g.lineTo(t.cx[i] + t.nx[i] * e, t.cz[i] + t.nz[i] * e); g.stroke();
+    }
+    // cars as arrows pointing where they're going
+    const arrow = (st, fill, stroke, size = 1) => {
+      const L = px1 * 9 * size, Wd = px1 * 5.5 * size, fx = Math.sin(st.h), fz = Math.cos(st.h), lx = fz, lz = -fx;
+      g.beginPath();
+      g.moveTo(st.x + fx * L, st.z + fz * L);
+      g.lineTo(st.x - fx * L * 0.7 + lx * Wd, st.z - fz * L * 0.7 + lz * Wd);
+      g.lineTo(st.x - fx * L * 0.35, st.z - fz * L * 0.35);
+      g.lineTo(st.x - fx * L * 0.7 - lx * Wd, st.z - fz * L * 0.7 - lz * Wd);
+      g.closePath();
+      if (fill) { g.fillStyle = fill; g.fill(); }
+      if (stroke) { g.lineWidth = px1 * 1.6; g.strokeStyle = stroke; g.stroke(); }
+    };
+    const near = (st) => Math.hypot(st.x - p.x, st.z - p.z) < this.range * 1.3;
+    if (this.ghostAt && near(this.ghostAt)) arrow(this.ghostAt, null, '#9fd6ff');
+    for (const car of race.cars) {
+      if (car.dnf || car.isPlayer || !near(car.state)) continue;
+      arrow(car.state, hex(car.team.color), car.isHuman ? '#fff' : 'rgba(0,0,0,0.8)');
+    }
+    arrow(p, '#e10600', '#fff', 1.25);
+    // fade the far end into the panel, so the road runs on
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const fade = g.createLinearGradient(0, 0, 0, H * 0.22);
+    fade.addColorStop(0, 'rgba(9,10,14,0.9)'); fade.addColorStop(1, 'rgba(9,10,14,0)');
+    g.fillStyle = fade; g.fillRect(0, 0, W, H * 0.22);
+  }
+
+  // The ghost (ghost.js) in practice: its lap { time, trace } to time your lap against, or null. on: ghost mode is on.
+  setGhost(ghost, on) {
+    this.ghost = ghost?.trace ? ghost : null; this.ghostOn = !!on;
+    const row = $('ghost-row');
+    row.classList.toggle('hidden', !on);
+    $('ghost-time').textContent = formatTime(ghost?.time);
+    $('ghost-note').textContent = ghost ? 'your best ever here' : 'none yet: drive a clean flying lap';
+    $('t-delta').title = this.ghost ? 'Against the ghost: your best lap ever here' : 'Against your best lap this race';
   }
 
   // ---------- sectors, the live delta, your lap times ----------
@@ -241,7 +370,8 @@ export class HUD {
     const elapsed = race.time - p.lapStart;
     this.lapTrace ??= newTrace(Math.ceil(L / GAP_STEP) + 8, false);
     tracePass(this.lapTrace, p.state.s, elapsed);
-    const r = this.ref ? traceTime(this.ref, p.state.s) : null;
+    const ref = this.ghostOn ? this.ghost?.trace : this.ref; // practice with the ghost: its lap; otherwise your best this race
+    const r = ref ? traceTime(ref, p.state.s) : null;
     return r == null ? null : elapsed - r;
   }
 
@@ -252,11 +382,11 @@ export class HUD {
     // crossed the line on a timed lap: put the lap time up for a few seconds, coloured, with the change on your best
     if (p.lastLap != null && p.lastLapAt !== this.popFor && p.lapsDone >= 1) {
       this.popFor = p.lastLapAt;
-      const valid = !p.lastLapInvalid, prev = this.bestBefore;
+      const valid = !p.lastLapInvalid, prev = this.ghostOn && this.ghostBefore != null ? this.ghostBefore : this.bestBefore; // (practice with the ghost: against it)
       const cls = !valid ? 'invalid' : race.bestLapOverall?.time === p.lastLap ? 'purple' : p.bestLap === p.lastLap ? 'green' : 'yellow';
       this.pop = { t: p.lastLap, cls, diff: valid && prev != null ? p.lastLap - prev : null, left: LAP_POPUP, lap: p.lapsDone };
     }
-    this.bestBefore = p.bestLap;
+    this.bestBefore = p.bestLap; this.ghostBefore = this.ghost?.time ?? null;
     const delta = this.updateDelta(race, p);
     if (this.pop) { this.pop.left -= dt; if (this.pop.left <= 0) this.pop = null; }
 
@@ -448,9 +578,8 @@ export class HUD {
     // Pit lane speed limiter (pitlane.js): a flashing flag while it's holding you
     E.limiter.classList.toggle('show', !!s.pitLimiter && (this.frame >> 4) % 4 !== 3);
 
-    // key hints for the first seconds, the camera's name for a moment after you change it
-    this.hintTimer -= dt; this.camTimer -= dt;
-    E.hint.classList.toggle('show', race.state === 'countdown' || this.hintTimer > 0);
+    // the camera's name for a moment after you change it
+    this.camTimer -= dt;
     E.camChip.classList.toggle('show', this.camTimer > 0);
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) E.toast.classList.remove('show'); }
     this.drawMinimap(race);
@@ -485,7 +614,7 @@ export class HUD {
   setCamera(name) { this.el.cam.textContent = name; this.camTimer = 1.8; }
   show(v) {
     this.el.hud.classList.toggle('hidden', !v);
-    if (v) { this.resetTiming(); this.hintTimer = HINT_FOR; this.towerAt = null; this.popFor = null; }
+    if (v) { this.resetTiming(); this.towerAt = null; this.popFor = null; this.range = null; }
     this.limitsTimer = 0; this.el.limits.classList.remove('show'); // no banner left over from the last race
   }
 }

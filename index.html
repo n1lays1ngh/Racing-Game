@@ -48,9 +48,11 @@
           <div id="bt-ahead" class="bt-row"><span class="bt-dir">Ahead</span><i></i><span class="bt-name"></span><b class="bt-gap"></b></div>
           <div id="bt-behind" class="bt-row"><span class="bt-dir">Behind</span><i></i><span class="bt-name"></span><b class="bt-gap"></b></div>
         </div>
+        <!-- practice with the ghost on (pause → Settings): the lap it's driving -->
+        <div id="ghost-row" class="ghost-row hidden"><span>Ghost</span><b id="ghost-time">--:--.---</b><em id="ghost-note"></em></div>
       </section>
 
-      <section id="map-panel" class="hud-panel">
+      <section id="map-panel" class="hud-panel"><!-- Z / the controller's Menu button: whole circuit or the road ahead -->
         <span id="map-name" class="map-name">Circuit</span>
         <canvas id="minimap"></canvas>
       </section>
@@ -83,7 +85,6 @@
       </div>
     </section>
 
-    <div id="cam-hint" class="cam-hint"><kbd>⇧</kbd> ERS <kbd>C</kbd> camera <kbd>T</kbd> tower <kbd>Q</kbd> look back <kbd>V</kbd> mirror <kbd>H</kbd> lights <kbd>R</kbd> reset <kbd>M</kbd> mute <kbd>Esc</kbd> pause</div>
     <div id="cam-chip" class="cam-chip"><span>Camera</span><b id="cam-name">Chase</b></div>
     <div id="toast"></div>
     <div id="wrongway">Wrong way</div>
@@ -237,12 +238,7 @@
     <footer class="mn-bottom">
       <div class="mn-foot-home">
         <div class="keys">
-          <span><kbd>W</kbd><kbd>S</kbd> go / brake</span>
-          <span><kbd>A</kbd><kbd>D</kbd> steer</span>
-          <span><kbd>⇧</kbd> ERS boost</span>
-          <span><kbd>C</kbd> camera</span>
-          <span><kbd>Q</kbd> look back</span>
-          <span><kbd>H</kbd> headlights</span>
+          <button type="button" id="btn-controls" class="mn-ctl"><span class="ctl-ico" aria-hidden="true"><i></i><i></i></span><b>Controls</b><span>Keyboard and controller</span></button>
         </div>
         <div class="mn-gfx"><span>Graphics</span><div class="lb-seg" data-gfx></div><div class="gfx-note" data-gfx-note></div></div>
       </div>
@@ -338,28 +334,100 @@
     </div>
   </div>
 
+  <!-- ===== Controls (main.js): from the start screen and the pause menu ===== -->
+  <div id="controls" class="overlay hidden">
+    <div class="ctl-screen">
+      <header class="st-head">
+        <div>
+          <div class="res-kicker"><span class="slash"></span><span>Keyboard and controller</span></div>
+          <h2 class="st-title">Controls</h2>
+        </div>
+        <button id="ctl-back" class="st-back" type="button"><span>Back</span><kbd>Esc</kbd></button>
+      </header>
+      <div class="ctl-grid">
+        <section class="ctl-panel">
+          <h3>Driving</h3>
+          <table class="ctl-table">
+            <thead><tr><th></th><th>Keyboard</th><th>Controller</th></tr></thead>
+            <tbody>
+              <tr><td>Throttle</td><td><kbd>W</kbd><kbd>↑</kbd></td><td><i class="pb tr">R2</i><em>RT</em></td></tr>
+              <tr><td>Brake, reverse when stopped</td><td><kbd>S</kbd><kbd>↓</kbd><kbd>Space</kbd></td><td><i class="pb tr">L2</i><em>LT</em></td></tr>
+              <tr><td>Steer</td><td><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd></td><td><i class="pb st">L</i><em>left stick</em></td></tr>
+              <tr><td>ERS boost (hold)</td><td><kbd>Shift</kbd></td><td><i class="pb sh">L1</i><em>LB</em></td></tr>
+              <tr><td>Look back (hold)</td><td><kbd>Q</kbd></td><td><i class="pb st">R</i><em>right stick down</em></td></tr>
+              <tr><td>Reset onto the track</td><td><kbd>R</kbd></td><td><i class="pb face x">X</i><em>□</em></td></tr>
+              <tr><td>Camera</td><td><kbd>C</kbd></td><td><i class="pb face y">Y</i><em>△</em></td></tr>
+              <tr><td>Pause</td><td><kbd>Esc</kbd><kbd>P</kbd></td><td><i class="pb face b">B</i><em>○</em></td></tr>
+              <tr><td>Mirror</td><td><kbd>V</kbd></td><td><i class="pb st">R3</i><em>press the right stick</em></td></tr>
+              <tr><td>Map: whole circuit or road ahead</td><td><kbd>Z</kbd></td><td><i class="pb sys">≡</i><em>Menu / Options</em></td></tr>
+              <tr><td>Mute</td><td><kbd>M</kbd></td><td><i class="pb sys">⧉</i><em>View / Create</em></td></tr>
+              <tr><td>Headlights (Hypercar, GT3)</td><td><kbd>H</kbd></td><td><i class="pb dp">←</i><em>D-pad left</em></td></tr>
+              <tr><td>Tower: interval or gap to leader</td><td><kbd>T</kbd></td><td><i class="pb dp">↑</i><em>D-pad up</em></td></tr>
+              <tr><td>Graphics preset</td><td><kbd>G</kbd></td><td class="none">–</td></tr>
+              <tr><td>Frame rate counter</td><td><kbd>F</kbd></td><td class="none">–</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="ctl-panel">
+          <h3>Menus and pause</h3>
+          <table class="ctl-table">
+            <thead><tr><th></th><th>Keyboard</th><th>Controller</th></tr></thead>
+            <tbody>
+              <tr><td>Move</td><td><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>Tab</kbd></td><td><i class="pb dp">✛</i><em>D-pad or left stick</em></td></tr>
+              <tr><td>Choose, next step</td><td><kbd>Enter</kbd></td><td><i class="pb face a">A</i><em>✕</em></td></tr>
+              <tr><td>Back</td><td><kbd>Esc</kbd></td><td><i class="pb face b">B</i><em>○</em></td></tr>
+              <tr><td>Change a slider by 10</td><td><kbd>Shift</kbd><span class="plus">+</span><kbd>←</kbd><kbd>→</kbd></td><td><i class="pb sh">L1</i><i class="pb sh">R1</i></td></tr>
+              <tr><td>Time of day (race setup)</td><td><kbd>N</kbd></td><td><i class="pb face x">X</i><em>□</em></td></tr>
+              <tr><td>Multiplayer (start screen)</td><td class="none">–</td><td><i class="pb face y">Y</i><em>△</em></td></tr>
+              <tr><td>Your stats (start screen)</td><td class="none">–</td><td><i class="pb face x">X</i><em>□</em></td></tr>
+            </tbody>
+          </table>
+          <p class="ctl-note">Buttons are named as on an Xbox controller, with the PlayStation symbol beside them. Any controller
+            the browser reads with the standard layout works.</p>
+          <div class="ctl-ds" data-dualsense></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Intro (plays once on load) ===== -->
   <div id="intro"><div class="intro-logo"><span class="slash"></span>Apex <b>Circuit</b></div></div>
 
   <!-- ===== Pause ===== -->
-  <div id="pause" class="overlay hidden">
+  <div id="pause" class="overlay hidden" data-view="main">
     <div class="pause-screen">
-      <div class="pause-panel">
+      <!-- the pause menu -->
+      <div class="pause-panel pp-main">
         <div class="pause-title"><span class="slash"></span>Paused</div>
         <div class="pause-info" id="pause-info"></div>
         <nav class="pause-menu">
           <button id="btn-resume" class="pm-btn primary"><span>Resume</span><kbd>Esc</kbd></button>
           <button id="btn-restart" class="pm-btn"><span>Restart race</span></button>
+          <button id="btn-settings" class="pm-btn"><span>Settings</span></button>
+          <button id="btn-pause-controls" class="pm-btn"><span>Controls</span></button>
           <button id="btn-quit" class="pm-btn"><span>Quit to menu</span></button>
         </nav>
-        <div class="pause-gfx"><span>Graphics</span><div class="lb-seg" data-gfx></div></div>
-        <div class="gfx-note" data-gfx-note></div>
-        <div class="pause-keys">
-          <span><kbd>W</kbd><kbd>S</kbd> go / brake</span><span><kbd>A</kbd><kbd>D</kbd> steer</span>
-          <span><kbd>C</kbd> camera</span><span><kbd>Q</kbd> look back</span><span><kbd>V</kbd> mirror</span>
-          <span><kbd>R</kbd> reset car</span><span><kbd>T</kbd> tower gaps</span><span><kbd>M</kbd> mute</span>
-          <span><kbd>H</kbd> headlights</span><span><kbd>G</kbd> graphics</span><span><kbd>F</kbd> frame rate</span>
+      </div>
+      <!-- Settings (main.js; kept in this browser: options.js) -->
+      <div class="pause-panel pp-settings">
+        <div class="pause-title small"><span class="slash"></span>Settings</div>
+        <div class="set-list">
+          <button type="button" id="set-line" class="set-row" role="switch" aria-checked="false">
+            <span class="set-txt"><b>Racing line</b><small>On the track: green where you can be on the throttle, red where you brake</small></span><i class="switch"></i>
+          </button>
+          <button type="button" id="set-ghost" class="set-row" role="switch" aria-checked="false">
+            <span class="set-txt"><b>Ghost</b><small id="set-ghost-sub">Practice only: race your best lap ever at this circuit</small></span><i class="switch"></i>
+          </button>
+          <div class="set-row">
+            <span class="set-txt"><b>Map</b><small>Also <kbd>Z</kbd> or the controller's Menu button</small></span>
+            <div class="lb-seg" id="set-map"><button type="button" data-v="full">Whole circuit</button><button type="button" data-v="zoom">Road ahead</button></div>
+          </div>
+          <div class="set-row">
+            <span class="set-txt"><b>Graphics</b><small class="gfx-note" data-gfx-note></small></span>
+            <div class="lb-seg" data-gfx></div>
+          </div>
         </div>
+        <button id="set-back" class="pm-btn"><span>Back</span><kbd>Esc</kbd></button>
       </div>
     </div>
   </div>

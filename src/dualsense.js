@@ -2,7 +2,7 @@
 //
 // The browser's normal controller support can't move the adaptive triggers, so this talks to the
 // controller directly over WebHID (Chrome and Edge on a computer). It needs one click to allow: the
-// "Trigger resistance" button on the menu (under the controls). After that it reconnects by itself
+// "Trigger resistance" button on the Controls screen. After that it reconnects by itself
 // whenever the game loads. With any other controller or browser nothing happens here (the brake still
 // feels heavier through its curve in input.js).
 //
@@ -82,9 +82,9 @@ async function open(device) {
 
 function label(text) { if (button) { button.textContent = text; button.disabled = !!dev; } }
 
-// The menu button (needs a click: browsers only let a page talk to a device the player has picked).
+// The button on the Controls screen (needs a click: browsers only let a page talk to a device the player has picked).
 function addButton() {
-  const keys = document.querySelector('.keys');
+  const keys = document.querySelector('[data-dualsense]') ?? document.querySelector('.keys');
   if (!keys || button) return;
   button = document.createElement('button');
   button.type = 'button';

@@ -78,9 +78,27 @@ Your choices are remembered in the browser. The menu is `index.html` (`#menu`), 
 - **Dash** (bottom right): shift lights, a rev counter drawn for each car's gearbox (its range and red zone come from
   `gearbox` in `src/cars/`), gear, speed, revs, pedals, the ERS or hybrid battery, the ABS / TC / headlights lights
   and the tow from the car ahead.
+- **Map** (right): **Z** or the controller's **Menu** button switches between the whole circuit with every car on it
+  (braking zones in red when the racing line is on) and **Road ahead**: a close-up that turns with your car, drawn to
+  scale with the real width of the track, looking further ahead the faster you go, with the racing line on it.
 
-The key hints at the bottom show for the first seconds of a race; Esc lists them all. The HUD is `#hud` in
-`index.html`, `src/hud.js` and the HUD section at the top of `src/style.css`.
+The HUD is `#hud` in `index.html`, `src/hud.js` and the HUD section at the top of `src/style.css`.
+
+## Settings, racing line and ghost
+
+Pause (Esc, or B on a controller) → **Settings** (kept in this browser, `src/options.js`):
+
+- **Racing line**: the line the AI drives, drawn on the track: green where you can be on the throttle, red where you
+  need to brake. The braking zones are worked out for the car you drive (a GT3 brakes well before an F1 car).
+  `src/racingLine.js`.
+- **Ghost** (practice, no AI cars): every clean flying lap you drive offline is recorded, and your fastest ever at
+  each circuit in each car is kept (IndexedDB). In practice it drives that lap as a see-through car, starting as you
+  cross the line, and the HUD's delta is against it. Lap 1 starts from the grid, so ghosts are laps 2 onwards: set
+  practice to two laps or more. `src/ghost.js`.
+- **Map** and **Graphics**.
+
+The full list of keys and controller buttons is on the **Controls** screen (start screen, bottom left, or the pause
+menu).
 
 ## Controls
 
@@ -95,11 +113,31 @@ The key hints at the bottom show for the first seconds of a race; Esc lists them
 | H                    | Headlights on / off (Hypercar and GT3; on by themselves at night) |
 | R                    | Reset onto the track           |
 | M                    | Mute                           |
+| Z                    | Map: whole circuit or road ahead |
+| T                    | Timing tower: interval or gap to leader |
 | Esc / P              | Pause                          |
 | Menu: Enter / Esc    | Next step (or Start race) / back a step |
 | Menu: ← → ↑ ↓        | Car step: change car. Circuit step: change circuit (↑ ↓ a row of tiles). Race step: ← → laps (Shift: ×10), ↑ ↓ AI cars |
 | Menu: N              | Time of day (day, night, or night without floodlights) |
-| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · D-pad ← headlights · View reset · Menu pause. On the start screen: A race, Y multiplayer, X your stats. In the setup steps: A next / start, B back, D-pad as the arrow keys, LB / RB ten laps less / more, X time of day; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
+
+Controller (Xbox names, PlayStation in brackets):
+
+| Button               | Action                         |
+|----------------------|--------------------------------|
+| RT (R2) / LT (L2)    | Throttle / brake               |
+| Left stick           | Steer                          |
+| LB (L1), hold        | ERS boost                      |
+| Right stick down, hold | Look behind                  |
+| X (□)                | Reset onto the track           |
+| Y (△)                | Camera                         |
+| B (○)                | Pause                          |
+| R3                   | Mirror                         |
+| Menu (Options)       | Map: whole circuit or road ahead |
+| View (Create)        | Mute                           |
+| D-pad left / up      | Headlights / timing tower      |
+| Menus and pause      | D-pad or left stick moves between the buttons, A chooses, B goes back, LB / RB move a slider by 10. Start screen: Y multiplayer, X your stats. Race setup: X time of day. Lobby: the host's Menu button starts the race |
+
+Mapping, stick and trigger settings and rumble are in `src/input.js`.
 
 ## Multiplayer
 

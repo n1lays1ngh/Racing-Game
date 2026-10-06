@@ -1,18 +1,18 @@
 // Keyboard + gamepad input.
 //   readInput() → { throttle, brake, steer, boost } for driving (steer: +1 = left, −1 = right, like
 //                 physics.js; boost: the ERS button is held, see ers.js)
-//   pollPad()   → call every frame: turns controller buttons into the same key presses the
-//                 keyboard makes, so every menu and shortcut works with a controller too.
+//   pollPad(dt) → call every frame: in a race, controller buttons press the same keys as the keyboard's shortcuts;
+//                 in the menus and the pause menu the controller moves round the buttons (D-pad / left stick, A, B).
 //   padFeedback() → controller rumble: engine, braking and lock-ups, kerbs, grass and gravel, slides,
 //                   gear changes and crashes (plus trigger resistance on a DualSense: dualsense.js).
 //
-// Controller layout (Xbox names; PlayStation: A = ✕, B = ○, X = □, Y = △):
-//   Driving:  left stick steer · RT throttle · LT brake · A throttle · X brake · RB / R1 (hold) ERS boost
-//   Race:     Y camera · B (hold) look back · LB mirror · D-pad down tower gaps · D-pad up mute
-//             View/Share reset · Menu/Options pause
-//   Pause:    A resume · Y restart · B quit
-//   Menus:    D-pad or LB/RB change circuit · A start · Y multiplayer · X your stats · Menu/Options (lobby host) start race
-//   Stats:    B or Menu/Options back
+// Controller layout (Xbox names; PlayStation: A = ✕, B = ○, X = □, Y = △, LB = L1, RT = R2, LT = L2, Menu = Options,
+// View = Create). The full list is on the Controls screen (index.html #controls).
+//   Driving:  left stick steer · RT throttle · LT brake · LB (hold) ERS boost · right stick down (hold) look back
+//   Race:     X reset · Y camera · B pause · R3 mirror · Menu map (whole circuit / road ahead) · View mute
+//             D-pad left headlights · D-pad up tower gaps
+//   Menus:    D-pad or left stick move · A choose · B back · LB / RB a slider by 10 · X time of day (race setup)
+//             start screen: Y multiplayer, X your stats
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
 // Switch Pro and most others in Chrome, Edge, Firefox and Safari).
 import { triggerFeedback } from './dualsense.js';
@@ -84,60 +84,168 @@ export function readInput(dt) {
     const rt = pedal(pad.buttons[7]?.value ?? 0, PAD.throttle), lt = pedal(pad.buttons[6]?.value ?? 0, PAD.brake);
     throttle = Math.max(throttle, rt);
     brake = Math.max(brake, lt);
-    if (pad.buttons[0]?.pressed) throttle = Math.max(throttle, PAD.throttle.max); // A / ✕: full throttle
-    if (pad.buttons[2]?.pressed) brake = Math.max(brake, PAD.brake.max);         // X / □: full brake
-    if (pad.buttons[5]?.pressed) boost = true;                                    // RB / R1: ERS boost
+    if (pad.buttons[4]?.pressed) boost = true;                                    // LB / L1: ERS boost
   }
   return { throttle, brake, steer, boost };
 }
 
-// ---------- controller buttons → key presses ----------
+// ---------- controller buttons ----------
+// Button numbers in the browser's standard layout (Xbox names; PlayStation in brackets)
+export const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+// In a race: button → the key it presses (the keyboard shortcut does the same). RT / LT / LB and the left stick are
+// read in readInput(); the right stick pushed down holds Q (look back).
+export const RACE_BUTTONS = {
+  [BTN.X]: 'KeyR',      // reset onto the track
+  [BTN.Y]: 'KeyC',      // camera
+  [BTN.B]: 'Escape',    // pause
+  [BTN.R3]: 'KeyV',     // mirror
+  [BTN.MENU]: 'KeyZ',   // map: whole circuit / road ahead
+  [BTN.VIEW]: 'KeyM',   // mute
+  [BTN.LEFT]: 'KeyH',   // headlights
+  [BTN.UP]: 'KeyT',     // timing tower: interval / gap to leader
+};
+export const LOOK_BACK = { key: 'KeyQ', on: 0.55, off: 0.35 }; // right stick down past `on` (let go below `off`)
+
+// Menus and pause: the D-pad or the left stick moves the focus between the buttons on screen, A presses the one
+// with the focus, B goes back. On a screen:
+//   root:    the element whose buttons the controller moves between
+//   arrows:  instead, the D-pad sends the arrow keys (the car and circuit steps pick with them: menu.js)
+//   a:       what A does when nothing on the screen has the focus; b: what B does
+//   buttons: other buttons. Actions are a key code, or 'click:<button id>'.
+const SCREENS = {
+  home:     { root: 'menu', a: 'Enter', buttons: { [BTN.MENU]: 'Enter', [BTN.Y]: 'click:btn-mp', [BTN.X]: 'click:btn-stats' } },
+  steps:    { arrows: true, a: 'Enter', b: 'Escape', buttons: { [BTN.MENU]: 'Enter', [BTN.X]: 'KeyN', [BTN.LB]: 'PageDown', [BTN.RB]: 'PageUp' } },
+  setup:    { root: 'menu', a: 'Enter', b: 'Escape', buttons: { [BTN.MENU]: 'Enter', [BTN.X]: 'KeyN' } },
+  pause:    { root: 'pause', b: 'Escape', buttons: { [BTN.MENU]: 'Escape' } },
+  results:  { root: 'results', b: 'click:btn-menu', buttons: { [BTN.MENU]: 'click:btn-again' } },
+  stats:    { root: 'stats', b: 'click:st-back', buttons: { [BTN.MENU]: 'click:st-back' } },
+  lobby:    { root: 'lobby', b: 'click:lb-back', buttons: { [BTN.MENU]: 'click:lb-go' } },
+  controls: { root: 'controls', b: 'click:ctl-back', buttons: { [BTN.MENU]: 'click:ctl-back' } },
+};
+const NAV = { stick: 0.55, delay: 0.38, repeat: 0.11 }; // stick push that counts as a direction; held: first repeat, then every
+
 const $ = (id) => document.getElementById(id);
 const visible = (id) => { const el = $(id); return el && !el.classList.contains('hidden'); };
 function screen() {
-  if (visible('menu')) return $('menu').dataset.step === 'home' ? 'home' : 'menu'; // the start screen, or a setup step
-  if (visible('lobby')) return 'lobby';
-  if (visible('results')) return 'results';
+  if (visible('controls')) return 'controls';
   if (visible('pause')) return 'pause';
+  if (visible('results')) return 'results';
   if (visible('stats')) return 'stats';
+  if (visible('lobby')) return 'lobby';
+  if (visible('menu')) { const step = $('menu').dataset.step; return step === 'home' ? 'home' : step === 'setup' ? 'setup' : 'steps'; }
   return 'race';
 }
-// button index (standard layout) → what it does on each screen: a key code, or 'click:<button id>'
-const MAP = {
-  // start screen: A race, Y multiplayer, X your stats
-  home:    { 0: 'Enter', 9: 'Enter', 3: 'click:btn-mp', 2: 'click:btn-stats' },
-  // setup steps (menu.js): A next / start, B back, D-pad: change the car / circuit (race step: ← → laps, ↑ ↓ AI cars),
-  // LB RB: the same in tens of laps, X: time of day
-  menu:    { 0: 'Enter', 9: 'Enter', 1: 'Escape', 14: 'ArrowLeft', 15: 'ArrowRight', 12: 'ArrowUp', 13: 'ArrowDown',
-             4: 'PageDown', 5: 'PageUp', 2: 'KeyN' },
-  stats:   { 1: 'click:st-back', 9: 'click:st-back' },                       // B / Menu: back
-  lobby:   { 9: 'click:lb-go' },
-  race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM', 14: 'KeyH' }, // RB (5): ERS, read in readInput
-  pause:   { 9: 'Escape', 0: 'click:btn-resume', 3: 'click:btn-restart', 1: 'click:btn-quit' },
-  results: { 0: 'click:btn-again', 1: 'click:btn-menu', 9: 'click:btn-again' },
-};
+
 let prevButtons = [];
 const held = new Map(); // button → key it is holding down (released on button up, whatever the screen)
+let lookBack = false, navDir = null, navNext = 0, lastScreen = null;
 
 function sendKey(type, code) { window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true })); }
+function act(action) {
+  if (!action) return;
+  if (action.startsWith('click:')) $(action.slice(6))?.click();
+  else { sendKey('keydown', action); sendKey('keyup', action); }
+}
 
-export function pollPad() {
+// ---- moving the focus ----
+function candidates(root) {
+  return [...root.querySelectorAll('button, input[type="range"], a[href], [tabindex]:not([tabindex="-1"])')].filter((el) =>
+    !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden' && !el.closest('.hidden, [inert]'));
+}
+function focusEl(el, pad = true) {
+  if (pad) document.body.classList.add('pad-nav');
+  el.focus({ preventScroll: true });
+  el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+}
+// the nearest button in that direction (dx, dy: −1 / 0 / 1)
+function move(root, dx, dy, pad = true) {
+  const items = candidates(root), cur = items.includes(document.activeElement) ? document.activeElement : null;
+  if (!cur) { if (items[0]) focusEl(items[0], pad); return; }
+  const r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let best = null, score = Infinity;
+  for (const el of items) {
+    if (el === cur || el.contains(cur) || cur.contains(el)) continue;
+    const q = el.getBoundingClientRect(), ex = q.left + q.width / 2, ey = q.top + q.height / 2;
+    const beyond = dx > 0 ? q.left >= r.right - 6 : dx < 0 ? q.right <= r.left + 6 : dy > 0 ? q.top >= r.bottom - 6 : q.bottom <= r.top + 6;
+    if (!beyond) continue;
+    const along = dx ? (ex - cx) * dx : (ey - cy) * dy;
+    const gap = dx ? Math.max(0, q.top - r.bottom, r.top - q.bottom) : Math.max(0, q.left - r.right, r.left - q.right); // off to the side
+    const s = along + gap * 3 + Math.abs(dx ? ey - cy : ex - cx) * 0.3;
+    if (s < score) { score = s; best = el; }
+  }
+  if (best) focusEl(best, pad);
+}
+// a slider with the focus: ← → move it (by 10 with LB / RB)
+function nudge(el, by) {
+  const step = Number(el.step) || 1, v = Math.min(Number(el.max), Math.max(Number(el.min), Number(el.value) + by * step));
+  if (String(v) === el.value) return;
+  el.value = String(v);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function navigate(S, dir) {
+  if (S.arrows) { act({ '-1,0': 'ArrowLeft', '1,0': 'ArrowRight', '0,-1': 'ArrowUp', '0,1': 'ArrowDown' }[dir.join()]); return; }
+  const root = $(S.root), el = document.activeElement;
+  if (dir[0] && el?.type === 'range' && root.contains(el)) { document.body.classList.add('pad-nav'); nudge(el, dir[0]); return; }
+  move(root, dir[0], dir[1]);
+}
+
+export function pollPad(dt = 1 / 60) {
   const pad = activePad();
   if (!pad) { prevButtons = []; return; }
-  const map = MAP[screen()];
-  pad.buttons.forEach((b, i) => {
-    const was = prevButtons[i] ?? false, now = b.pressed;
-    if (now && !was) {
-      const action = map[i];
-      if (!action) return;
-      if (action.startsWith('click:')) $(action.slice(6))?.click();
-      else { sendKey('keydown', action); held.set(i, action); }
-    } else if (!now && was && held.has(i)) {
-      sendKey('keyup', held.get(i)); held.delete(i);
-    }
+  const name = screen(), S = SCREENS[name];
+  const down = (i) => !!pad.buttons[i]?.pressed && !prevButtons[i];
+  pad.buttons.forEach((b, i) => { // let go of a held key
+    if (!b.pressed && prevButtons[i] && held.has(i)) { sendKey('keyup', held.get(i)); held.delete(i); }
   });
+  // right stick down: look back while it's held (only while driving)
+  const rs = pad.axes[3] ?? 0, wantBack = name === 'race' && (lookBack ? rs > LOOK_BACK.off : rs > LOOK_BACK.on);
+  if (wantBack !== lookBack) { lookBack = wantBack; sendKey(wantBack ? 'keydown' : 'keyup', LOOK_BACK.key); }
+
+  if (!S) { // driving
+    pad.buttons.forEach((b, i) => { const key = RACE_BUTTONS[i]; if (key && down(i)) { sendKey('keydown', key); held.set(i, key); } });
+    navDir = null;
+  } else {
+    // direction: D-pad or left stick, repeating while held
+    const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0, B = pad.buttons;
+    const dx = B[BTN.LEFT]?.pressed || ax < -NAV.stick ? -1 : B[BTN.RIGHT]?.pressed || ax > NAV.stick ? 1 : 0;
+    const dy = dx ? 0 : B[BTN.UP]?.pressed || ay < -NAV.stick ? -1 : B[BTN.DOWN]?.pressed || ay > NAV.stick ? 1 : 0;
+    const dir = dx || dy ? [dx, dy] : null, key = dir?.join() ?? null;
+    if (name !== lastScreen) { navDir = dir; navNext = NAV.delay; } // just got here (still steering, say): wait for a new push
+    else if (key !== (navDir?.join() ?? null)) { navDir = dir; if (dir) { navigate(S, dir); navNext = NAV.delay; } }
+    else if (dir && (navNext -= dt) <= 0) { navigate(S, dir); navNext = NAV.repeat; }
+
+    if (down(BTN.A)) {
+      const root = S.root && $(S.root), el = document.activeElement;
+      if (root && el && el !== document.body && root.contains(el) && candidates(root).includes(el)) { if (el.type !== 'range') el.click(); }
+      else act(S.a);
+    }
+    if (down(BTN.B)) act(S.b);
+    for (const [i, action] of Object.entries(S.buttons ?? {})) if (down(Number(i))) act(action);
+    if (S.root && (down(BTN.LB) || down(BTN.RB))) { // a slider with the focus: by 10
+      const el = document.activeElement;
+      if (el?.type === 'range' && $(S.root).contains(el)) nudge(el, down(BTN.RB) ? 10 : -10);
+    }
+    if (B.some((b, i) => b.pressed && !prevButtons[i])) document.body.classList.add('pad-nav');
+  }
+  lastScreen = name;
   prevButtons = pad.buttons.map((b) => b.pressed);
 }
+// the controller's focus ring goes away as soon as you use the mouse or the keyboard
+window.addEventListener('mousemove', (e) => { if (e.movementX || e.movementY) document.body.classList.remove('pad-nav'); });
+// The arrow keys move between the buttons too, on the screens where they don't already do something
+// (the car, circuit and race setup steps use them to pick: menu.js)
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+window.addEventListener('keydown', (e) => {
+  if (!e.isTrusted) return;
+  document.body.classList.remove('pad-nav');
+  const name = screen(), d = ARROWS[e.code];
+  if (!d || !['home', 'pause', 'results', 'controls'].includes(name)) return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && document.activeElement.type !== 'range') return;
+  if (document.activeElement?.type === 'range' && d[0]) return; // a slider: the arrows move it
+  move($(SCREENS[name].root), d[0], d[1], false);
+});
 
 // ---------- rumble ----------
 // Two motors: "strong" (low, heavy) and "weak" (high, buzzy). Each frame the effects below are added up:
@@ -180,13 +288,13 @@ export function padFeedback({ hit = 0, surface = 'road', speed = 0, slip = 0, th
   nextRumble = now + 50;
 }
 
-// "Controller connected" note on the menu
+// "Controller connected" note on the start screen
 function showPad(e) {
-  const k = document.querySelector('.keys');
+  const k = document.querySelector('#menu .keys');
   if (!k) return;
   let tag = k.querySelector('.pad-tag');
   if (!tag) { tag = document.createElement('span'); tag.className = 'pad-tag'; k.appendChild(tag); }
-  tag.textContent = e.type === 'gamepadconnected' ? '🎮 Controller connected: A to race, Y multiplayer, X your stats' : '';
+  tag.textContent = e.type === 'gamepadconnected' ? 'Controller connected: A to race, Y multiplayer, X your stats' : '';
 }
 window.addEventListener('gamepadconnected', showPad);
 window.addEventListener('gamepaddisconnected', showPad);

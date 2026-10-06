@@ -21,6 +21,9 @@ import { keepTicking, stopTicking } from './net/background.js';
 import { StatsRun } from './stats.js';
 import { StatsScreen } from './statsScreen.js';
 import { CARS, getCar, selectedCar, setSelectedCar, timesFor, raceSetup } from './cars/index.js';
+import { OPTIONS, setOption, onOption } from './options.js';
+import { buildRacingLine, disposeRacingLine } from './racingLine.js';
+import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -69,7 +72,7 @@ function loadTrack(id, car = myCar, time = myTime, preview = true) {
     if (circuit) disposeCircuit(circuit);
     track = buildTrack({ ...def, time: setup.time, lighting: setup.lighting }); trackKey = key;
     showCircuit();
-    if (hud) hud.setupMinimap(track); else hud = new HUD(track);
+    if (hud) hud.setupMinimap(track); else { hud = new HUD(track); hud.setMapMode(OPTIONS.mapZoom); }
     menuUI?.setTrackInfo(track);
   } else if (newCar) { disposeCircuit(circuit); showCircuit(); }
   if (preview && !race && (newTrack || showcase.car !== car)) showcase.start(track, car); // the live race, on this circuit with this car
@@ -262,8 +265,49 @@ function newRace(cfg = soloConfig()) {
   cams = carCams(models[race.cars.indexOf(race.player)]);
   hud.setCamera(camLabel(camMode));
   nameTags.setup(race);
+  showRacingLine();
+  startGhost();
   snapCamera();
   clearPressed();
+}
+
+// ---------- racing line and ghost (pause → Settings; options.js) ----------
+// The racing line: green where you can be on the throttle, red where you brake, worked out for the car you drive
+let racingLine = null;
+function showRacingLine() {
+  disposeRacingLine(racingLine); racingLine = null;
+  if (race && OPTIONS.racingLine) { racingLine = buildRacingLine(track, race.playerProfile, race.carDef.physics); scene.add(racingLine); }
+  hud.setRacingLine(racingLine?.userData.zones ?? null); // (and on the minimap)
+}
+// The ghost: your best lap ever at this circuit in this car (ghost.js), raced in practice. Laps are recorded in every
+// race you drive offline; a faster clean flying lap becomes the new ghost.
+const ghostCar = new GhostCar(scene);
+let ghostRec = null, ghostLap = null, ghostAsk = 0;
+const practice = () => !!race && race.cars.length === 1 && !lobby.session;
+function startGhost() {
+  ghostLap = null;
+  ghostRec = lobby.session ? null : new GhostRecorder(race);
+  showGhost();
+  const ask = ++ghostAsk, r = race;
+  loadGhost(race.carDef.id, track.id).then((g) => {
+    if (ask !== ghostAsk || race !== r) return; // a newer race asked since
+    ghostLap = g; if (ghostRec) ghostRec.best = g?.time ?? null;
+    showGhost();
+  });
+}
+function showGhost() {
+  const on = practice() && OPTIONS.ghost;
+  ghostCar.show(on ? ghostLap : null, race?.carDef);
+  hud.setGhost(ghostLap ? { time: ghostLap.time, trace: ghostTrace(ghostLap) } : null, on);
+  if (!on) hud.ghostAt = null;
+  drawSettings();
+}
+// A lap just ended ('lap' event, race.js): the new ghost if it was your fastest clean flying lap
+function ghostLapDone(e) {
+  const g = ghostRec?.lapDone(e);
+  if (!g) return;
+  ghostLap = g; saveGhost(g);
+  showGhost();
 }
 
 document.querySelectorAll('.swatch').forEach((el) => {
@@ -344,6 +388,8 @@ function exitRace() {
   paused = false; audio.suspend(); rearView.hide();
   for (const m of models) scene.remove(m);
   models = [];
+  disposeRacingLine(racingLine); racingLine = null; hud.setRacingLine(null);
+  ghostRec = null; ghostLap = null; ghostAsk++; ghostCar.hide(true); hud.setGhost(null, false); hud.ghostAt = null;
   if (race) { race = null; showcase.start(track, sceneCar); }
 }
 function toMenu() {
@@ -369,6 +415,7 @@ function onlineLabels() {
 }
 function setPaused(v) {
   paused = v; pauseEl.classList.toggle('hidden', !v);
+  pauseEl.dataset.view = 'main'; drawSettings();
   if (!online()) v ? audio.suspend() : audio.resume(); // online the race carries on behind the menu
   if (!v) document.activeElement?.blur(); // so Space (brake) can't press a hidden button
   if (v && race) { // where you are, shown under PAUSED
@@ -380,6 +427,58 @@ function setPaused(v) {
     document.getElementById('btn-resume').focus({ preventScroll: true });
   }
 }
+
+// ---------- pause → Settings (racing line, ghost, map, graphics) ----------
+function pauseView(view) {
+  pauseEl.dataset.view = view;
+  drawSettings();
+  document.getElementById(view === 'settings' ? 'set-line' : 'btn-settings').focus({ preventScroll: true });
+}
+function drawSettings() {
+  const $ = (id) => document.getElementById(id);
+  $('set-line').setAttribute('aria-checked', String(OPTIONS.racingLine));
+  $('set-ghost').setAttribute('aria-checked', String(OPTIONS.ghost));
+  for (const b of $('set-map').querySelectorAll('button')) b.classList.toggle('on', (b.dataset.v === 'zoom') === OPTIONS.mapZoom);
+  const carName = race?.carDef.name ?? myCar.name;
+  $('set-ghost-sub').textContent = !practice()
+    ? 'In practice (no AI cars): race your best lap ever at this circuit'
+    : ghostLap ? `Your best lap ever here in the ${carName}: ${formatTime(ghostLap.time)}`
+      : `No ghost here in the ${carName} yet: drive a clean flying lap and it becomes one`;
+}
+document.getElementById('btn-settings').addEventListener('click', () => pauseView('settings'));
+document.getElementById('set-back').addEventListener('click', () => pauseView('main'));
+document.getElementById('set-line').addEventListener('click', () => setOption('racingLine', !OPTIONS.racingLine));
+document.getElementById('set-ghost').addEventListener('click', () => setOption('ghost', !OPTIONS.ghost));
+document.getElementById('set-map').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-v]'); if (b) setOption('mapZoom', b.dataset.v === 'zoom');
+});
+onOption((key, value) => {
+  if (key === 'racingLine' && race) showRacingLine();
+  if (key === 'ghost' && race) showGhost();
+  if (key === 'mapZoom') hud.setMapMode(value);
+  drawSettings();
+});
+
+// ---------- Controls (the start screen's Controls button and the pause menu's) ----------
+const controlsEl = document.getElementById('controls');
+let controlsFrom = null;
+function openControls(from) {
+  controlsFrom = from;
+  if (from === 'menu') menu.classList.add('hidden');
+  controlsEl.classList.remove('hidden'); controlsEl.scrollTop = 0;
+  document.getElementById('ctl-back').focus({ preventScroll: true });
+}
+function closeControls() {
+  if (controlsEl.classList.contains('hidden')) return;
+  controlsEl.classList.add('hidden');
+  if (controlsFrom === 'menu') { menu.classList.remove('hidden'); document.getElementById('btn-controls').focus({ preventScroll: true }); }
+  else document.getElementById('btn-pause-controls').focus({ preventScroll: true });
+}
+document.getElementById('btn-controls').addEventListener('click', () => openControls('menu'));
+document.getElementById('btn-pause-controls').addEventListener('click', () => openControls('pause'));
+document.getElementById('ctl-back').addEventListener('click', closeControls);
+// Esc on the Controls screen from the start screen (in a race the main loop does it, with the pause menu's Esc)
+window.addEventListener('keydown', (e) => { if (!race && e.code === 'Escape' && !controlsEl.classList.contains('hidden')) closeControls(); });
 
 // Results: your result on the left, the full classification on the right (updates as cars finish).
 function showResults() {
@@ -480,7 +579,7 @@ function tick(timestamp) {
   const dt = lastTime == null ? 0 : Math.min(Math.max((timestamp - lastTime) / 1000, 0), 0.1);
   lastTime = timestamp;
   const drawing = !document.hidden;
-  pollPad(); // controller buttons → the same shortcuts as the keyboard
+  pollPad(dt); // controller: in a race its buttons press the keyboard's shortcuts; in the menus it moves round the buttons
   world.sky.material.uniforms.time.value += dt;
   if (wasPressed('KeyF') && !typing()) toggleFps();
   shadowSweep += dt;
@@ -499,7 +598,12 @@ function tick(timestamp) {
     return;
   }
 
-  if (wasPressed('Escape') || wasPressed('KeyP')) setPaused(!paused);
+  if (wasPressed('Escape') || wasPressed('KeyP')) { // (Esc: back out of Controls and Settings first)
+    if (!controlsEl.classList.contains('hidden')) closeControls();
+    else if (paused && pauseEl.dataset.view === 'settings') pauseView('main');
+    else setPaused(!paused);
+  }
+  if (wasPressed('KeyZ')) setOption('mapZoom', !OPTIONS.mapZoom); // the minimap: whole circuit / road ahead
   if (wasPressed('KeyG')) cyclePreset(); // graphics: Low → Medium → High
   if (wasPressed('KeyC')) { camMode = (camMode + 1) % CAMERAS.length; hud.setCamera(camLabel(camMode)); snapCamera(); }
   if (wasPressed('KeyM')) audio.setMuted(!audio.muted);
@@ -512,6 +616,7 @@ function tick(timestamp) {
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
     const steps = Math.ceil(dt / (1 / 120));
     for (let i = 0; i < steps; i++) race.step(dt / steps, paused ? IDLE : input);
+    ghostRec?.record(); // your lap, for the ghost (ghost.js)
     // Messages for this frame, put together so a circuit record isn't hidden by "Final lap" in the same moment
     let msg = null, secs = 2.2;
     for (const e of race.takeEvents()) {
@@ -520,6 +625,7 @@ function tick(timestamp) {
       if (e.type === 'invalid') hud.invalidated(e); // track limits: "Lap invalidated" banner (race.js, hud.js)
       if (e.type === 'warning') hud.limitsWarning(e); // … or a warning, in the cars allowed a few
       if (e.type === 'lap') { // every lap you complete → your stats; beat your best ever here → say so
+        ghostLapDone(e);
         const r = statsRun?.lap(e);
         if (r?.best && r.prevBest != null) { msg = `Circuit record  ${formatTime(r.lap.t)}  −${(r.prevBest - r.lap.t).toFixed(3)}`; secs = 3; }
         else if (e.valid === false) msg ??= `Lap deleted  ${formatTime(e.time)}`; // invalidated: doesn't count
@@ -539,6 +645,7 @@ function tick(timestamp) {
   session?.tick(dt, timestamp); // online: swap car positions with the others
   syncModels(models, race.cars, camera); // other cars: the full model only for the nearest few (carLod.js)
   headlights.update(dt, race.player.state); // (after your car has moved: the light on the road follows it)
+  hud.ghostAt = ghostCar.update(race, paused && !session ? 0 : dt); // the ghost car, and where it is for the minimap
 
   // Start lights on the gantry
   for (const l of circuit.lights) l.mat.emissiveIntensity = race.state === 'countdown' && l.index < race.lightsOn ? 4 : 0;
