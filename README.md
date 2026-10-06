@@ -100,6 +100,27 @@ Pause (Esc, or B on a controller) → **Settings** (kept in this browser, `src/o
 The full list of keys and controller buttons is on the **Controls** screen (start screen, bottom left, or the pause
 menu).
 
+## The AI drivers
+
+The AI drives the same car as you with the same physics (`src/ai.js`). Every step it plans the next few hundred
+metres: the line it will drive (the racing line, or a line beside another car) and the fastest speed all the way
+along it, braking as late as the car can. Then it races:
+
+- It never turns in on a car beside it (you included): it leaves a car's width through the corners and keeps a safe
+  gap to the car in front, so it doesn't run into the back of you or push you off.
+- It attacks a slower car on the side with room, preferably the inside of the next corner, sits in the tow on a long
+  straight before it pulls out, and can finish the move under braking.
+- It defends with one move to the inside before a corner, never a weave, and moves aside on the straight when the
+  leader comes to lap it.
+- It only moves across the track where the road is straight, feeds the power in when the rear starts to slide and
+  lifts when it's running wide.
+
+Each driver has his own pace (`DIFFICULTY` in `src/race.js`), and the grid is roughly in pace order, quickest at the
+front, so the field strings out from the first lap like a real one instead of running nose to tail, and you have to
+work for every place from the start. On their own, against a perfect lap in the same car: **easy** 6–9% slower,
+**medium** 2–4% slower, **hard** from 1% quicker (the front of the grid) to 1–2% slower (the back), **expert**
+quicker still.
+
 ## Controls
 
 | Key                  | Action                         |
@@ -214,7 +235,7 @@ src/
   lighting.js       Day / dusk / night: sky, floodlights, fog, lit windows
   settings.js       Graphics settings (resolution, shadows, how many trees and buildings)
   physics.js        Arcade car physics (grip, downforce, slip, walls), gearbox; each car's numbers are in cars/
-  ai.js             Speed profile + pure-pursuit AI drivers
+  ai.js             AI drivers: the plan for the road ahead (line and speed), racecraft, the speed profile
   race.js           Grid, start lights, laps, timing, positions, collisions
   carModel.js       The car models (rigged .glb: spinning wheels, steering, live screen) and the built-in cars
   carBodies.js      The built-in Hypercar and GT3 (the AI cars in those classes), made in code
@@ -244,7 +265,10 @@ which is why the whole race can run in Node.
 - **Circuits:** see *Adding or changing a circuit* below.
 - **Car handling:** change the numbers in `physics` in the car's file (`src/cars/f1.js` for the F1 car): `mu` (grip),
   `downforce`, `accel`, `brake`, `maxSteer`. The AI plans its corner speeds from the same numbers. See *Cars* below.
-- **AI pace:** change `DIFFICULTY` in `src/race.js` (`pace` = how hard it pushes, `grip` = grip bonus over you).
+- **AI pace:** `DIFFICULTY` in `src/race.js`. Each level gives `[front of the grid, back of the grid]` for cornering
+  speed (`pace`), straight-line speed (`power`) and braking (`brakeUse`), plus a grip bonus over you (`grip`) and how
+  readily they cover the inside (`defence`). How they race (the room they leave, when they attack, defend and use the
+  battery) is `AI_TUNE` at the top of `src/ai.js`.
 - **Teams and liveries:** edit `TEAMS` in `src/race.js`.
 - **Real 3D car model:** export a `.glb` from Blender, load it with `GLTFLoader`
   (`three/examples/jsm/loaders/GLTFLoader.js`) in `carModel.js`, and keep the same `syncCarModel` interface.
@@ -293,7 +317,8 @@ set `startAt`. Figure-of-eight tracks like Suzuka won't work because the layout 
 
 After editing, run `npm run sim -- 3 hard <id>`. "off-track samples" should be 0 or close to it
 (a few in lap-1 traffic is normal). If it isn't, a corner is too tight for the AI or a wall is too
-close: widen that section or give it more run-off. ("wall hits" also counts car-to-car contact.)
+close: widen that section or give it more run-off. "car-to-car contacts" should be 0 or a handful at most.
+("wall hits" also counts your car touching another one.)
 
 ## Cars
 

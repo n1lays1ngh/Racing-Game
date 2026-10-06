@@ -1,6 +1,6 @@
 // Race logic: grid, start lights, laps, timing, positions, car-to-car contact.
 // No rendering here, so a whole race can be simulated headless.
-import { createCarState, stepCar, placeCar, CAR } from './physics.js';
+import { createCarState, stepCar, placeCar, CAR, clamp } from './physics.js';
 import { AIDriver, buildSpeedProfile } from './ai.js';
 import { towFor } from './slipstream.js';
 import { getCar, DEFAULT_CAR } from './cars/index.js';
@@ -30,15 +30,25 @@ export const TEAMS = [
   { name: 'Vanta',    color: 0x455a64, accent: 0xaeea00, number: 43 },
 ];
 
-// How fast the AI is. pace = how close to its own limit it drives (1 = on the limit);
-// grip = grip bonus over you (racing games do this so the AI can keep up with a fast human);
-// safety = how close to the cornering limit it plans; brakeUse = how late it brakes (1 = latest).
+// How fast the AI is (ai.js). A setting given as [quickest, slowest] is for the front and the back of the grid: the
+// grid is in pace order, quickest at the front, so the field strings out like a real one instead of running nose to
+// tail (the drivers in between are spread evenly between the two, with a touch of luck).
+//   pace     cornering speed (1 = right on the car's limit)
+//   power    how much of the engine it uses (1 = all of it): the slower drivers are slower on the straights too
+//   brakeUse how late it brakes (1 = the latest there is)
+//   grip     grip over yours (1 = the same car as you; above 1 so the AI can keep up with a very quick human)
+//   safety   how close to the grip limit it plans its corner speeds (1 = right on it)
+//   defence  how far it moves over to cover the inside when someone's right behind before a corner (0 = never)
+// Lap times on its own against a perfect lap in the same car, roughly: easy 6–9% slower, medium 2–4% slower, hard from
+// 1% quicker (the front of the grid) to 1–2% slower (the back), expert 2–2.5% quicker to 0.5–1.5% quicker.
 export const DIFFICULTY = {
-  easy:   { pace: 0.93, grip: 1.0,  safety: 0.96, brakeUse: 0.85 },
-  medium: { pace: 0.97, grip: 1.02, safety: 0.98, brakeUse: 0.92 },
-  hard:   { pace: 1.0,  grip: 1.06, safety: 1.0,  brakeUse: 1.0 },
-  expert: { pace: 1.0,  grip: 1.15, safety: 1.0,  brakeUse: 1.0 },
+  easy:   { pace: [0.94, 0.917],  power: [0.944, 0.91],  brakeUse: [0.86, 0.843], grip: 1.0,  safety: 0.97, defence: 0.25 },
+  medium: { pace: [0.975, 0.954], power: [0.976, 0.948], brakeUse: [0.93, 0.911], grip: 1.0,  safety: 0.99, defence: 0.45 },
+  hard:   { pace: [1.0, 0.98],    power: [0.995, 0.966], brakeUse: [0.98, 0.96],  grip: 1.03, safety: 1.0,  defence: 0.65 },
+  expert: { pace: [1.0, 0.985],   power: [1.0, 0.982],   brakeUse: [1.0, 0.98],   grip: 1.08, safety: 1.0,  defence: 0.8 },
 };
+// a [quickest, slowest] setting for a driver `rank` of the way down the grid (0 = the front, 1 = the back)
+export const paceAt = (x, rank) => (Array.isArray(x) ? x[0] + (x[1] - x[0]) * rank : x);
 
 // Track limits. The white line is the edge of the track: the kerbs are fine, but take all four wheels past the
 // line (the car's centre more than `margin` beyond it) and you've broken track limits. In the F1 car that
@@ -110,11 +120,12 @@ export class Race {
     this.lightsOn = 0;
     const diff = DIFFICULTY[difficulty] ?? DIFFICULTY.medium;
     const physics = this.carDef.physics;          // the AI's corner speeds and braking come from the car it drives
-    this.profile = buildSpeedProfile(track, diff.grip, diff.safety, diff.brakeUse, physics);
+    this.profile = buildSpeedProfile(track, diff.grip, diff.safety, paceAt(diff.brakeUse, 0), physics);
     this.playerProfile = buildSpeedProfile(track, 1, 0.97, 0.9, physics); // for the cool-down lap
     this.cars = [];
     this.leadTrace = newTrace(Math.ceil(((laps + 2) * track.length) / GAP_STEP) + 8, false); // the race lead, the whole race (gaps)
     this.events = [];             // messages for the HUD ("New best lap" etc.)
+    this.contacts = 0; this.touch = new Map(); this.contactStep = 0; // car-to-car contacts (each new touch once: npm run sim)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
     // AI in team order, you (or everyone in an online room) at the back of the grid
@@ -141,9 +152,13 @@ export class Race {
         strikes: 0, wasOff: false, // track limits broken this lap (cars allowed more than one), and off right now?
         crossedBack: false, // reversed back over the line: crossing it again carries on the same lap
       };
-      if (!human) {
-        const skill = diff.pace * (0.975 + Math.random() * 0.035) * (1 - slot * 0.0015); // front-runners a touch quicker
-        car.ai = new AIDriver(state, track, this.profile, Math.min(skill, 1.02), diff.grip);
+      if (!human) { // each driver's pace: roughly the quickest at the front of the grid (DIFFICULTY above). Not exactly
+        // in order, as after a real qualifying: a few start out of place and have to fight their way back up
+        const rank = n > 1 ? clamp((Math.min(slot, n - 1) + (Math.random() - 0.5) * 5) / (n - 1), 0, 1) : 0;
+        const pace = paceAt(diff.pace, rank) * (1 + (Math.random() - 0.5) * 0.004);
+        car.ai = new AIDriver(state, track, this.profile, Math.min(pace, 1.02), diff.grip, {
+          brakeUse: paceAt(diff.brakeUse, rank), power: Math.min(1, paceAt(diff.power, rank)),
+          safety: diff.safety, defence: diff.defence, start: true });
       }
       this.cars.push(car);
     });
@@ -177,15 +192,26 @@ export class Race {
     for (const car of this.cars) {
       if (car.dnf) continue;
       if (car.remote) { car.advance?.(dt); this.countLap(car); continue; } // driven from the network
-      const input = car.ai ? car.ai.update(dt, states) : playerInput;
+      const input = car.ai ? car.ai.update(dt, this.cars) : playerInput; // (the AI sees every car: ai.js)
       stepCar(car.state, input, this.track, dt);
       this.updateLap(car);
       this.checkLimits(car);
       if (car.ai) { // AI wedged against a wall or another car for a while: put it back on the track (like pressing R)
         car.stuck = car.state.speed < 1.5 ? (car.stuck ?? 0) + dt : 0;
         if (car.stuck > 2.5) {
-          const hw = this.track.hw[car.state.trackIndex] ?? 5;
-          placeCar(car.state, this.track, car.state.s, (car.id % 2 ? 1 : -1) * Math.min(2, hw - 1.5));
+          // back on the road where it stopped, on whichever line is clearest of the other cars
+          const tr = this.track, st = car.state, L = tr.length, hw = tr.hw[st.trackIndex] ?? 5, m = Math.max(0, hw - 1.5);
+          let at = 0, room = -1;
+          for (const lat of [-Math.min(2, m), 0, Math.min(2, m), -m, m]) {
+            let r = Infinity;
+            for (const o of this.cars) {
+              if (o === car || o.dnf) continue;
+              let d = o.state.s - st.s; if (d > L / 2) d -= L; else if (d < -L / 2) d += L;
+              if (Math.abs(d) < 40) r = Math.min(r, Math.hypot(d, (o.state.lateral - lat) * 3));
+            }
+            if (r > room + 0.5) { room = r; at = lat; }
+          }
+          placeCar(st, tr, st.s, at);
           car.stuck = 0;
         }
       }
@@ -316,7 +342,7 @@ export class Race {
   // Online, a car driven from the network only moves when its owner says so: the local car takes the whole push.
   resolveContacts() {
     if (!this.collisions) return;
-    const cars = this.cars;
+    const cars = this.cars, step = ++this.contactStep;
     for (let a = 0; a < cars.length; a++) {
       for (let b = a + 1; b < cars.length; b++) {
         const ca = cars[a], cb = cars[b];
@@ -333,6 +359,10 @@ export class Race {
             let dx = bx - ax, dz = bz - az;
             const d = Math.hypot(dx, dz);
             if (d >= reach || d < 1e-4) continue;
+            const key = a * 256 + b;
+            const last = this.touch.get(key);
+            if (last === undefined || last < step - 1) this.contacts++;
+            this.touch.set(key, step);
             dx /= d; dz /= d;
             const push = reach - d;
             A.x -= dx * push * wa; A.z -= dz * push * wa;
