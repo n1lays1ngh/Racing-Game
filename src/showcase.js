@@ -56,7 +56,7 @@ export class Showcase {
         this.target = race.player;
         if (Math.random() < 0.35) {
             const st = race.standings;
-            for (let i = 1; i < st.length; i++) if (st[i].gap - st[i - 1].gap < 0.8) { this.target = st[i]; break; }
+            for (let i = 1; i < st.length; i++) if (st[i].interval != null && st[i].interval < 0.8) { this.target = st[i]; break; }
         }
         const t = this.track, car = this.target.state;
         if (this.shot === 'trackside' || this.shot === 'grid') {

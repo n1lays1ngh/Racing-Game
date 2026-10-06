@@ -56,6 +56,39 @@ export const TRACK_LIMITS = {
 };
 const sectorOf = (s, L) => (s >= (2 * L) / 3 ? 2 : s >= L / 3 ? 1 : 0); // the HUD's S1 / S2 / S3
 
+// ---- Gaps (the timing tower and the HUD) ----
+// Like the timing loops in a real circuit, but one every GAP_STEP metres all the way round: the race clock when each car
+// (and the race lead) passed each point, worked out between physics steps, so a gap is exact to the thousandth and
+// doesn't jump about. car.gap: behind the leader (s); car.interval: behind the car ahead (s, or null until it can be
+// measured, e.g. just after the start for cars behind the leader's grid slot); car.lapsDown: laps behind the leader.
+export const GAP_STEP = 4; // m between timing points
+const TRACE = 2048;   // timing points each car remembers (2048 × 4 m ≈ 8 km): enough for the interval to the car ahead
+export const newTrace = (size, ring) => ({ T: new Float64Array(size).fill(-1), ring, k: -1, p: null, t: 0 });
+// The car (or the lead) is at progress P (m from a lap before the line) at race time `time`: note the timing points passed
+export function tracePass(tr, P, time) {
+  if (!(P >= 0)) return;
+  if (tr.p == null) { tr.p = P; tr.t = time; tr.k = Math.floor(P / GAP_STEP); return; }
+  if (P <= tr.p) { tr.t = time; return; } // going backwards or stopped: it passes the next point some time after now
+  const k1 = Math.floor(P / GAP_STEP), n = tr.T.length;
+  for (let k = tr.k + 1; k <= k1; k++) {
+    if (!tr.ring && k >= n) break;
+    tr.T[tr.ring ? k % n : k] = tr.t + ((k * GAP_STEP - tr.p) / (P - tr.p)) * (time - tr.t);
+  }
+  tr.k = Math.max(tr.k, k1); tr.p = P; tr.t = time;
+}
+// When it passed progress P (null: not yet, or too long ago to remember). The HUD's live delta uses these too.
+export function traceTime(tr, P) {
+  if (!(P >= 0) || tr.p == null) return null;
+  const n = tr.T.length, k = Math.floor(P / GAP_STEP), at = (j) => tr.T[tr.ring ? j % n : j];
+  if (k > tr.k || (tr.ring && k <= tr.k - n) || (!tr.ring && k >= n)) return null;
+  const t0 = at(k);
+  if (t0 < 0) return null;
+  const next = k + 1 <= tr.k && (tr.ring || k + 1 < n);
+  const p1 = next ? (k + 1) * GAP_STEP : tr.p, t1 = next ? at(k + 1) : tr.t;
+  if (t1 < 0 || p1 <= k * GAP_STEP) return t0;
+  return t0 + ((P - k * GAP_STEP) / (p1 - k * GAP_STEP)) * (t1 - t0);
+}
+
 export class Race {
   // aiCount: how many AI cars (0 = Practice, just you). playerName: shown in the tower and results.
   // Online races (see net/session.js) also pass:
@@ -80,7 +113,7 @@ export class Race {
     this.profile = buildSpeedProfile(track, diff.grip, diff.safety, diff.brakeUse, physics);
     this.playerProfile = buildSpeedProfile(track, 1, 0.97, 0.9, physics); // for the cool-down lap
     this.cars = [];
-    this.leaderTimes = new Float32Array(Math.ceil(((laps + 1) * track.length) / 10) + 10).fill(-1);
+    this.leadTrace = newTrace(Math.ceil(((laps + 2) * track.length) / GAP_STEP) + 8, false); // the race lead, the whole race (gaps)
     this.events = [];             // messages for the HUD ("New best lap" etc.)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
@@ -101,7 +134,8 @@ export class Race {
         id: id ?? teamIdx, team, state, isPlayer, isHuman: !!human, humanId: human?.id ?? null,
         lapsDone: -1, prevS: state.s, progress: 0,
         lapStart: 0, lastLap: null, bestLap: null, finishTime: null,
-        position: slot + 1, gap: 0, grid: slot + 1,
+        position: slot + 1, gap: 0, gapKnown: false, interval: null, lapsDown: 0, grid: slot + 1,
+        trace: newTrace(TRACE, true), // timing points it passed (for the interval of the car behind it)
         // track limits: this lap invalid? which sectors? (and the same for the lap just finished)
         lapInvalid: false, offSec: [false, false, false], lastLapInvalid: false, lastOffSec: [false, false, false],
         strikes: 0, wasOff: false, // track limits broken this lap (cars allowed more than one), and off right now?
@@ -180,7 +214,7 @@ export class Race {
     car.lapInvalid = false; car.offSec = [false, false, false]; car.strikes = 0;
     if (car.lapsDone >= 1 && car.finishTime == null) {
       const lap = this.time - car.lapStart;
-      car.lastLap = lap; car.lapStart = this.time;
+      car.lastLap = lap; car.lastLapAt = this.time; car.lapStart = this.time; // (lastLapAt: when, for the HUD)
       const counts = valid || !TRACK_LIMITS.deleteLapTimes; // an invalidated lap can't be a best lap
       if (counts && (car.bestLap == null || lap < car.bestLap)) {
         car.bestLap = lap;
@@ -251,20 +285,28 @@ export class Race {
       if (b.finishTime != null) return 1;
       return b.progress - a.progress;
     });
-    const L = this.track.length;
-    // Leader's timestamp every 10 m → real time gaps for everyone else.
+    const L = this.track.length, now = this.time;
+    // Timing points (GAP_STEP above): where everyone is now, and the race lead
+    for (const c of this.cars) if (!c.dnf) tracePass(c.trace, c.progress + L, now);
     const lead = sorted[0];
-    const idx = Math.floor((lead.progress + L) / 10);
-    for (let k = Math.max(0, idx - 3); k <= idx && k < this.leaderTimes.length; k++) {
-      if (this.leaderTimes[k] < 0) this.leaderTimes[k] = this.time;
-    }
+    tracePass(this.leadTrace, lead.progress + L, now);
+    const leadP = lead.finishTime != null ? this.laps * L : lead.progress; // (the leader's cool-down lap doesn't lap anyone)
     sorted.forEach((c, i) => {
       c.position = i + 1;
-      if (i === 0) { c.gap = 0; return; }
-      if (c.finishTime != null) { c.gap = c.finishTime - lead.finishTime; return; }
-      const k = Math.floor((c.progress + L) / 10);
-      const t = this.leaderTimes[Math.max(0, Math.min(k, this.leaderTimes.length - 1))];
-      c.gap = t >= 0 ? this.time - t : 0;
+      if (i === 0) { c.gap = 0; c.gapKnown = true; c.interval = null; c.lapsDown = 0; return; }
+      const ahead = sorted[i - 1];
+      if (c.finishTime != null) { // the flag: gaps are the finishing times
+        c.gap = c.finishTime - lead.finishTime; c.gapKnown = true; c.lapsDown = 0;
+        c.interval = ahead.finishTime != null ? c.finishTime - ahead.finishTime : null;
+        return;
+      }
+      const P = c.progress + L, tLead = traceTime(this.leadTrace, P);
+      c.gapKnown = tLead != null;
+      c.gap = c.gapKnown ? now - tLead : 0;
+      c.lapsDown = Math.max(0, Math.floor((leadP - c.progress) / L));
+      const tAhead = ahead.dnf ? null : traceTime(ahead.trace, P);
+      c.interval = tAhead != null ? now - tAhead
+        : c.gapKnown && ahead.gapKnown && ahead.finishTime == null ? Math.max(0, c.gap - ahead.gap) : null;
     });
     this.standings = sorted;
   }

@@ -18,149 +18,196 @@ kbd {
   font-family: inherit; font-weight: 600; font-size: 12px; line-height: 18px; text-align: center;
 }
 
-/* ---------- HUD ---------- */
-/* Broadcast-style overlay: timing tower on the left, timing / map / speed on the right.
-   --hud-scale makes everything bigger or smaller (set by screen size at the bottom of this file). */
+/* ---------- HUD (hud.js) ---------- */
+/* Broadcast graphics for the timing (the tower, the lap times) and a race car's dash for the car (bottom right).
+   Solid dark plates, square corners, figures that line up, and colour only where it means something: team colours,
+   purple / green / yellow times, the shift lights, the battery.
+   --hud-scale makes everything bigger or smaller (set by screen size further down). */
 :root {
   --hud-scale: 1;
-  --panel: rgba(11, 13, 19, 0.84);
-  --panel-hi: rgba(26, 29, 38, 0.92);
+  --panel: rgba(9, 10, 14, 0.86);
+  --panel-solid: #0c0d12;
+  --panel-hi: rgba(30, 32, 40, 0.95);
   --line: rgba(255, 255, 255, 0.08);
+  --hud-muted: #8e959f;
   --sec-purple: #b44dff; --sec-green: #1fd65f; --sec-yellow: #ffd21f;
 }
 #hud { position: fixed; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
-#hud label {
-  display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
-}
-.hud-panel {
-  position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  overflow: hidden;
-}
+.hud-panel { position: absolute; background: var(--panel); border-radius: 2px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); overflow: hidden; }
+#hud kbd { font-size: 11px; line-height: 15px; min-width: 18px; padding: 0 4px; }
 
-/* --- timing tower (left) --- */
-#tower { top: 16px; left: 16px; width: 300px; transform: scale(var(--hud-scale)); transform-origin: top left; }
-.tower-head {
-  display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
-  background: linear-gradient(90deg, #1b1e27, #12141b); border-bottom: 3px solid var(--red);
-}
-.mini-brand { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 900; letter-spacing: 0.12em; }
-.mini-brand .stripe { width: 6px; height: 20px; background: var(--red); transform: skewX(-18deg); }
-.session { font-size: 15px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
-.tower-sub { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
-.tower-stat { flex: 1; display: flex; align-items: baseline; gap: 6px; padding: 8px 16px; }
-.tower-stat + .tower-stat { border-left: 1px solid var(--line); }
-.tower-stat label { margin-right: 4px; }
-.tower-stat b { font-size: 30px; font-weight: 900; line-height: 1; }
-.tower-stat small { font-size: 16px; }
-.tower-mode {
-  display: flex; align-items: center; justify-content: space-between; padding: 6px 16px;
-  font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
-  background: rgba(255, 255, 255, 0.03);
-}
-.tower-mode kbd { font-size: 10px; line-height: 14px; min-width: 18px; padding: 0 4px; }
-#standings { margin: 0; padding: 0 0 4px; list-style: none; }
+/* --- timing tower (top left) --- */
+#tower { top: 16px; left: 16px; width: 272px; border-top: 3px solid var(--red); transform: scale(var(--hud-scale)); transform-origin: top left; }
+.tw-head { display: flex; border-bottom: 1px solid var(--line); }
+.tw-stat { flex: 1; display: flex; align-items: baseline; gap: 6px; padding: 8px 14px 9px; }
+.tw-stat + .tw-stat { border-left: 1px solid var(--line); }
+.tw-stat span { font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+.tw-stat b { font-size: 30px; font-weight: 900; line-height: 1; }
+.tw-stat small { margin: 0; font-size: 16px; font-weight: 700; color: var(--hud-muted); }
+#standings { margin: 0; padding: 2px 0; list-style: none; }
 #standings li {
-  display: grid; grid-template-columns: 26px 5px 1fr 34px 76px; align-items: center; column-gap: 10px;
-  height: 38px; padding: 0 14px 0 10px; font-size: 18px; font-weight: 700;
+  display: grid; grid-template-columns: 22px 4px minmax(0, 1fr) 22px 76px; align-items: center; column-gap: 9px;
+  height: 29px; padding: 0 12px 0 8px; font-size: 16px; font-weight: 700;
 }
-#standings li:nth-child(even) { background: rgba(255, 255, 255, 0.035); }
-#standings.compact li { height: 27px; font-size: 15px; }
-#standings.compact .bar { height: 16px; }
+#standings li + li { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035); }
+#standings.compact li { height: 24px; font-size: 14px; }
+#standings .p { text-align: right; font-weight: 900; }
+#standings .bar { width: 4px; height: 17px; }
+#standings.compact .bar { height: 13px; }
+#standings .n { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; white-space: nowrap; letter-spacing: 0.04em; }
+#standings .g { display: flex; justify-content: flex-end; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 600; color: #d6dae0; }
 #standings.compact .g { font-size: 13px; }
-#standings li.me { background: #f2f3f5; color: #0b0d12; }
-#standings li.me .g, #standings li.me .p { color: #0b0d12; }
-#standings .p { font-weight: 900; text-align: right; color: var(--ink); }
-#standings .bar { width: 5px; height: 22px; border-radius: 2px; }
-#standings .n { letter-spacing: 0.06em; display: flex; align-items: center; gap: 8px; }
-#standings .g { text-align: right; font-size: 15px; font-weight: 600; color: #d6dae0; display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
-#standings li.leader .g { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-#standings .chg { font-size: 11px; font-weight: 700; text-align: center; }
-#standings .chg.up { color: var(--sec-green); }
-#standings .chg.down { color: #ff4d4d; }
-#standings .fl { width: 14px; height: 14px; border-radius: 3px; background: var(--sec-purple); box-shadow: 0 0 8px rgba(180, 77, 255, 0.7); }
-#standings .chq {
-  width: 14px; height: 10px; display: inline-block;
-  background: conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 7px 5px;
-}
-#results .sw { width: 4px; height: 14px; border-radius: 2px; display: inline-block; }
+#standings li.leader .g { font-size: 11px; font-weight: 700; color: var(--hud-muted); }
+#standings li.me { background: #f2f3f5; color: #0b0d12; box-shadow: none; }
+#standings li.me .g { color: #0b0d12; }
+#standings li.me + li { box-shadow: none; }
+#standings .chg { display: flex; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; }
+#standings .chg.up { color: #12a64a; } #standings .chg.down { color: #ff4d4d; }
+#standings li:not(.me) .chg.up { color: var(--sec-green); }
+#standings .chg.up::before, #standings .chg.down::before { content: ''; border: 4px solid transparent; }
+#standings .chg.up::before { border-bottom: 5px solid currentColor; border-top: 0; }
+#standings .chg.down::before { border-top: 5px solid currentColor; border-bottom: 0; }
+#standings .fl { flex: none; width: 8px; height: 8px; background: var(--sec-purple); transform: rotate(45deg); } /* fastest lap */
+#standings .chq { width: 14px; height: 10px; display: inline-block; background: conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 7px 5px; }
+.tw-foot { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px 6px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--hud-muted); }
 
-/* --- lap timing (top right) --- */
+/* --- lap timing, the cars around you (top right) --- */
 #right-top {
-  position: absolute; top: 16px; right: 16px; width: 300px; display: flex; flex-direction: column; gap: 10px;
+  position: absolute; top: 16px; right: 16px; width: 290px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   transform: scale(var(--hud-scale)); transform-origin: top right;
 }
 #right-top .hud-panel { position: relative; }
-#timing { padding: 12px 16px 12px; }
-.t-row { display: flex; justify-content: space-between; align-items: flex-end; }
-.t-row .t-right { text-align: right; }
-.t-big { font-size: 34px; font-weight: 900; line-height: 1.05; letter-spacing: 0.01em; }
-.t-best { font-size: 20px; font-weight: 700; color: var(--ink); }
-.t-best.overall { color: var(--sec-purple); }
-.t-row.small { margin-top: 10px; font-size: 18px; font-weight: 700; }
-#t-delta { font-weight: 900; }
-#t-delta.faster { color: var(--sec-green); }
-#t-delta.slower { color: #ff4d4d; }
-.sectors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-.sec { background: var(--panel-hi); border-radius: 3px; overflow: hidden; text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); }
-.sec i { display: block; height: 5px; background: rgba(255, 255, 255, 0.12); }
+#timing { width: 100%; padding: 10px 14px 0; }
+.tm-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tm-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--hud-muted); }
+.tm-delta { min-width: 70px; padding: 2px 8px 1px; text-align: center; font-size: 15px; font-weight: 900; background: rgba(255, 255, 255, 0.08); color: var(--hud-muted); }
+.tm-delta.faster { background: var(--sec-green); color: #03140a; }
+.tm-delta.slower { background: #ff3b30; color: #fff; }
+.tm-cur { margin-top: 1px; font-size: 38px; font-weight: 900; line-height: 1.05; }
+.tm-cur.pop.purple { color: #cf98ff; } .tm-cur.pop.green { color: #5ce68f; } .tm-cur.pop.yellow { color: #ffe066; }
+.sectors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+.sec { background: var(--panel-hi); text-align: center; font-size: 13px; font-weight: 700; color: var(--hud-muted); }
+.sec i { display: block; height: 4px; background: rgba(255, 255, 255, 0.12); }
 .sec span { display: block; padding: 3px 0 4px; }
 .sec.purple i { background: var(--sec-purple); } .sec.purple span { color: #e2c2ff; }
 .sec.green i { background: var(--sec-green); } .sec.green span { color: #b9f5cf; }
 .sec.yellow i { background: var(--sec-yellow); } .sec.yellow span { color: #fff1b0; }
+.tm-rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; margin-top: 8px; padding-bottom: 10px; }
+.tm-rows div { display: flex; justify-content: space-between; align-items: baseline; }
+.tm-rows span { font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+.tm-rows b { font-size: 16px; font-weight: 900; }
+#t-best.purple { color: #c58bff; }
+.battle { margin: 0 -14px; border-top: 1px solid var(--line); }
+.bt-row { display: grid; grid-template-columns: 46px 4px minmax(0, 1fr) auto; align-items: center; column-gap: 9px; height: 28px; padding: 0 14px; font-size: 14px; font-weight: 700; }
+.bt-row + .bt-row { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.bt-dir { font-size: 12px; color: var(--hud-muted); }
+.bt-row i { width: 4px; height: 16px; }
+.bt-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; letter-spacing: 0.03em; }
+.bt-gap { font-size: 16px; font-weight: 900; transition: color 0.3s; }
+.bt-row.good .bt-gap { color: var(--sec-green); }
+.bt-row.bad .bt-gap { color: #ff5a4d; }
+#map-panel { width: 224px; }
+.map-name { position: absolute; left: 10px; top: 7px; font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+#minimap { display: block; margin: 18px auto 6px; }
 
-/* --- circuit map (right) --- */
-.map-head {
-  padding: 7px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--muted); border-bottom: 1px solid var(--line);
+/* --- the dash (bottom right) --- */
+#speedo {
+  right: 16px; bottom: 16px; width: 308px; padding: 12px 14px; transform: scale(var(--hud-scale)); transform-origin: bottom right;
+  clip-path: polygon(22px 0, 100% 0, 100% 100%, 0 100%, 0 22px); /* a chamfered corner, like a dash display */
 }
-#minimap { display: block; margin: 6px auto 10px; }
-
-/* --- speed, gear, shift lights (bottom right) --- */
-#speedo { right: 16px; bottom: 16px; width: 300px; padding: 12px 14px 12px; transform: scale(var(--hud-scale)); transform-origin: bottom right; }
-#revlights { display: flex; justify-content: space-between; padding: 0 4px 10px; }
-#revlights span { width: 12px; height: 12px; border-radius: 50%; background: #1d2029; box-shadow: inset 0 0 3px #000; }
-#revlights span.on.g { background: #1fe05a; box-shadow: 0 0 8px #1fe05a; }
-#revlights span.on.r { background: #ff2a2a; box-shadow: 0 0 8px #ff2a2a; }
-#revlights span.on.b { background: #3d74ff; box-shadow: 0 0 8px #3d74ff; }
-.speedo-main { display: grid; grid-template-columns: 10px 76px 1fr 10px; align-items: center; column-gap: 14px; }
-.pedal { height: 70px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; position: relative; }
+.revlights { display: flex; justify-content: space-between; padding: 0 22px 0 30px; }
+.revlights span { width: 12px; height: 12px; border-radius: 50%; background: #1b1e26; box-shadow: inset 0 0 3px #000; }
+.revlights span.on.g { background: #1fe05a; box-shadow: 0 0 8px #1fe05a; }
+.revlights span.on.r { background: #ff2a2a; box-shadow: 0 0 8px #ff2a2a; }
+.revlights span.on.b { background: #3d74ff; box-shadow: 0 0 8px #3d74ff; }
+.dash-main { display: flex; align-items: stretch; gap: 8px; margin-top: 2px; }
+.pedals { display: flex; gap: 4px; padding: 34px 0 40px; }
+.pedal { position: relative; width: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
 .pedal > div { position: absolute; inset: 0; transform-origin: bottom; transform: scaleY(0); background: var(--sec-green); }
 .pedal.brake > div { background: #ff3b3b; }
-#gear {
-  height: 76px; border-radius: 6px; display: grid; place-items: center;
-  font-size: 58px; font-weight: 900; line-height: 1; background: var(--panel-hi); border: 1px solid var(--line);
-}
-.speed-num { font-size: 56px; font-weight: 900; line-height: 1; text-align: right; }
-.speed-num small { display: block; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; margin: 2px 0 0; }
+.tacho { position: relative; flex: none; width: 250px; height: 206px; }
+.tacho svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.tc-track { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 15; }
+.tc-seg { fill: none; stroke: rgba(255, 255, 255, 0.09); stroke-width: 13; }
+.tc-seg.on { stroke: #f4f5f7; }
+.tc-seg.red { stroke: rgba(255, 59, 48, 0.24); }
+.tc-seg.red.on { stroke: #ff3b30; }
+.tc-red { fill: none; stroke: #ff3b30; stroke-width: 3; }
+.tc-tick { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1.5; }
+.tc-num { fill: #a7adb6; font: 700 12px 'Titillium Web', system-ui, sans-serif; text-anchor: middle; }
+.tc-num.red { fill: #ff6a5f; }
+.tc-gear { position: absolute; left: 0; right: 0; top: 48px; text-align: center; font-size: 78px; font-weight: 900; line-height: 1; }
+.tc-speed, .tc-rpm { position: absolute; left: 0; right: 0; display: flex; justify-content: center; align-items: baseline; gap: 4px; }
+.tc-speed { top: 128px; }
+.tc-speed b { font-size: 30px; font-weight: 900; line-height: 1; }
+.tc-speed span, .tc-rpm span { font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+.tc-rpm { bottom: 2px; }
+.tc-rpm b { font-size: 17px; font-weight: 900; }
+.dash-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.dr-label { flex: none; width: 50px; font-size: 12px; font-weight: 900; color: #ffd400; }
+.ers-bar { position: relative; flex: 1; height: 10px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+.ers-bar > div { position: absolute; inset: 0; transform-origin: left; background: var(--sec-green); transition: background-color 0.15s; }
+.ers-bar::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), var(--panel-solid) calc(10% - 2px) 10%); }
+#ers-pct { width: 40px; text-align: right; font-size: 14px; font-weight: 900; }
+.ers-mode { width: 52px; text-align: right; font-size: 11px; font-weight: 700; color: var(--hud-muted); }
+.ers[data-mode="deploy"] .ers-bar > div { background: #ffd400; } .ers[data-mode="deploy"] .ers-mode { color: #ffd400; }
+.ers[data-mode="harvest"] .ers-bar > div { background: #3d9bff; } .ers[data-mode="harvest"] .ers-mode { color: #3d9bff; }
+.ers[data-mode="full"] .ers-mode { color: var(--sec-green); }
+.aids { gap: 6px; }
+.aid { padding: 2px 7px 1px; font-size: 11px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hud-muted); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
+.aid.on { background: #ffb000; color: #0b0d13; box-shadow: none; }
+#aid-lights.on { background: var(--sec-green); }
+.tow { margin-left: auto; display: flex; align-items: center; gap: 8px; opacity: 0.35; font-size: 11px; font-weight: 900; text-transform: uppercase; color: var(--hud-muted); transition: opacity 0.2s, color 0.2s; }
+.tow.on { opacity: 1; color: #5fd8ff; }
+.tow-bar { position: relative; width: 70px; height: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+.tow-bar > div { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: #5fd8ff; }
 
 /* --- messages --- */
 .cam-hint {
-  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-  font-size: 12px; color: rgba(255, 255, 255, 0.65); text-shadow: 0 1px 3px #000; white-space: nowrap;
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 5px 12px;
+  background: rgba(0, 0, 0, 0.55); font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.75); white-space: nowrap; opacity: 0; transition: opacity 0.6s;
 }
+.cam-hint kbd { margin-left: 8px; }
+.cam-hint kbd:first-child { margin-left: 0; }
+.cam-hint.show { opacity: 1; }
+.cam-chip {
+  position: absolute; bottom: 52px; left: 50%; display: flex; align-items: baseline; gap: 8px; padding: 6px 14px 7px;
+  background: var(--panel); box-shadow: inset 3px 0 0 var(--red); opacity: 0; transform: translate(-50%, 6px); transition: opacity 0.2s, transform 0.2s;
+}
+.cam-chip.show { opacity: 1; transform: translate(-50%, 0); }
+.cam-chip span { font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+.cam-chip b { font-size: 16px; font-weight: 900; }
 #toast {
-  position: absolute; top: 34%; left: 50%; transform: translate(-50%, -10px); opacity: 0;
-  font-size: 32px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 10px 30px 10px 26px; background: var(--panel); border-left: 6px solid var(--red); border-radius: 4px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); transition: opacity 0.2s, transform 0.2s;
+  position: absolute; top: 31%; left: 50%; transform: translate(-50%, -8px); opacity: 0; padding: 9px 26px 10px 22px; white-space: nowrap;
+  background: var(--panel); box-shadow: inset 5px 0 0 var(--red), 0 12px 32px rgba(0, 0, 0, 0.4);
+  font-size: 28px; font-weight: 900; font-style: italic; letter-spacing: 0.02em; text-transform: uppercase; transition: opacity 0.2s, transform 0.2s;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #wrongway {
-  position: absolute; top: 40%; left: 50%; transform: translateX(-50%); display: none;
-  font-size: 46px; font-weight: 900; color: #fff; background: var(--red); padding: 4px 28px; border-radius: 6px;
-  animation: blink 0.5s steps(2) infinite;
+  position: absolute; top: 40%; left: 50%; transform: translateX(-50%); display: none; padding: 4px 28px 5px;
+  background: var(--red); font-size: 44px; font-weight: 900; font-style: italic; text-transform: uppercase; animation: blink 0.5s steps(2) infinite;
 }
 #wrongway.show { display: block; }
 @keyframes blink { 50% { opacity: 0.35; } }
+.hud-flag {
+  position: absolute; left: 50%; transform: translateX(-50%); display: none; padding: 6px 16px 7px; white-space: nowrap;
+  font-size: 15px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.hud-flag.show { display: block; }
+.hud-flag.gold { bottom: 31%; background: var(--panel); color: #ffd400; box-shadow: inset 0 0 0 1px #ffd400, 0 0 18px rgba(255, 212, 0, 0.3); } /* battery full */
+.hud-flag.yellow { bottom: 24%; background: #ffd400; color: #111; font-size: 18px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }    /* pit limiter */
 
+/* start lights: five columns, the bottom pair in each lights up */
 #lights {
-  position: fixed; top: 130px; left: 50%; transform: translateX(-50%); display: none; gap: 12px;
-  padding: 12px 16px; background: #0d0d0d; border-radius: 12px; border: 2px solid #222; pointer-events: none;
+  position: fixed; top: 130px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; padding: 8px;
+  background: #070707; border-radius: 3px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); pointer-events: none;
 }
 #lights.show { display: flex; }
-.lamp { width: 40px; height: 40px; border-radius: 50%; background: #2a0000; box-shadow: inset 0 0 8px #000; }
-.lamp.on { background: radial-gradient(circle at 40% 35%, #ff8a80, #ff1010 55%, #b00000); box-shadow: 0 0 22px #ff2020; }
+.lamp { display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #141414; border-radius: 2px; }
+.lamp i { width: 32px; height: 32px; border-radius: 50%; background: #2a0000; box-shadow: inset 0 0 8px #000; }
+.lamp.on i { background: radial-gradient(circle at 40% 35%, #ff8a80, #ff1010 55%, #b00000); box-shadow: 0 0 20px #ff2020; }
+
+#results .sw { width: 4px; height: 14px; border-radius: 2px; display: inline-block; }
 
 /* ---------- Menus ---------- */
 .overlay {
@@ -514,7 +561,7 @@ button.lb-arrow:hover { background: var(--red); border-color: var(--red); }
 @media (max-height: 860px), (max-width: 1280px) { :root { --hud-scale: 0.88; } }
 @media (max-height: 720px), (max-width: 1000px) { :root { --hud-scale: 0.74; } }
 @media (max-width: 720px) {
-  #tower, #map-panel { display: none; }
+  #tower, #map-panel, .cam-hint { display: none; }
   :root { --hud-scale: 0.62; }
 }
 /* ---------- Graphics presets (settings.js, main.js) ---------- */
@@ -695,26 +742,26 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 /* ---------- Track limits (race.js TRACK_LIMITS, hud.js) ---------- */
 /* banner when the lap is invalidated */
 #limits {
-  position: absolute; top: 23%; left: 50%; transform: translate(-50%, -10px); opacity: 0; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 30px 11px; white-space: nowrap;
-  background: var(--panel); border-top: 5px solid #ffd21f; border-radius: 4px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  position: absolute; top: 22%; left: 50%; transform: translate(-50%, -10px); opacity: 0; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 30px 10px; white-space: nowrap;
+  background: var(--panel); box-shadow: inset 0 4px 0 #ffd21f, 0 12px 32px rgba(0, 0, 0, 0.45);
   transition: opacity 0.2s, transform 0.2s;
 }
 #limits.show { opacity: 1; transform: translate(-50%, 0); }
-#limits b { font-size: 34px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.05; color: #fff; }
-#limits span { font-size: 13px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: #ffd21f; }
+#limits b { order: 1; font-size: 32px; font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1.05; color: #fff; }
+#limits span { order: 2; font-size: 14px; font-weight: 700; color: #ffd21f; }
 /* a track-limits warning (Hypercar, GT3: the lap still counts): smaller, orange */
-#limits.warn { border-top-color: #ff8a1f; }
-#limits.warn b { font-size: 26px; }
+#limits.warn { box-shadow: inset 0 4px 0 #ff8a1f, 0 12px 32px rgba(0, 0, 0, 0.45); }
+#limits.warn b { font-size: 25px; }
 #limits.warn span { color: #ff8a1f; }
+/* the tag by the lap timer, the lap timer while the lap is invalid, and the last lap if it was */
+.t-invalid { padding: 1px 6px; border-radius: 2px; background: #ffd21f; color: #111; font-size: 10px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; }
 .t-invalid.warn { background: #ff8a1f; }
-/* the lap timer while the lap is invalid, and the last lap if it was */
-.t-invalid { margin-left: 8px; padding: 1px 6px; border-radius: 3px; background: #ffd21f; color: #111; font-size: 10px; letter-spacing: 0.12em; vertical-align: 1px; }
-#t-cur.invalid, #t-last.invalid { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(255, 210, 31, 0.9); }
-#t-cur.invalid { text-decoration-thickness: 3px; }
+#t-cur.invalid, #t-cur.pop.invalid, #t-last.invalid { color: var(--hud-muted); text-decoration: line-through; text-decoration-color: rgba(255, 210, 31, 0.9); }
+#t-cur.invalid, #t-cur.pop.invalid { text-decoration-thickness: 3px; }
 /* a sector you went off in: no purple / green */
 .sec.invalid i { background: #5a5f68; }
-.sec.invalid span { color: var(--muted); text-decoration: line-through; }
+.sec.invalid span { color: var(--hud-muted); text-decoration: line-through; }
 
 /* ---------- Main menu (menu.js) ----------
    A start screen and three steps (data-step on #menu: home, car, track, setup) over the live AI race.

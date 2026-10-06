@@ -12,65 +12,90 @@
 <body>
   <div id="app"></div>
 
-  <!-- ===== In-race HUD ===== -->
+  <!-- ===== In-race HUD (hud.js) =====
+       top left: the timing tower · top right: lap timing, the cars just ahead of and behind you, the circuit map
+       bottom right: the dash (shift lights, rev counter, gear, speed, ERS / hybrid, driver aids, tow) -->
   <div id="hud" class="hidden">
-    <!-- Left: timing tower -->
-    <div id="tower" class="hud-panel">
-      <div class="tower-head">
-        <div class="mini-brand"><span class="stripe"></span>APEX</div>
-        <div class="session">Race</div>
-      </div>
-      <div class="tower-sub">
-        <div class="tower-stat"><label>Pos</label><b id="pos">1</b><small id="pos-total">/6</small></div>
-        <div class="tower-stat"><label>Lap</label><b id="lap">1</b><small id="lap-total">/3</small></div>
-      </div>
-      <div class="tower-mode"><span id="tower-mode">Interval</span><kbd>T</kbd></div>
+    <!-- timing tower: everyone, with the interval to the car ahead or the gap to the leader (T) -->
+    <section id="tower" class="hud-panel">
+      <header class="tw-head">
+        <div class="tw-stat"><span>Lap</span><b id="lap">1</b><small id="lap-total">/3</small></div>
+        <div class="tw-stat"><span>Pos</span><b id="pos">1</b><small id="pos-total">/6</small></div>
+      </header>
       <ol id="standings"></ol>
-    </div>
+      <footer class="tw-foot"><span id="tower-mode">Interval</span><kbd>T</kbd></footer>
+    </section>
 
-    <!-- Right: timing, map, speed -->
     <div id="right-top">
-    <div id="timing" class="hud-panel">
-      <div class="t-row">
-        <div><label>Current lap<b id="t-invalid" class="t-invalid hidden">Invalid</b></label><span id="t-cur" class="t-big">0:00.000</span></div>
-        <div class="t-right"><label>Best</label><span id="t-best" class="t-best">--:--.---</span></div>
-      </div>
-      <div class="sectors">
-        <div class="sec" id="sec1"><i></i><span>S1</span></div>
-        <div class="sec" id="sec2"><i></i><span>S2</span></div>
-        <div class="sec" id="sec3"><i></i><span>S3</span></div>
-      </div>
-      <div class="t-row small">
-        <div><label>Last</label><span id="t-last">--:--.---</span></div>
-        <div class="t-right"><label>Delta</label><span id="t-delta">--.--</span></div>
-      </div>
+      <!-- lap timing -->
+      <section id="timing" class="hud-panel">
+        <div class="tm-top">
+          <span class="tm-label"><span id="t-label">Lap 1</span><b id="t-invalid" class="t-invalid hidden">Invalid</b></span>
+          <span id="t-delta" class="tm-delta" title="Against your best lap this race">–</span>
+        </div>
+        <div id="t-cur" class="tm-cur">0:00.000</div>
+        <div class="sectors">
+          <div class="sec" id="sec1"><i></i><span>S1</span></div>
+          <div class="sec" id="sec2"><i></i><span>S2</span></div>
+          <div class="sec" id="sec3"><i></i><span>S3</span></div>
+        </div>
+        <div class="tm-rows">
+          <div><span>Best</span><b id="t-best">--:--.---</b></div>
+          <div><span>Last</span><b id="t-last">--:--.---</b></div>
+        </div>
+        <!-- the cars either side of you on the road: how far ahead / behind, to the thousandth -->
+        <div id="battle" class="battle">
+          <div id="bt-ahead" class="bt-row"><span class="bt-dir">Ahead</span><i></i><span class="bt-name"></span><b class="bt-gap"></b></div>
+          <div id="bt-behind" class="bt-row"><span class="bt-dir">Behind</span><i></i><span class="bt-name"></span><b class="bt-gap"></b></div>
+        </div>
+      </section>
+
+      <section id="map-panel" class="hud-panel">
+        <span id="map-name" class="map-name">Circuit</span>
+        <canvas id="minimap"></canvas>
+      </section>
     </div>
 
-    <div id="map-panel" class="hud-panel">
-      <div class="map-head"><span id="map-name">Circuit</span></div>
-      <canvas id="minimap"></canvas>
-    </div>
-    </div>
-
-    <div id="speedo" class="hud-panel">
-      <div id="revlights"></div>
-      <div class="speedo-main">
-        <div class="pedal"><div id="thr"></div></div>
-        <div id="gear">N</div>
-        <div class="speed-num"><span id="speed">0</span><small>km/h</small></div>
-        <div class="pedal brake"><div id="brk"></div></div>
+    <!-- the dash: the rev counter is drawn by hud.js for your car's gearbox (src/cars/) -->
+    <section id="speedo" class="hud-panel dash">
+      <div id="revlights" class="revlights"></div>
+      <div class="dash-main">
+        <div class="pedals" aria-hidden="true">
+          <div class="pedal brake"><div id="brk"></div></div>
+          <div class="pedal"><div id="thr"></div></div>
+        </div>
+        <div class="tacho">
+          <svg id="tacho" viewBox="0 0 250 206" aria-hidden="true"></svg>
+          <div id="gear" class="tc-gear">N</div>
+          <div class="tc-speed"><b id="speed">0</b><span>km/h</span></div>
+          <div class="tc-rpm"><b id="rpm">0</b><span>rpm</span></div>
+        </div>
       </div>
-    </div>
+      <div id="ers" class="dash-row ers">
+        <span id="ers-label" class="dr-label">ERS</span>
+        <div class="ers-bar"><div id="ers-fill"></div></div>
+        <b id="ers-pct">100%</b>
+        <span id="ers-mode" class="ers-mode"></span>
+      </div>
+      <div class="dash-row aids">
+        <span id="aid-abs" class="aid">ABS</span><span id="aid-tc" class="aid">TC</span><span id="aid-lights" class="aid">Lights</span>
+        <div id="tow" class="tow"><span>Tow</span><div class="tow-bar"><div id="tow-fill"></div></div></div>
+      </div>
+    </section>
 
-    <div class="cam-hint">[Shift] ERS · [C] <span id="cam-name">Chase</span> · [T] tower · [Q] look back · [V] mirror · [H] lights · [R] reset · [M] mute · [G] graphics · [Esc] pause</div>
+    <div id="cam-hint" class="cam-hint"><kbd>⇧</kbd> ERS <kbd>C</kbd> camera <kbd>T</kbd> tower <kbd>Q</kbd> look back <kbd>V</kbd> mirror <kbd>H</kbd> lights <kbd>R</kbd> reset <kbd>M</kbd> mute <kbd>Esc</kbd> pause</div>
+    <div id="cam-chip" class="cam-chip"><span>Camera</span><b id="cam-name">Chase</b></div>
     <div id="toast"></div>
-    <div id="wrongway">WRONG WAY</div>
+    <div id="wrongway">Wrong way</div>
     <!-- Track limits (race.js TRACK_LIMITS, hud.js) -->
     <div id="limits"><span id="limits-why">Track limits</span><b>Lap invalidated</b></div>
+    <div id="ers-remind" class="hud-flag gold">Battery full: hold Shift or R1 to deploy</div>
+    <div id="pit-limiter" class="hud-flag yellow">Pit limiter</div>
   </div>
 
+  <!-- start lights: five columns, the red pair in each lights up one by one -->
   <div id="lights">
-    <div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div><div class="lamp"></div>
+    <div class="lamp"><i></i><i></i></div><div class="lamp"><i></i><i></i></div><div class="lamp"><i></i><i></i></div><div class="lamp"><i></i><i></i></div><div class="lamp"><i></i><i></i></div>
   </div>
 
   <!-- ===== Main menu (menu.js; a live AI race plays behind it, see showcase.js) =====

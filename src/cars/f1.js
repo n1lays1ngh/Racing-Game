@@ -21,7 +21,7 @@ export default {
   darkNights: [],
 
   // ---- Track limits (race.js): how many times you can go off in a lap before it's invalidated ----
-  trackLimits: { strikes: 1 },
+  trackLimits: { strikes: 3 },
 
   // ---- How it drives (physics.js; the AI plans its corner speeds and braking from the same numbers) ----
   physics: {

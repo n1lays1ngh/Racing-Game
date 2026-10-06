@@ -65,6 +65,23 @@ shown in the bar at the top (click one to go back to it):
 Your choices are remembered in the browser. The menu is `index.html` (`#menu`), `src/menu.js` and the
 "Main menu" section at the end of `src/style.css`.
 
+## The HUD
+
+- **Timing tower** (top left): lap, position and every car with the **interval** to the car ahead, or the **gap to
+  the leader** (T switches). Gaps are measured at timing points every 4 m round the lap (`race.js`, GAP_STEP),
+  worked out between physics steps, so they're right to the thousandth and don't jump about. Lapped cars show
+  `+1 lap`.
+- **Lap timing** (top right): the running lap with a live delta to your best lap of the race (also to the
+  thousandth), the three sectors (purple: fastest of anyone, green: your best, yellow: slower), best and last lap,
+  and the cars just ahead of and behind you on the road, green while the gap goes your way. After the line your
+  lap time stays up for a few seconds, coloured, with how much it changed your best.
+- **Dash** (bottom right): shift lights, a rev counter drawn for each car's gearbox (its range and red zone come from
+  `gearbox` in `src/cars/`), gear, speed, revs, pedals, the ERS or hybrid battery, the ABS / TC / headlights lights
+  and the tow from the car ahead.
+
+The key hints at the bottom show for the first seconds of a race; Esc lists them all. The HUD is `#hud` in
+`index.html`, `src/hud.js` and the HUD section at the top of `src/style.css`.
+
 ## Controls
 
 | Key                  | Action                         |
