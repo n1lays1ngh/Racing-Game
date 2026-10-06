@@ -15,9 +15,13 @@ export default {
   specs: ['1.6 V6 turbo hybrid', '798 kg', '8 gears'],  // shown in the menu
 
   // ---- When it races: the menu's Day / Night choice ----
-  // 'circuit' = every circuit at its own time of day (the `time` in its file: some F1 races are at night,
-  // under floodlights). Otherwise a list of times per circuit id, '*' for every other circuit (see hypercar.js).
-  times: 'circuit',
+  // Every car can race every circuit by day or by night under its floodlights (and at twilight where that's the
+  // circuit's own time). darkNights: a list of circuit ids where it can also race a night without floodlights
+  // (see hypercar.js); none for the F1 car.
+  darkNights: [],
+
+  // ---- Track limits (race.js): how many times you can go off in a lap before it's invalidated ----
+  trackLimits: { strikes: 1 },
 
   // ---- How it drives (physics.js; the AI plans its corner speeds and braking from the same numbers) ----
   physics: {

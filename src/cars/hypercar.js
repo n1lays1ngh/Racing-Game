@@ -14,11 +14,13 @@ export default {
   specs: ['3.0 V6 twin-turbo hybrid', '1,030 kg', 'Hybrid all-wheel drive'],
 
   // ---- When it races ----
-  // Every circuit by day; Le Mans and the Nürburgring by day or by night, as in their 24-hour races.
-  // night: 'pits' = a real endurance night: floodlights only along the pit straight and paddock, the rest of the
-  // lap dark ('circuit' = the circuit's own floodlights all the way round).
-  times: { '*': ['day'], lemans: ['day', 'night'], nurburgring: ['day', 'night'] },
-  night: 'pits',
+  // Every circuit by day or by night under floodlights (all cars can). darkNights: the circuits where it can also
+  // race a real endurance night without floodlights round the lap (only the pit straight and paddock lit), as in
+  // their 24-hour races.
+  darkNights: ['lemans', 'nurburgring'],
+
+  // ---- Track limits (race.js): how many times you can go off in a lap before it's invalidated (F1: 1) ----
+  trackLimits: { strikes: 5 },
 
   // ---- How it drives ----
   physics: {

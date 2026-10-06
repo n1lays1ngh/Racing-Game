@@ -12,9 +12,9 @@ export default {
   car: 'Mercedes-AMG GT3',
   specs: ['6.2 V8', '1,285 kg', 'ABS · traction control'],
 
-  // ---- When it races (see hypercar.js) ----
-  times: { '*': ['day'], lemans: ['day', 'night'], nurburgring: ['day', 'night'] },
-  night: 'pits',
+  // ---- When it races, and track limits (see hypercar.js) ----
+  darkNights: ['lemans', 'nurburgring'],
+  trackLimits: { strikes: 5 },
 
   // ---- How it drives ----
   physics: {

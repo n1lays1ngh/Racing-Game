@@ -5,9 +5,14 @@
 //   getCar(id)                → the car with that id (the default car if there's none)
 //   selectedCar()             → the id of the car you last picked (kept in this browser), or the default
 //   setSelectedCar(id)        → remember your pick
-//   timesFor(car, circuit)    → the times of day this car can race at this circuit (the first is its default)
-//   raceSetup(car, circuit, time) → { time, lighting }: how the circuit is set up for that car and time
-//                                   (lighting: 'circuit' = its own floodlights at night, 'pits' = only the pit straight)
+//   timesFor(car, circuit)    → the times of day this car can race at this circuit (the menu's Time buttons):
+//                               'day' and 'night' (under the circuit's floodlights) everywhere, 'dusk' where that's
+//                               the circuit's own time (Abu Dhabi), and 'dark' (a night without floodlights round
+//                               the lap, only the pit straight lit) where the car has it (darkNights in its file)
+//   raceSetup(car, circuit, choice) → { choice, time, lighting }: how the circuit is set up for that choice
+//                               (time: 'day' | 'dusk' | 'night'; lighting: 'circuit' = floodlights all round,
+//                               'pits' = only the pit straight). No choice yet (null): the circuit's own time.
+//   TIME_LABELS               → what the buttons say
 import f1 from './f1.js';
 import hypercar from './hypercar.js';
 import gt3 from './gt3.js';
@@ -35,15 +40,21 @@ export function setSelectedCar(id) {
   try { localStorage.setItem(KEY, id); } catch { /* not kept, that's all */ }
 }
 
+export const TIME_LABELS = { day: 'Day', dusk: 'Twilight', night: 'Night', dark: 'Night · no floodlights' };
+
 // circuit: a circuit file (src/circuits/)
 export function timesFor(car, circuit) {
-  if (!car.times || car.times === 'circuit') return [circuit.time ?? 'day'];
-  return car.times[circuit.id] ?? car.times['*'] ?? ['day'];
+  const list = ['day'];
+  if (circuit.time === 'dusk') list.push('dusk');
+  list.push('night');
+  if (car.darkNights?.includes(circuit.id)) list.push('dark');
+  return list;
 }
 
-// time: the one you'd like ('day' | 'dusk' | 'night'); if this car can't race then here, its first time instead
-export function raceSetup(car, circuit, time) {
-  const options = timesFor(car, circuit), t = options.includes(time) ? time : options[0];
-  const own = !car.times || car.times === 'circuit';
-  return { time: t, lighting: !own && t !== 'day' ? car.night ?? 'circuit' : 'circuit' };
+// choice: the one you'd like ('day' | 'dusk' | 'night' | 'dark', or null for the circuit's own). Where it isn't on
+// offer: a night without floodlights becomes a floodlit one, twilight becomes night, else the circuit's own time.
+export function raceSetup(car, circuit, choice) {
+  const options = timesFor(car, circuit), own = circuit.time ?? 'day';
+  const c = options.includes(choice) ? choice : choice === 'dark' || choice === 'dusk' ? 'night' : options.includes(own) ? own : options[0];
+  return { choice: c, time: c === 'dark' ? 'night' : c, lighting: c === 'dark' ? 'pits' : 'circuit' };
 }

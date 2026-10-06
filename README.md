@@ -49,6 +49,22 @@ npm install three
 npm run dev
 ```
 
+## The menu
+
+A live AI race plays behind the menu, filmed like TV. The start screen has **Race**, **Quick race** (your last
+setup, straight away), **Multiplayer** and **Your stats**, plus the graphics preset. Race takes you through three steps,
+shown in the bar at the top (click one to go back to it):
+
+1. **Car**: Formula 1, Hypercar or GT3, with top speed, 0 to 200 km/h, cornering grip and braking worked out from
+   each car's physics, its driver aids and track-limits rule.
+2. **Circuit**: every circuit as a tile; the one you pick shows its outline, the hills along the lap, its length and
+   climb, and your best lap there in that car.
+3. **Race**: time of day, laps (a slider from 1 to 100, with the Grand Prix distance of 305 km marked), AI cars
+   and their skill, your name and colour. With a lap of that circuit in your stats it shows how long the race will take.
+
+Your choices are remembered in the browser. The menu is `index.html` (`#menu`), `src/menu.js` and the
+"Main menu" section at the end of `src/style.css`.
+
 ## Controls
 
 | Key                  | Action                         |
@@ -63,8 +79,10 @@ npm run dev
 | R                    | Reset onto the track           |
 | M                    | Mute                           |
 | Esc / P              | Pause                          |
-| Menu: ↑ ↓ / ← → / N  | Car / circuit / day or night (where the car can race both) |
-| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · D-pad ← headlights · View reset · Menu pause. In menus: D-pad ↑ ↓ car, D-pad ← → / LB / RB circuit, B day or night, A start, Y multiplayer; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
+| Menu: Enter / Esc    | Next step (or Start race) / back a step |
+| Menu: ← → ↑ ↓        | Car step: change car. Circuit step: change circuit (↑ ↓ a row of tiles). Race step: ← → laps (Shift: ×10), ↑ ↓ AI cars |
+| Menu: N              | Time of day (day, night, or night without floodlights) |
+| Controller           | Left stick steer · RT throttle · LT brake · Y camera · B (hold) look back · LB mirror · RB tower gaps · D-pad ← headlights · View reset · Menu pause. On the start screen: A race, Y multiplayer, X your stats. In the setup steps: A next / start, B back, D-pad as the arrow keys, LB / RB ten laps less / more, X time of day; in the lobby the host's Menu button starts the race. Mapping and rumble settings in `src/input.js` |
 
 ## Multiplayer
 
@@ -247,14 +265,21 @@ these two, and the cockpit camera sits at the driver's eyes in the left-hand sea
 car: they're a generic Le Mans Hypercar and a generic GT3 made in code (`src/carBodies.js`), in their team's
 colours, with spoked rims, brake calipers and their own lights. (AI F1 cars are the built-in F1 car.)
 
-**When a car races** (`times` in its file): the F1 car races every circuit at that circuit's own time of day
-(the `time` in the circuit file, so Bahrain or Singapore are night races under floodlights). The Hypercar and
-GT3 race every circuit by day, and Le Mans and the Nürburgring by day or by night (the Day / Night buttons under
-the circuit, or N). Their night is a real endurance night (`night: 'pits'`): floodlights only along the pit
-straight and paddock, the rest of the lap lit by the moon (`TIMES.dark` in `src/lighting.js`) and your headlights.
-They come on by themselves at night (H switches them; the green LIGHTS light under the speed shows they're on):
+**When a car races** (the Time buttons under the circuit, or N): every car can race every circuit by day or by
+night under floodlights all round the lap (through the Nordschleife's woods too: `FLOODLIGHTS` in
+`src/lighting.js`), and at twilight where that's the circuit's own time (Abu Dhabi). Until you pick one, each
+circuit starts at its own time (the `time` in its file: Bahrain or Singapore at night). In the Hypercar and GT3,
+Le Mans and the Nürburgring also have a night without floodlights (`darkNights` in their files): a real endurance
+night, floodlights only along the pit straight and paddock, the rest of the lap lit by the moon (`TIMES.dark` in
+`src/lighting.js`) and your headlights. The Hypercar and GT3's headlights come on by themselves at night
+(H switches them; the green LIGHTS light under the speed shows they're on):
 two real spotlights shaped like a race car's main beams, plus a pool of light on the road ahead
 (`HEADLIGHTS` in `src/headlights.js`; each car's lamp positions and colour are `headlights` in its file).
+
+**Track limits** (all four wheels past the white line): in the F1 car the lap is invalidated straight away. The
+Hypercar and GT3 get warnings first (the banner says "Warning 2 of 5", the lap timer "Limits 2/5"): each trip off
+the track is one strike, and only the 5th in a lap invalidates it (`trackLimits` in the car's file, `TRACK_LIMITS`
+in `src/race.js`). Pressing R still invalidates the lap straight away.
 
 Your stats keep separate records for each car: a lap in one car never competes with a lap in another.
 

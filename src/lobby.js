@@ -1,12 +1,10 @@
 // Multiplayer lobby: create a room or join one with its code, see who's in, and (host) set up the race:
-// the circuit, the car everyone races (one kind of car per race, src/cars/) and, where that car can race
-// it by day or by night, the time of day.
+// the circuit, the car everyone races (one kind of car per race, src/cars/) and the time of day (day, night under
+// floodlights, or for the Hypercar and GT3 at Le Mans and the Nürburgring a night without floodlights).
 // The networking is in net/session.js; this file is only the screen.
 import { Session, cleanName, MAX_CARS } from './net/session.js';
 import { NET } from './net/peer.js';
-import { CARS, getCar, timesFor, raceSetup } from './cars/index.js';
-
-const TIME_SHORT = { day: 'Day', dusk: 'Twilight', night: 'Night' };
+import { CARS, getCar, timesFor, raceSetup, TIME_LABELS } from './cars/index.js';
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -23,7 +21,6 @@ export class Lobby {
     this.session = null; this.busy = false;
     this.el = $('lobby');
     const options = (id) => [...$(id).options].map((o) => [o.value, o.textContent]);
-    this.lapOptions = options('opt-laps');
     this.diffOptions = options('opt-diff');
 
     $('btn-mp').addEventListener('click', () => this.open());
@@ -34,10 +31,10 @@ export class Lobby {
     $('lb-copy').addEventListener('click', () => this.copyInvite());
     $('lb-prev').addEventListener('click', () => this.stepTrack(-1));
     $('lb-next').addEventListener('click', () => this.stepTrack(1));
-    const code = $('lb-code-in'), name = $('lb-name'), ai = $('lb-ai');
+    const code = $('lb-code-in'), name = $('lb-name'), ai = $('lb-ai'), laps = $('lb-laps');
     code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); });
     // typing in a box mustn't trigger game keys (Space = brake, arrows = circuit...)
-    for (const el of [code, name, ai]) el.addEventListener('keydown', (e) => {
+    for (const el of [code, name, ai, laps]) el.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.code === 'Enter') { if (el === code) this.join(); else el.blur(); }
     });
@@ -45,6 +42,9 @@ export class Lobby {
       const menuName = $('opt-name'); menuName.value = name.value; menuName.dispatchEvent(new Event('input'));
     });
     ai.addEventListener('input', () => { this.showAi(); this.set({ ai: Number(ai.value) }); });
+    // laps (1–100, like the menu): the number follows the slider, the room gets it when you let go
+    laps.addEventListener('input', () => this.showLaps());
+    laps.addEventListener('change', () => this.set({ laps: Number(laps.value) }));
     this.el.addEventListener('keydown', (e) => { if (e.code === 'Escape' && !this.session) this.back(); });
 
     // Invite link: ?room=ABCD opens the lobby with the code filled in
@@ -86,7 +86,7 @@ export class Lobby {
     const settings = {
       track: $('opt-track').value, laps: Number(saved.laps ?? $('opt-laps').value),
       difficulty: saved.difficulty ?? $('opt-diff').value, ai: saved.ai ?? 0, collisions: saved.collisions ?? true,
-      car: choice.car ?? saved.car ?? CARS[0].id, time: choice.time ?? saved.time ?? 'day',
+      car: choice.car ?? saved.car ?? CARS[0].id, time: choice.time ?? saved.time ?? null, // (null: the circuit's own time)
     };
     try { this.use(await Session.host(this.name(), settings)); this.status(''); }
     catch (err) { this.status(err.message, 'error'); }
@@ -167,6 +167,11 @@ export class Lobby {
     $('lb-skill-row').classList.toggle('off', n === 0);
   }
 
+  showLaps() {
+    const n = Number($('lb-laps').value);
+    $('lb-laps-label').textContent = n === 1 ? '1 lap' : `${n} laps`;
+  }
+
   seg(id, options, value, onPick) {
     const el = $(id), key = `${value}|${options.length}`;
     if (el.dataset.key === key) return; // unchanged: don't rebuild under the host's mouse
@@ -200,11 +205,15 @@ export class Lobby {
     const def = this.tracks.find((t) => t.id === st.track) ?? this.tracks[0];
     const car = getCar(st.car), setup = raceSetup(car, def, st.time), times = timesFor(car, def);
     $('lb-track').textContent = def.name;
-    $('lb-track-sub').textContent = [def.country, setup.time === 'night' ? 'Night race' : setup.time === 'dusk' ? 'Twilight' : null].filter(Boolean).join(' · ');
+    $('lb-track-sub').textContent = [def.country, setup.lighting === 'pits' ? 'Night race, no floodlights' : setup.time === 'night' ? 'Night race'
+      : setup.time === 'dusk' ? 'Twilight' : null].filter(Boolean).join(' · ');
     this.seg('lb-car', CARS.map((c) => [c.id, c.name]), car.id, (v) => this.set({ car: v }));
     $('lb-time-row').classList.toggle('hidden', times.length < 2);
-    this.seg('lb-time', times.map((t) => [t, TIME_SHORT[t] ?? t]), setup.time, (v) => this.set({ time: v }));
-    this.seg('lb-laps', this.lapOptions, st.laps, (v) => this.set({ laps: Number(v) }));
+    this.seg('lb-time', times.map((t) => [t, TIME_LABELS[t] ?? t]), setup.choice, (v) => this.set({ time: v }));
+    const laps = $('lb-laps');
+    laps.disabled = !host;
+    if (document.activeElement !== laps) laps.value = String(st.laps);
+    this.showLaps();
     this.seg('lb-diff', this.diffOptions, st.difficulty, (v) => this.set({ difficulty: v }));
     this.seg('lb-coll', [['1', 'On'], ['0', 'Off']], st.collisions ? '1' : '0', (v) => this.set({ collisions: v === '1' }));
     const ai = $('lb-ai'), maxAi = Math.max(0, MAX_CARS - s.players.length);

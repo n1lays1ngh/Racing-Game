@@ -209,7 +209,14 @@ function labelTracks() {
   if (was) trackSelect.value = was;
 }
 labelTracks();
-trackSelect.addEventListener('change', () => loadTrack(trackSelect.value)); // preview behind the menu
+// The circuit, car or time of day changed in the menu: rebuild the live race behind it, once you've stopped
+// clicking through them (building a circuit takes a moment)
+let previewTimer = 0;
+function previewSoon() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => { if (!race) loadTrack(trackSelect.value); }, 220);
+}
+trackSelect.addEventListener('change', previewSoon);
 
 // ---------- game state ----------
 let race = null;
@@ -275,9 +282,9 @@ menuUI = setupMenu({
     carModelReady = loadCarModel(myCar.model);
     carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.start(track, myCar); }); // its model is in
     labelTracks();
-    loadTrack(trackSelect.value);
+    previewSoon();
   },
-  onTime: (time) => { myTime = time; loadTrack(trackSelect.value); },
+  onTime: (time) => { myTime = time; previewSoon(); },
 });
 const nameTags = new NameTags(); // names over friends' cars online
 
@@ -311,6 +318,7 @@ carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase
 
 // cfg: race settings (solo: from the menu; online: from the host)
 async function startGame(cfg = soloConfig()) {
+  clearTimeout(previewTimer); // (the race builds its circuit itself)
   audio.start();
   audio.setCar(getCar(cfg.car)); // its engine sound (audio.js)
   await loadCarModel(getCar(cfg.car).model); // the race car's model: usually loaded long before you press Start
@@ -342,6 +350,7 @@ function toMenu() {
   lobby.leave(); lobby.hide(); // online: leaving the menu means leaving the room
   exitRace();
   statsScreen.refreshButton();
+  menuUI.go('home', { focus: false }); // the start screen
   menu.classList.remove('hidden');
 }
 // Online: the host ends the race for everyone; anyone else just leaves it (and retires if still going)
@@ -509,6 +518,7 @@ function tick(timestamp) {
       if (e.type === 'go') { msg = 'GO! GO! GO!'; secs = 1.2; }
       if (e.type === 'bestLap') msg = `Personal best  ${formatTime(e.time)}`;
       if (e.type === 'invalid') hud.invalidated(e); // track limits: "Lap invalidated" banner (race.js, hud.js)
+      if (e.type === 'warning') hud.limitsWarning(e); // … or a warning, in the cars allowed a few
       if (e.type === 'lap') { // every lap you complete → your stats; beat your best ever here → say so
         const r = statsRun?.lap(e);
         if (r?.best && r.prevBest != null) { msg = `Circuit record  ${formatTime(r.lap.t)}  −${(r.prevBest - r.lap.t).toFixed(3)}`; secs = 3; }

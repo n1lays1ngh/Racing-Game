@@ -343,10 +343,17 @@ export class HUD {
     const running = race.state === 'racing' && p.finishTime == null;
     this.el.cur.textContent = running ? formatTime(race.time - p.lapStart) : formatTime(p.finishTime ?? 0);
     this.el.last.textContent = formatTime(p.lastLap);
-    // track limits: the running lap and the last lap are struck through while they're invalid
-    const invalid = running && !!p.lapInvalid;
+    // track limits: the running lap and the last lap are struck through while they're invalid; before that (cars
+    // allowed more than one) the warnings so far: "Limits 2/5"
+    const invalid = running && !!p.lapInvalid, allowed = p.state.spec?.trackLimits?.strikes ?? 1;
+    const warned = running && !invalid && allowed > 1 && p.strikes > 0;
     this.el.cur.classList.toggle('invalid', invalid);
-    this.el.invalid?.classList.toggle('hidden', !invalid);
+    if (this.el.invalid) {
+      const label = invalid ? 'Invalid' : warned ? `Limits ${p.strikes}/${allowed}` : '';
+      if (this.el.invalid.textContent !== label && label) this.el.invalid.textContent = label;
+      this.el.invalid.classList.toggle('hidden', !invalid && !warned);
+      this.el.invalid.classList.toggle('warn', warned);
+    }
     this.el.last.classList.toggle('invalid', p.lastLap != null && !!p.lastLapInvalid);
     if (this.limitsTimer > 0) { this.limitsTimer -= dt; if (this.limitsTimer <= 0) this.el.limits?.classList.remove('show'); }
     this.el.best.textContent = formatTime(p.bestLap);
@@ -386,8 +393,17 @@ export class HUD {
 
   // Track limits: "Lap invalidated" banner. e: the 'invalid' event from race.js { why, lap, sector }
   invalidated(e, seconds = 2.6) {
+    this.limitsBanner(e.why === 'reset' ? `Car reset · lap ${e.lap}` : `Track limits · sector ${e.sector} · lap ${e.lap}`, 'Lap invalidated', false, seconds);
+  }
+  // … and the warnings before that, in cars allowed more than one (the Hypercar and GT3): { strike, of, lap, sector }
+  limitsWarning(e, seconds = 2.2) {
+    this.limitsBanner(`Track limits · sector ${e.sector} · ${e.of - e.strike} left this lap`, `Warning ${e.strike} of ${e.of}`, true, seconds);
+  }
+  limitsBanner(why, title, warn, seconds) {
     if (!this.el.limits) return;
-    this.el.limitsWhy.textContent = e.why === 'reset' ? `Car reset · lap ${e.lap}` : `Track limits · sector ${e.sector} · lap ${e.lap}`;
+    this.el.limitsWhy.textContent = why;
+    this.el.limits.querySelector('b').textContent = title;
+    this.el.limits.classList.toggle('warn', warn);
     this.el.limits.classList.remove('show'); void this.el.limits.offsetWidth; // restart the slide-in
     this.el.limits.classList.add('show');
     this.limitsTimer = seconds;

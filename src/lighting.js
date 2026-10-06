@@ -1,7 +1,7 @@
-// Time of day. Each circuit file can set  time: 'day' | 'dusk' | 'night'  (default 'day'); the car you race
-// can change that (src/cars/: the Hypercar and GT3 race every circuit by day, Le Mans and the Nürburgring by night too).
-// A night with track.lighting 'pits' is a dark endurance night ('dark' below): floodlights only along the pit
-// straight and paddock, the rest of the lap lit by the moon.
+// Time of day. Each circuit file sets its own  time: 'day' | 'dusk' | 'night'  (default 'day'); in the menu every
+// circuit can be raced by day or by night under floodlights (src/cars/index.js), and in the Hypercar and GT3,
+// Le Mans and the Nürburgring on a night without floodlights too: track.lighting 'pits' ('dark' below): floodlights
+// only along the pit straight and paddock, the rest of the lap lit by the moon and your headlights.
 //   applyTimeOfDay() – sky, sun/floodlight, fog, exposure and reflections (called when a circuit loads)
 //   timeOf(track)    – which of TIMES applies to a built circuit
 //   buildFloodlights() – light towers along the track for dusk and night races (or only the pit straight)
@@ -303,6 +303,9 @@ export function applyTimeOfDay(world, track) {
 const poleMat = new THREE.MeshStandardMaterial({ color: 0x8d9299, metalness: 0.75, roughness: 0.42 }); // galvanised steel
 const headMat = new THREE.MeshStandardMaterial({ color: 0x2c2f34, metalness: 0.5, roughness: 0.55 });  // painted housings
 const FLOOD = { colour: 0xf2f5ff, lens: 9, glare: 0.55 }; // lamp colour, how bright the lamp faces look, glare strength
+// inWoods: on a floodlit night the towers go all the way round, through the forest stretches too (the Nordschleife
+// is 20 km of woods: without them most of the lap would be dark). false = towers only outside the woods.
+export const FLOODLIGHTS = { inWoods: true };
 const towerMat = new THREE.MeshStandardMaterial({ color: 0x6d7279, metalness: 0.6, roughness: 0.45 }); // the model's pole and lamp housings
 const towerLampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(FLOOD.colour).multiplyScalar(FLOOD.lens) }); // the model's lamp faces
 
@@ -509,7 +512,7 @@ export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodli
   let side = 1;
   for (let s = 0; s < track.length; s += spacing, side = -side) {
     const i = Math.floor(s / track.ds) % track.n;
-    if (track.forest?.[i]) continue;                  // none in the woods (forest stretches: only trees)
+    if (track.forest?.[i] && !FLOODLIGHTS.inWoods) continue; // (the woods: FLOODLIGHTS.inWoods)
     if (only && !only(i)) continue;
     const wall = side > 0 ? track.wallL[i] : track.wallR[i], lane = track.pitLane;
     let off = wall + 3;

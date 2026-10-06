@@ -95,7 +95,7 @@ export function readInput(dt) {
 const $ = (id) => document.getElementById(id);
 const visible = (id) => { const el = $(id); return el && !el.classList.contains('hidden'); };
 function screen() {
-  if (visible('menu')) return 'menu';
+  if (visible('menu')) return $('menu').dataset.step === 'home' ? 'home' : 'menu'; // the start screen, or a setup step
   if (visible('lobby')) return 'lobby';
   if (visible('results')) return 'results';
   if (visible('pause')) return 'pause';
@@ -104,9 +104,12 @@ function screen() {
 }
 // button index (standard layout) → what it does on each screen: a key code, or 'click:<button id>'
 const MAP = {
-  // D-pad ↑ ↓: car, ← → / LB RB: circuit, B: day / night (where the car can race both)
-  menu:    { 0: 'Enter', 9: 'Enter', 14: 'ArrowLeft', 15: 'ArrowRight', 4: 'ArrowLeft', 5: 'ArrowRight', 12: 'ArrowUp', 13: 'ArrowDown',
-             1: 'KeyN', 3: 'click:btn-mp', 2: 'click:btn-stats' },
+  // start screen: A race, Y multiplayer, X your stats
+  home:    { 0: 'Enter', 9: 'Enter', 3: 'click:btn-mp', 2: 'click:btn-stats' },
+  // setup steps (menu.js): A next / start, B back, D-pad: change the car / circuit (race step: ← → laps, ↑ ↓ AI cars),
+  // LB RB: the same in tens of laps, X: time of day
+  menu:    { 0: 'Enter', 9: 'Enter', 1: 'Escape', 14: 'ArrowLeft', 15: 'ArrowRight', 12: 'ArrowUp', 13: 'ArrowDown',
+             4: 'PageDown', 5: 'PageUp', 2: 'KeyN' },
   stats:   { 1: 'click:st-back', 9: 'click:st-back' },                       // B / Menu: back
   lobby:   { 9: 'click:lb-go' },
   race:    { 3: 'KeyC', 1: 'KeyQ', 4: 'KeyV', 13: 'KeyT', 8: 'KeyR', 9: 'Escape', 12: 'KeyM', 14: 'KeyH' }, // RB (5): ERS, read in readInput
@@ -183,7 +186,7 @@ function showPad(e) {
   if (!k) return;
   let tag = k.querySelector('.pad-tag');
   if (!tag) { tag = document.createElement('span'); tag.className = 'pad-tag'; k.appendChild(tag); }
-  tag.textContent = e.type === 'gamepadconnected' ? '🎮 Controller connected: A to race' : '';
+  tag.textContent = e.type === 'gamepadconnected' ? '🎮 Controller connected: A to race, Y multiplayer, X your stats' : '';
 }
 window.addEventListener('gamepadconnected', showPad);
 window.addEventListener('gamepaddisconnected', showPad);

@@ -41,9 +41,12 @@ export const DIFFICULTY = {
 };
 
 // Track limits. The white line is the edge of the track: the kerbs are fine, but take all four wheels past the
-// line (the car's centre more than `margin` beyond it) and the lap is invalidated. The HUD says so straight away
-// (hud.js), the lap time doesn't count as a best lap, and your stats mark it (stats.js). Driving into the pit
-// lane is fine. resetInvalidates: pressing R (back onto the track) invalidates the lap too.
+// line (the car's centre more than `margin` beyond it) and you've broken track limits. In the F1 car that
+// invalidates the lap straight away; the Hypercar and GT3 get warnings first: the lap is only invalidated the 5th
+// time in a lap (`trackLimits.strikes` in the car's file; each trip off the track counts once, however long). The
+// HUD says so straight away (hud.js), an invalidated lap doesn't count as a best lap, and your stats mark it
+// (stats.js). Driving into the pit lane is fine. resetInvalidates: pressing R (back onto the track) invalidates the
+// lap straight away, in any car.
 export const TRACK_LIMITS = {
   enabled: true,
   margin: 1.0,             // metres: half a car's width, so it's "all four wheels" past the white line
@@ -101,6 +104,7 @@ export class Race {
         position: slot + 1, gap: 0, grid: slot + 1,
         // track limits: this lap invalid? which sectors? (and the same for the lap just finished)
         lapInvalid: false, offSec: [false, false, false], lastLapInvalid: false, lastOffSec: [false, false, false],
+        strikes: 0, wasOff: false, // track limits broken this lap (cars allowed more than one), and off right now?
         crossedBack: false, // reversed back over the line: crossing it again carries on the same lap
       };
       if (!human) {
@@ -173,7 +177,7 @@ export class Race {
   completeLap(car) {
     const valid = !car.lapInvalid;
     car.lastLapInvalid = car.lapInvalid; car.lastOffSec = car.offSec;
-    car.lapInvalid = false; car.offSec = [false, false, false];
+    car.lapInvalid = false; car.offSec = [false, false, false]; car.strikes = 0;
     if (car.lapsDone >= 1 && car.finishTime == null) {
       const lap = this.time - car.lapStart;
       car.lastLap = lap; car.lapStart = this.time;
@@ -203,11 +207,21 @@ export class Race {
   }
 
   // Track limits (TRACK_LIMITS above), checked every physics step for the cars driven here.
+  // Each trip off the track is one strike; the car's `trackLimits.strikes`-th in a lap invalidates it (warnings before
+  // that: { type: 'warning', strike, of, lap, sector } for the HUD). Once it's invalid, every sector you go off in is marked.
   checkLimits(car) {
     const st = car.state, i = st.trackIndex, T = TRACK_LIMITS;
-    if (!T.enabled || car.lapsDone < 0 || car.finishTime != null || i < 0 || st.inPitLane) return;
-    if (st.speed < T.minSpeed || Math.abs(st.lateral) <= this.track.hw[i] + T.margin) return;
-    this.invalidate(car, 'limits');
+    if (!T.enabled || car.lapsDone < 0 || car.finishTime != null || i < 0 || st.inPitLane) { car.wasOff = false; return; }
+    const off = st.speed >= T.minSpeed && Math.abs(st.lateral) > this.track.hw[i] + T.margin;
+    const fresh = off && !car.wasOff; car.wasOff = off;
+    if (!off) return;
+    if (car.lapInvalid) { this.invalidate(car, 'limits'); return; }
+    if (fresh) car.strikes++;
+    const allowed = this.carDef.trackLimits?.strikes ?? 1;
+    if (car.strikes >= allowed) { this.invalidate(car, 'limits'); return; }
+    if (fresh && car.isPlayer) {
+      this.events.push({ type: 'warning', strike: car.strikes, of: allowed, lap: car.lapsDone + 1, sector: sectorOf(st.s, this.track.length) + 1 });
+    }
   }
 
   // Mark the lap (and this sector) invalid. The first time in a lap, tell the HUD: { type: 'invalid', why, lap, sector }
