@@ -55,7 +55,7 @@ A live AI race plays behind the menu, filmed like TV. The start screen has **Rac
 setup, straight away), **Multiplayer** and **Your stats**, plus the graphics preset. Race takes you through three steps,
 shown in the bar at the top (click one to go back to it):
 
-1. **Car**: Formula 1, Hypercar or GT3, with top speed, 0 to 200 km/h, cornering grip and braking worked out from
+1. **Car**: Formula 1, Hypercar, GT3 or 911 GT3 R, with top speed, 0 to 200 km/h, cornering grip and braking worked out from
    each car's physics, its driver aids and track-limits rule.
 2. **Circuit**: every circuit as a tile; the one you pick shows its outline, the hills along the lap, its length and
    climb, and your best lap there in that car.
@@ -64,6 +64,16 @@ shown in the bar at the top (click one to go back to it):
 
 Your choices are remembered in the browser. The menu is `index.html` (`#menu`), `src/menu.js` and the
 "Main menu" section at the end of `src/style.css`.
+
+**Support me** (the coffee cup) opens my Buy Me a Coffee page (https://buymeacoffee.com/nilaysingh) in a new tab.
+It's at the right of the main menu's top bar on every page of it, in the multiplayer lobby, on Your stats and
+Controls, in the pause menu (a race stays paused behind it) and on the results. The address is `SUPPORT_URL` in
+`src/support.js`; the buttons are the ones with `data-support` in `index.html`.
+
+Now and then the results screen asks, in a small card ("Enjoying Apex Circuit?", with Support me, Maybe later and
+Don't ask again): never before your 3rd finished race (a practice session counts), then at most once every 14 days
+and 10 races, and never again after Don't ask again or once you've pressed any Support me button. The numbers are
+`SUPPORT_ASK` in `src/support.js`; what it remembers is kept in the browser (`apex-circuit:support`).
 
 ## The HUD
 

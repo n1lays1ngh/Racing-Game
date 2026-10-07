@@ -115,6 +115,7 @@
         <button type="button" data-go="setup"><i>3</i><span><b>Race</b><em id="sum-setup">3 laps</em></span></button>
       </nav>
       <div class="live"><span class="dot"></span><span id="live-caption">Live AI race</span></div>
+      <button type="button" class="mn-support" data-support><span>Support me</span></button>
     </header>
 
     <!-- ===== Start screen ===== -->
@@ -278,7 +279,7 @@
     </section>
 
     <section class="setup lb-panel">
-      <div class="setup-head"><span id="lb-head">Multiplayer</span><button id="lb-back" class="lb-back" type="button">‹ Menu</button></div>
+      <div class="setup-head"><span id="lb-head">Multiplayer</span><span class="head-btns"><button class="lb-back lb-support" type="button" data-support><span>Support me</span></button><button id="lb-back" class="lb-back" type="button">‹ Menu</button></span></div>
 
       <div class="lb-start">
         <div class="seg-row"><span>Name</span>
@@ -328,7 +329,10 @@
             <div id="st-sub" class="res-sub"></div>
           </div>
         </div>
-        <button id="st-back" class="st-back" type="button"><span>‹ Menu</span><kbd>Esc</kbd></button>
+        <div class="head-btns">
+          <button class="st-back st-support" type="button" data-support><span>Support me</span></button>
+          <button id="st-back" class="st-back" type="button"><span>‹ Menu</span><kbd>Esc</kbd></button>
+        </div>
       </header>
       <div id="st-body"></div>
     </div>
@@ -342,7 +346,10 @@
           <div class="res-kicker"><span class="slash"></span><span>Keyboard and controller</span></div>
           <h2 class="st-title">Controls</h2>
         </div>
-        <button id="ctl-back" class="st-back" type="button"><span>Back</span><kbd>Esc</kbd></button>
+        <div class="head-btns">
+          <button class="st-back st-support" type="button" data-support><span>Support me</span></button>
+          <button id="ctl-back" class="st-back" type="button"><span>Back</span><kbd>Esc</kbd></button>
+        </div>
       </header>
       <div class="ctl-grid">
         <section class="ctl-panel">
@@ -405,6 +412,7 @@
           <button id="btn-restart" class="pm-btn"><span>Restart race</span></button>
           <button id="btn-settings" class="pm-btn"><span>Settings</span></button>
           <button id="btn-pause-controls" class="pm-btn"><span>Controls</span></button>
+          <button class="pm-btn pm-support" type="button" data-support="end"><span>Support me</span></button>
           <button id="btn-quit" class="pm-btn"><span>Quit to menu</span></button>
         </nav>
       </div>
@@ -450,6 +458,18 @@
         <div class="res-actions">
           <button id="btn-again" class="res-btn primary">Race again</button>
           <button id="btn-menu" class="res-btn">Main menu</button>
+          <button class="res-btn res-support" type="button" data-support><span>Support me</span></button>
+        </div>
+        <!-- now and then, after a few races: asking for support (support.js; instead of the button above) -->
+        <div id="res-ask" class="res-ask hidden" role="note" aria-labelledby="res-ask-title">
+          <b id="res-ask-title">Enjoying Apex Circuit?</b>
+          <p>It's free, with no ads. If you'd like to help keep it running (the multiplayer servers, and more cars and
+            circuits), you can buy me a coffee.</p>
+          <div class="ask-btns">
+            <button type="button" class="ask-yes" data-support><span>Support me</span></button>
+            <button type="button" id="res-ask-later" class="ask-later">Maybe later</button>
+          </div>
+          <button type="button" id="res-ask-never" class="ask-never">Don't ask again</button>
         </div>
       </aside>
       <section class="res-table">

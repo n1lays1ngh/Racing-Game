@@ -25,6 +25,7 @@ import { CARS, getCar, selectedCar, setSelectedCar, timesFor, raceSetup } from '
 import { OPTIONS, setOption, onOption } from './options.js';
 import { buildRacingLine, disposeRacingLine } from './racingLine.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
+import { setupSupport, raceFinished, askOnResults } from './support.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -375,6 +376,7 @@ menuUI = setupMenu({
   onTime: (time) => { myTime = time; previewSoon(); },
 });
 const nameTags = new NameTags(); // names over friends' cars online
+setupSupport(); // "Support me" on every menu (support.js)
 
 // Multiplayer lobby (lobby.js) and the online race (net/session.js)
 const lobby = new Lobby({
@@ -566,7 +568,10 @@ function showResults() {
   $('res-best').textContent = formatTime(p.bestLap);
   $('results-fl').textContent = fl ? `${fl.name} ${formatTime(fl.time)}` : '--';
   $('results-fl').classList.toggle('purple', !!fl);
-  if (results.classList.contains('hidden')) { results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true }); }
+  if (results.classList.contains('hidden')) { // just opened
+    askOnResults(); // now and then, a card asking for support (support.js)
+    results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true });
+  }
 }
 
 // ---------- camera ----------
@@ -678,6 +683,7 @@ function tick(timestamp) {
       if (e.type === 'finish') {
         msg = msg ? `Chequered flag!  ·  ${msg}` : 'Chequered flag!'; secs = Math.max(secs, 2.5);
         statsRun?.finish();
+        raceFinished(); // (support.js: after a few, the results screen asks for support now and then)
         const finished = race;
         setTimeout(() => { if (race === finished) showResults(); }, 2500);
       }

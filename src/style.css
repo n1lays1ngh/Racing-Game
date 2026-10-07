@@ -1226,3 +1226,53 @@ body.pad-nav #menu :is(.slat, .mn-next, .start):focus { outline: none !important
 body.pad-nav #menu input[type="range"]:focus { outline: none !important; }
 body.pad-nav #menu input[type="range"]:focus::-webkit-slider-thumb { outline: 3px solid var(--red); outline-offset: 2px; }
 body.pad-nav #menu input[type="range"]:focus::-moz-range-thumb { outline: 3px solid var(--red); outline-offset: 2px; }
+
+/* ---- Support me (support.js): Buy Me a Coffee, on every menu ---- */
+:root { --coffee: #ffdd00; --coffee-ink: #17130a; }
+[data-support] .cup { flex: none; width: 1.25em; height: 1.25em; color: var(--coffee); transition: color 0.15s; }
+.head-btns { flex: none; display: flex; align-items: center; gap: 10px; }
+/* main menu: a pill at the right of the top bar, on every page */
+#menu .mn-support {
+  flex: none; gap: 8px; padding: 7px 15px 7px 11px; border-radius: 999px; font-size: 14px; font-weight: 800; letter-spacing: 0.02em;
+  background: rgba(255, 221, 0, 0.08); border: 1px solid rgba(255, 221, 0, 0.4); transition: background 0.15s, color 0.15s;
+}
+#menu .mn-support:hover, #menu .mn-support:focus-visible { background: var(--coffee); color: var(--coffee-ink); }
+#menu .mn-support:hover .cup, #menu .mn-support:focus-visible .cup { color: var(--coffee-ink); }
+/* lobby, Your stats and Controls: beside the way back */
+.setup-head .head-btns { gap: 8px; }
+.setup-head .lb-support { display: inline-flex; align-items: center; gap: 6px; }
+.setup-head .lb-support:hover { background: var(--coffee); border-color: var(--coffee); color: var(--coffee-ink); }
+.setup-head .lb-support:hover .cup, button.st-support:hover .cup { color: var(--coffee-ink); }
+button.st-support:hover { background: var(--coffee); border-color: var(--coffee); color: var(--coffee-ink); }
+/* pause menu and results */
+.pm-support:hover::before, .pm-support:focus-visible::before { background: var(--coffee); }
+button.res-support { display: flex; align-items: center; justify-content: center; gap: 10px; background: rgba(255, 221, 0, 0.08); border-color: rgba(255, 221, 0, 0.35); }
+button.res-support:hover { background: var(--coffee); border-color: var(--coffee); color: var(--coffee-ink); }
+button.res-support:hover .cup { color: var(--coffee-ink); }
+@media (max-width: 640px) {
+  #menu .mn-support { margin-left: auto; padding: 7px 10px; }
+  #menu .mn-support span { display: none; } /* (just the cup on a phone-sized screen) */
+}
+/* the card on the results screen asking for support, now and then (support.js; in place of the Support me button) */
+.res-ask {
+  margin-top: 22px; padding: 16px 18px 14px; border-radius: 10px;
+  background: rgba(12, 14, 20, 0.78); border: 1px solid rgba(255, 221, 0, 0.18); border-left: 5px solid var(--coffee);
+  animation: ask-in 0.5s cubic-bezier(.2,.8,.2,1) 0.9s both; /* after your result has had a moment */
+}
+.res-ask > b { display: block; font-size: 20px; font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.04em; }
+.res-ask p { margin: 6px 0 14px; font-size: 14px; font-weight: 600; line-height: 1.45; color: #cfd4db; }
+.ask-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.res-ask button { margin: 0; padding: 11px 12px; border-radius: 8px; font-size: 15px; font-weight: 900; font-style: italic; letter-spacing: 0.08em; }
+.res-ask button.ask-yes { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--coffee); border-color: var(--coffee); color: var(--coffee-ink); }
+.res-ask button.ask-yes .cup { color: var(--coffee-ink); }
+.res-ask button.ask-yes:hover { background: #ffe633; }
+.res-ask button.ask-later { background: rgba(255, 255, 255, 0.06); }
+.res-ask button.ask-never {
+  display: inline-block; width: auto; margin-top: 10px; padding: 2px 0; background: none; border: 0; font-size: 12px; font-style: normal;
+  font-weight: 700; letter-spacing: 0.04em; text-transform: none; color: var(--muted); text-decoration: underline; text-underline-offset: 3px;
+}
+.res-ask button.ask-never:hover { background: none; color: var(--ink); }
+.res-ask.thanked .ask-btns, .res-ask.thanked .ask-never { display: none; }
+.res-ask.thanked p { margin-bottom: 2px; }
+@keyframes ask-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) { .res-ask { animation: none; } }
