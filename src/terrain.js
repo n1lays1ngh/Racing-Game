@@ -36,7 +36,8 @@ function realGround(dem) {
   };
 }
 
-export function buildTerrain(track, material, land = null) {
+// How high the ground is anywhere round the circuit: heightAt(x, z) (a spatial hash of the track, built once)
+export function makeHeightAt(track) {
   const { n } = track;
   const h = track.h ?? new Float32Array(n);
   let hMin = Infinity, hMax = -Infinity;
@@ -55,7 +56,7 @@ export function buildTerrain(track, material, land = null) {
   const coarse = []; // every ~50 m, for far-away valley shape
   for (let i = 0; i < n; i += 25) coarse.push(i);
 
-  function heightAt(x, z) {
+  return function heightAt(x, z) {
     // Near field: nearest sample + inverse-distance average within 300 m
     let dMin = Infinity, hNear = 0, wSum = 0, hSum = 0;
     const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL), R = 5;
@@ -91,9 +92,15 @@ export function buildTerrain(track, material, land = null) {
     y += hills(x, z) * hillAmp * smoothstep(120, 600, d);   // rolling hills away from the track
     y *= 1 - smoothstep(1800, 3200, d);                      // flatten out at the horizon
     return y - 0.6;
-  }
+  };
+}
 
-  // Grid: 20 m cells around the circuit, getting coarser towards the horizon
+// The ground mesh's numbers: a grid of 20 m cells around the circuit, getting coarser towards the horizon, with its
+// heights (and, with `land`, the forest canopy's lift and tint), texture coordinates, triangles and normals.
+// Only number crunching (the slow part of the ground), so it also runs in a worker (trackWorker.js) while the menu
+// carries on. → { pos, uv, col (or null), index, normal, lowest }: typed arrays
+export function terrainGrid(track, land = null, heightAt = makeHeightAt(track)) {
+  const { n } = track;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < n; i++) {
     minX = Math.min(minX, track.cx[i]); maxX = Math.max(maxX, track.cx[i]);
@@ -117,24 +124,37 @@ export function buildTerrain(track, material, land = null) {
     pos[p++] = x; pos[p++] = y; pos[p++] = z;
     uv[q++] = x / 22.5; uv[q++] = z / 22.5;
   }
-  const idx = [], W = xs.length;
+  const W = xs.length, index = new Uint32Array((W - 1) * (zs.length - 1) * 6);
+  let t = 0;
   for (let j = 0; j < zs.length - 1; j++) for (let i = 0; i < W - 1; i++) {
     const a = j * W + i, b = a + 1, c = a + W, d = c + 1;
-    idx.push(a, c, b, b, c, d);
+    index[t++] = a; index[t++] = c; index[t++] = b; index[t++] = b; index[t++] = c; index[t++] = d;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(idx);
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeVertexNormals();
+  return { pos, uv, col, index, normal: geo.getAttribute('normal').array, lowest };
+}
+
+// The ground mesh. grid: terrainGrid()'s numbers if they're already worked out (in the worker), else worked out here.
+// → { mesh, heightAt, lowest }
+export function buildTerrain(track, material, land = null, grid = null) {
+  const heightAt = makeHeightAt(track);
+  const g = grid ?? terrainGrid(track, land, heightAt);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(g.pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(g.uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(g.index, 1));
   const mesh = new THREE.Mesh(geo, material);
-  if (col) { // its own copy of the ground material, coloured per vertex (keeps the ground shader)
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (g.col) { // its own copy of the ground material, coloured per vertex (keeps the ground shader)
+    geo.setAttribute('color', new THREE.BufferAttribute(g.col, 3));
     const m = material.clone();
     Object.assign(m, { vertexColors: true, onBeforeCompile: material.onBeforeCompile, customProgramCacheKey: material.customProgramCacheKey });
     mesh.material = m;
     mesh.userData.ownMaterials = [m];
   }
   mesh.receiveShadow = true;
-  return { mesh, heightAt, lowest };
+  return { mesh, heightAt, lowest: g.lowest };
 }

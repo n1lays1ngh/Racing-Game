@@ -896,7 +896,7 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 #menu .slat:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
 #menu .slat.on:focus-visible { box-shadow: inset 0 5px 0 var(--red), inset 0 0 0 2px #fff; }
 .slat-big {
-  display: block; margin: 0 0 2px -0.04em; font-size: clamp(84px, min(10vw, 16vh), 210px); font-weight: 900; font-style: italic;
+  display: block; margin: 0 0 2px -0.04em; font-size: clamp(64px, min(calc(30vw / var(--cars, 3)), 16vh), 210px); font-weight: 900; font-style: italic;
   line-height: 0.8; letter-spacing: -0.03em; white-space: nowrap; color: transparent; -webkit-text-stroke: 2px rgba(255, 255, 255, 0.45);
   transition: color 0.3s, -webkit-text-stroke-color 0.3s;
 }

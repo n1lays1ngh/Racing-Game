@@ -837,134 +837,171 @@ export function buildWorld(scene, renderer) {
 }
 
 // ---------- per circuit ----------
-// car: the car being raced (its file in src/cars/): where the braking boards go depends on it
-export function buildCircuit(track, { car } = {}) {
+// car: the car being raced (its file in src/cars/): where the braking boards go depends on it. ground: the ground's
+// numbers if they're already worked out (terrain.js terrainGrid, in trackWorker.js).
+// → { group, lights, marks, heightAt, boards, show() }. show(): what the circuit changes outside its own group (the far
+// ground, the road's tyre marks, the window and venue lights, the light pools): done once it's on screen.
+export function buildCircuit(track, opts = {}) {
+  const steps = circuitSteps(track, opts);
+  for (;;) { const r = steps.next(); if (r.done) { r.value.show(); return r.value; } }
+}
+
+// The same, a piece at a time: a generator that pauses (yields) after each part, so the menu can build the next
+// circuit over several frames while the live race carries on (main.js). Its return value is buildCircuit's, without
+// show() called yet.
+export function* circuitSteps(track, { car, ground } = {}) {
   const M = materials();
   const group = new THREE.Group();
-  const add = (mesh) => { if (mesh) group.add(mesh); return mesh; };
-  const wallL = (i) => track.wallL[i], wallR = (i) => -track.wallR[i];
-  const hwL = (i) => track.hw[i], hwR = (i) => -track.hw[i];   // tarmac edges (width can vary)
-  const n = track.n;
+  let marks = null, finished = false;
+  try {
+    const add = (mesh) => { if (mesh) group.add(mesh); return mesh; };
+    const wallL = (i) => track.wallL[i], wallR = (i) => -track.wallR[i];
+    const hwL = (i) => track.hw[i], hwR = (i) => -track.hw[i];   // tarmac edges (width can vary)
+    const n = track.n;
 
-  // Ground that follows the hills (grass, desert sand or city paving); along forest stretches it rises into
-  // a canopy of treetops further back (forest.js)
-  const terrain = buildTerrain(track, M.terrains[track.scenery.ground] ?? M.terrains.grass, forestLand(track));
-  add(terrain.mesh);
-  if (WORLD_GROUND) WORLD_GROUND.position.y = Math.min(-150, terrain.lowest - 60); // the far ground stays out of sight
+    // Ground that follows the hills (grass, desert sand or city paving); along forest stretches it rises into
+    // a canopy of treetops further back (forest.js)
+    const terrain = buildTerrain(track, M.terrains[track.scenery.ground] ?? M.terrains.grass, ground ? null : forestLand(track), ground);
+    add(terrain.mesh);
+    yield;
 
-  // Run-off between the tarmac and the barriers: grass, tarmac or gravel (from the circuit file)
-  const looks = [[SURFACES.grass, M.runoff, 0.0, 20], [SURFACES.tarmac, M.runoffTarmac, 0.01, 12], [SURFACES.gravel, M.gravel, 0.02, 12]];
-  for (const [code, mat, y, vScale] of looks) {
-    for (const [surf, inner, outer] of [[track.surfL, hwL, wallL], [track.surfR, hwR, wallR]]) {
-      const mask = surf.map((v) => (v === code ? 1 : 0));
-      if (mask.some((v) => v)) add(new THREE.Mesh(ribbon(track, inner, outer, y, vScale, mask), mat)).receiveShadow = true;
+    // Run-off between the tarmac and the barriers: grass, tarmac or gravel (from the circuit file)
+    const looks = [[SURFACES.grass, M.runoff, 0.0, 20], [SURFACES.tarmac, M.runoffTarmac, 0.01, 12], [SURFACES.gravel, M.gravel, 0.02, 12]];
+    for (const [code, mat, y, vScale] of looks) {
+      for (const [surf, inner, outer] of [[track.surfL, hwL, wallL], [track.surfR, hwR, wallR]]) {
+        const mask = surf.map((v) => (v === code ? 1 : 0));
+        if (mask.some((v) => v)) add(new THREE.Mesh(ribbon(track, inner, outer, y, vScale, mask), mat)).receiveShadow = true;
+      }
     }
-  }
 
-  // Tarmac: asphalt, edge lines, rubbered racing line and skid marks, and the marks your tyres leave
-  add(new THREE.Mesh(roadGeometry(track, 0.06), M.road)).receiveShadow = true;
-  const marks = new TyreMarks(track);
-  M.road.userData.marks.tex.value = marks.texture; M.road.userData.marks.dims.value.copy(marks.dims);
+    // Tarmac: asphalt, edge lines, rubbered racing line and skid marks, and the marks your tyres leave
+    add(new THREE.Mesh(roadGeometry(track, 0.06), M.road)).receiveShadow = true;
+    marks = new TyreMarks(track);
 
-  // Kerbs where the track bends; through the woods (forest stretches) only at the apex of the tighter corners
-  const bendL = new Uint8Array(n), bendR = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    const k = track.curv[i];
-    if (!track.forest?.[i]) {
-      if (Math.abs(k) > 0.006) for (let d = -12; d <= 12; d++) bendL[(i + d + n) % n] = bendR[(i + d + n) % n] = 1;
-    } else if (Math.abs(k) > 1 / 110) for (let d = -8; d <= 8; d++) (k > 0 ? bendL : bendR)[(i + d + n) % n] = 1; // inside of the corner
-  }
-  for (const s of [-1, 1]) {
-    const g = kerbGeometry(track, s, s > 0 ? bendL : bendR);
-    if (g) add(new THREE.Mesh(g, M.kerb)).receiveShadow = true;
-  }
-
-  // Barriers: concrete wall blocks with sponsor banners, and the debris fence on top (barriers.js)
-  group.add(buildBarriers(track));
-  // 300 / 200 / 100 m braking boards before the big braking zones (brakeBoards.js)
-  group.add(buildBrakeBoards(track, terrain.heightAt, car));
-
-  // Start/finish line and gantry with the five start lights
-  const h0 = Math.atan2(track.tx[0], track.tz[0]);
-  const hw0 = track.hw[0];
-  const line = add(new THREE.Mesh(new THREE.PlaneGeometry(hw0 * 2, 1.6), M.checker));
-  line.rotation.x = -Math.PI / 2; line.rotation.z = h0;
-  line.position.set(track.cx[0], 0.09 + hAt(track, 0), track.cz[0]);
-
-  const gantry = new THREE.Group();
-  gantry.position.set(track.cx[0], hAt(track, 0), track.cz[0]);
-  gantry.rotation.y = h0;
-  for (const s of [-1, 1]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.5, 0.5), M.steel);
-    post.position.set(s * (hw0 + 2.5), 3.75, 0); post.castShadow = true; gantry.add(post);
-  }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(hw0 * 2 + 5.5, 1.2, 0.6), M.steel);
-  beam.position.y = 7; beam.castShadow = true; gantry.add(beam);
-  const lights = [];
-  for (let i = 0; i < 5; i++) {
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.8, 0.4), new THREE.MeshStandardMaterial({ color: 0x0b0b0b }));
-    housing.position.set((i - 2) * 1.2, 5.6, -0.35); gantry.add(housing);
-    for (const dy of [0.4, -0.4]) {
-      const mat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1010, emissiveIntensity: 0 });
-      const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.28, 20), mat);
-      lamp.position.set((i - 2) * 1.2, 5.6 + dy, -0.56); lamp.rotation.y = Math.PI; gantry.add(lamp);
-      lights.push({ index: i, mat });
+    // Kerbs where the track bends; through the woods (forest stretches) only at the apex of the tighter corners
+    const bendL = new Uint8Array(n), bendR = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const k = track.curv[i];
+      if (!track.forest?.[i]) {
+        if (Math.abs(k) > 0.006) for (let d = -12; d <= 12; d++) bendL[(i + d + n) % n] = bendR[(i + d + n) % n] = 1;
+      } else if (Math.abs(k) > 1 / 110) for (let d = -8; d <= 8; d++) (k > 0 ? bendL : bendR)[(i + d + n) % n] = 1; // inside of the corner
     }
+    for (const s of [-1, 1]) {
+      const g = kerbGeometry(track, s, s > 0 ? bendL : bendR);
+      if (g) add(new THREE.Mesh(g, M.kerb)).receiveShadow = true;
+    }
+
+    yield;
+    // Barriers: concrete wall blocks with sponsor banners, and the debris fence on top (barriers.js)
+    group.add(buildBarriers(track));
+    yield;
+    // 300 / 200 / 100 m braking boards before the big braking zones (brakeBoards.js)
+    const boards = buildBrakeBoards(track, terrain.heightAt, car);
+    group.add(boards);
+
+    // Start/finish line and gantry with the five start lights
+    const h0 = Math.atan2(track.tx[0], track.tz[0]);
+    const hw0 = track.hw[0];
+    const line = add(new THREE.Mesh(new THREE.PlaneGeometry(hw0 * 2, 1.6), M.checker));
+    line.rotation.x = -Math.PI / 2; line.rotation.z = h0;
+    line.position.set(track.cx[0], 0.09 + hAt(track, 0), track.cz[0]);
+
+    const gantry = new THREE.Group();
+    gantry.position.set(track.cx[0], hAt(track, 0), track.cz[0]);
+    gantry.rotation.y = h0;
+    for (const s of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.5, 0.5), M.steel);
+      post.position.set(s * (hw0 + 2.5), 3.75, 0); post.castShadow = true; gantry.add(post);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(hw0 * 2 + 5.5, 1.2, 0.6), M.steel);
+    beam.position.y = 7; beam.castShadow = true; gantry.add(beam);
+    const lights = [];
+    for (let i = 0; i < 5; i++) {
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.8, 0.4), new THREE.MeshStandardMaterial({ color: 0x0b0b0b }));
+      housing.position.set((i - 2) * 1.2, 5.6, -0.35); gantry.add(housing);
+      for (const dy of [0.4, -0.4]) {
+        const mat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1010, emissiveIntensity: 0 });
+        const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.28, 20), mat);
+        lamp.position.set((i - 2) * 1.2, 5.6 + dy, -0.56); lamp.rotation.y = Math.PI; gantry.add(lamp);
+        lights.push({ index: i, mat });
+      }
+    }
+    group.add(gantry);
+
+    // Grandstands, the pit building and the pit lane's tarmac and lines (venue.js; the lane's layout is in
+    // pitlane.js); before the trees and city buildings, which keep clear of them through `blocked`
+    const blocked = [];
+    const venue = { sideFrame, footprintClear, heightAt: terrain.heightAt, blocked, ribbon, pitLane: M.runoffTarmac };
+    group.add(buildGrandstands(track, venue));
+    yield;
+    group.add(buildPits(track, venue));
+    group.add(buildPitLane(track, venue));
+    yield;
+
+    // Trees (instanced: hundreds for the cost of two draw calls)
+    const TREES = Math.round((track.scenery.trees ?? 350) * GRAPHICS.trees);   // GRAPHICS in settings.js
+    const clearOfTrack = (x, z, extra) => { // beyond the barriers by `extra` metres?
+      const near = nearestTrack(track, x, z);
+      return near.d > Math.max(track.wallL[near.i], track.wallR[near.i]) + extra;
+    };
+    // City buildings (buildings.js), lined up with the nearest street; placed before the trees so the trees keep clear of them
+    const BUILDINGS = Math.round((track.scenery.buildings ?? 0) * GRAPHICS.buildings);
+    if (BUILDINGS > 0) {
+      const city = buildCity(track, {
+        count: BUILDINGS, heightAt: terrain.heightAt, nearest: (x, z) => nearestTrack(track, x, z), clear: clearOfTrack, blocked,
+        tall: track.type === 'street' || track.scenery.ground === 'city' ? 70 : 28,
+        frontage: track.type === 'street',                      // street circuits: a row of buildings right behind the barriers
+      });
+      group.add(city.group);
+      if (track.time === 'night') darkenAwayFromTrack(track, city.meshes, 20, 120, 0.3); // lit mostly by their windows
+      yield;
+    }
+
+    const clear = (x, z, extra) => clearOfTrack(x, z, extra) && !blocked.some(([bx, bz, r]) => (x - bx) ** 2 + (z - bz) ** 2 < r * r);
+    const trees = buildTrees(track, track.scenery.ground ?? 'grass', TREES, clear, terrain.heightAt);
+    group.add(trees.group);
+    yield;
+    // Woods along forest stretches (forest.js): rows of spruces and beeches right behind the guardrail
+    const forest = buildForest(track, { heightAt: terrain.heightAt, ok: clear, kit: treeKit() });
+    group.add(forest);
+    if (forest.children.length) yield;
+    // The woods and the guardrail are in chunks drawn only near the camera: each time the ground is drawn
+    // (once a frame, and again for the mirror) show the ones near that camera
+    const cull = distanceCuller(group);
+    if (cull) terrain.mesh.onBeforeRender = (renderer, scene, camera) => cull(camera);
+    // Dusk and night races: floodlights, lit windows, and dark surroundings away from the track (lighting.js)
+    const T = TIMES[timeOf(track)];
+    // (a dark endurance night, track.lighting 'pits': towers only along the pit straight and paddock)
+    const flood = track.time === 'dusk' || track.time === 'night'
+      ? add(buildFloodlights(track, terrain.heightAt, GRAPHICS.floodlightSpacing, track.lighting === 'pits' ? pitStraight(track) : null)) : null;
+    if (flood) yield;
+    if (track.time === 'night') {
+      const groundMat = terrain.mesh.material;
+      darkenAwayFromTrack(track, [terrain.mesh, ...trees.meshes, ...forest.children]);
+      // that gives the ground its own copy of the material; keep the ground shader (real-size texture) on it
+      Object.assign(terrain.mesh.material, { onBeforeCompile: groundMat.onBeforeCompile, customProgramCacheKey: groundMat.customProgramCacheKey });
+    }
+
+    const show = () => {
+      if (WORLD_GROUND) WORLD_GROUND.position.y = Math.min(-150, terrain.lowest - 60); // the far ground stays out of sight
+      M.road.userData.marks.tex.value = marks.texture; M.road.userData.marks.dims.value.copy(marks.dims); // this circuit's tyre marks
+      setWindowLights(T.windows);
+      setVenueLights(T.windows);                            // stand, garage and glass-floor lights
+      setLightPools(flood?.userData.pools, T.pools ?? 0);    // pools of light on the track under the floodlights
+    };
+    finished = true;
+    return { group, lights, marks, heightAt: terrain.heightAt, boards, show };
+  } finally {
+    if (!finished) disposeCircuit({ group, marks }); // given up half way (steps.return()): free what it had made
   }
-  group.add(gantry);
+}
 
-  // Grandstands, the pit building and the pit lane's tarmac and lines (venue.js; the lane's layout is in
-  // pitlane.js); before the trees and city buildings, which keep clear of them through `blocked`
-  const blocked = [];
-  const venue = { sideFrame, footprintClear, heightAt: terrain.heightAt, blocked, ribbon, pitLane: M.runoffTarmac };
-  group.add(buildGrandstands(track, venue));
-  group.add(buildPits(track, venue));
-  group.add(buildPitLane(track, venue));
-
-  // Trees (instanced: hundreds for the cost of two draw calls)
-  const TREES = Math.round((track.scenery.trees ?? 350) * GRAPHICS.trees);   // GRAPHICS in settings.js
-  const clearOfTrack = (x, z, extra) => { // beyond the barriers by `extra` metres?
-    const near = nearestTrack(track, x, z);
-    return near.d > Math.max(track.wallL[near.i], track.wallR[near.i]) + extra;
-  };
-  // City buildings (buildings.js), lined up with the nearest street; placed before the trees so the trees keep clear of them
-  const BUILDINGS = Math.round((track.scenery.buildings ?? 0) * GRAPHICS.buildings);
-  if (BUILDINGS > 0) {
-    const city = buildCity(track, {
-      count: BUILDINGS, heightAt: terrain.heightAt, nearest: (x, z) => nearestTrack(track, x, z), clear: clearOfTrack, blocked,
-      tall: track.type === 'street' || track.scenery.ground === 'city' ? 70 : 28,
-      frontage: track.type === 'street',                      // street circuits: a row of buildings right behind the barriers
-    });
-    group.add(city.group);
-    if (track.time === 'night') darkenAwayFromTrack(track, city.meshes, 20, 120, 0.3); // lit mostly by their windows
-  }
-
-  const clear = (x, z, extra) => clearOfTrack(x, z, extra) && !blocked.some(([bx, bz, r]) => (x - bx) ** 2 + (z - bz) ** 2 < r * r);
-  const trees = buildTrees(track, track.scenery.ground ?? 'grass', TREES, clear, terrain.heightAt);
-  group.add(trees.group);
-  // Woods along forest stretches (forest.js): rows of spruces and beeches right behind the guardrail
-  const forest = buildForest(track, { heightAt: terrain.heightAt, ok: clear, kit: treeKit() });
-  group.add(forest);
-  // The woods and the guardrail are in chunks drawn only near the camera: each time the ground is drawn
-  // (once a frame, and again for the mirror) show the ones near that camera
-  const cull = distanceCuller(group);
-  if (cull) terrain.mesh.onBeforeRender = (renderer, scene, camera) => cull(camera);
-  // Dusk and night races: floodlights, lit windows, and dark surroundings away from the track (lighting.js)
-  const T = TIMES[timeOf(track)];
-  setWindowLights(T.windows);
-  setVenueLights(T.windows);                              // stand, garage and glass-floor lights
-  // (a dark endurance night, track.lighting 'pits': towers only along the pit straight and paddock)
-  const flood = track.time === 'dusk' || track.time === 'night'
-    ? add(buildFloodlights(track, terrain.heightAt, GRAPHICS.floodlightSpacing, track.lighting === 'pits' ? pitStraight(track) : null)) : null;
-  setLightPools(flood?.userData.pools, T.pools ?? 0);      // pools of light on the track under the floodlights
-  if (track.time === 'night') {
-    const ground = terrain.mesh.material;
-    darkenAwayFromTrack(track, [terrain.mesh, ...trees.meshes, ...forest.children]);
-    // that gives the ground its own copy of the material; keep the ground shader (real-size texture) on it
-    Object.assign(terrain.mesh.material, { onBeforeCompile: ground.onBeforeCompile, customProgramCacheKey: ground.customProgramCacheKey });
-  }
-
-  return { group, lights, marks };
+// Another car, same circuit: only the braking boards move (where a car brakes depends on the car), so swap just them
+// instead of building the whole circuit again
+export function swapBrakeBoards(circuit, track, car) {
+  if (circuit.boards) { circuit.boards.traverse((o) => o.geometry?.dispose()); circuit.boards.removeFromParent(); }
+  circuit.boards = buildBrakeBoards(track, circuit.heightAt, car);
+  circuit.group.add(circuit.boards);
 }
 
 // Objects drawn only near the camera: userData.cull = { from, to, tight } in shares of the graphics preset's

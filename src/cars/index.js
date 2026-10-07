@@ -16,11 +16,13 @@
 import f1 from './f1.js';
 import hypercar from './hypercar.js';
 import gt3 from './gt3.js';
+import porsche from './porsche.js';
 
 export const CARS = [
   f1,
   hypercar,
   gt3,
+  porsche,
 ];
 export const DEFAULT_CAR = 'f1';
 

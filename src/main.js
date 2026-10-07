@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import './style.css';
-import { buildTrack, getTrackDef, TRACKS } from './track.js';
-import { buildWorld, buildCircuit, disposeCircuit } from './scenery.js';
+import { getTrackDef, TRACKS } from './track.js';
+import { buildWorld, buildCircuit, circuitSteps, swapBrakeBoards, disposeCircuit } from './scenery.js';
+import { CircuitBuilder } from './circuitBuilder.js';
 import { loadCarModel, carCams } from './carModel.js';
 import { GRAPHICS, PRESET_ORDER, PRESET_NAMES, setGraphicsPreset } from './settings.js';
 import { Showcase } from './showcase.js';
@@ -60,28 +61,71 @@ let menuUI = null;
 let track = null, circuit = null, hud = null;
 let trackKey = '';      // the circuit as built: its id, time of day and night lighting
 let sceneCar = myCar;   // the car the scenery was built for (its braking boards)
+// The circuits' data and ground are worked out in a worker and the last few are kept (circuitBuilder.js)
+const builder = new CircuitBuilder();
+let previewJob = 0;     // the latest circuit asked for behind the menu (an older one still being built gives up)
 
-// Build (or switch to) a circuit for a car and time of day: physics data, scenery and minimap.
-// The circuit is only built again when it or its time of day changes; another car only needs new
-// scenery (the braking boards). preview: restart the live race behind the menu with that car.
+// Build (or switch to) a circuit for a car and time of day: physics data, scenery and minimap, all at once (a race
+// is starting, or the page has just loaded; the menu uses previewTrack below, which doesn't freeze it).
+// The circuit is only built again when it or its time of day changes; another car only needs new braking boards.
+// preview: restart the live race behind the menu with that car.
 function loadTrack(id, car = myCar, time = myTime, preview = true) {
-  const def = getTrackDef(id), setup = raceSetup(car, def, time), key = `${def.id}|${setup.time}|${setup.lighting}`;
-  const newTrack = !track || key !== trackKey, newCar = car !== sceneCar;
+  previewJob++; // (anything being built behind the menu is no longer wanted)
+  const def = getTrackDef(id), setup = raceSetup(car, def, time), key = builder.key(def, setup);
+  if (!track || key !== trackKey) {
+    const { track: t, ground } = builder.now(def, setup); // (kept from the menu, usually: then it's instant)
+    showTrack(t, key, car, buildCircuit(t, { car, ground }));
+  } else if (car !== sceneCar) newBoards(car);
+  if (preview && !race && showcase.car !== car) showcase.start(track, car); // the live race, on this circuit with this car
+}
+
+// The circuit behind the menu: the number crunching in the worker, then the scenery a piece a frame, while the menu
+// and the live race carry on; then it swaps in. Picking another one meanwhile drops this one.
+async function previewTrack(id, car = myCar, time = myTime) {
+  const job = ++previewJob, stale = () => job !== previewJob || !!race;
+  const def = getTrackDef(id), setup = raceSetup(car, def, time), key = builder.key(def, setup);
+  if (track && key === trackKey) { // the same circuit: just the car (its braking boards and the live race)
+    if (car !== sceneCar) newBoards(car);
+    if (!race && showcase.car !== car) showcase.start(track, car);
+    return;
+  }
+  const data = await builder.get(def, setup);
+  if (!data || stale()) return;
+  menuUI?.setTrackInfo(data.track); // (its exact length and climb, while the scenery is being built)
+  const steps = circuitSteps(data.track, { car, ground: data.ground });
+  let r;
+  while (!(r = steps.next()).done) {
+    await afterFrame();
+    if (stale()) { steps.return(); return; } // (frees what it had built)
+  }
+  const next = r.value;
+  try { await renderer.compileAsync(next.group, camera, scene); } catch { /* compiled when it's first drawn instead */ }
+  if (stale()) { disposeCircuit(next); return; }
+  next.show();
+  showTrack(data.track, key, car, next);
+  showcase.start(track, car);
+}
+const afterFrame = () => new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0))); // once the next frame is drawn
+
+// Make a circuit the one on screen: its scenery (built), minimap and menu details
+function showTrack(t, key, car, built) {
+  if (circuit) disposeCircuit(circuit);
+  track = t; trackKey = key; sceneCar = car;
+  showCircuit(built);
+  if (hud) hud.setupMinimap(track); else { hud = new HUD(track); hud.setMapMode(OPTIONS.mapZoom); }
+  menuUI?.setTrackInfo(track);
+}
+// Another car on the same circuit: new braking boards (where a car brakes depends on the car), nothing else
+function newBoards(car) {
   sceneCar = car;
-  if (newTrack) {
-    if (circuit) disposeCircuit(circuit);
-    track = buildTrack({ ...def, time: setup.time, lighting: setup.lighting }); trackKey = key;
-    showCircuit();
-    if (hud) hud.setupMinimap(track); else { hud = new HUD(track); hud.setMapMode(OPTIONS.mapZoom); }
-    menuUI?.setTrackInfo(track);
-  } else if (newCar) { disposeCircuit(circuit); showCircuit(); }
-  if (preview && !race && (newTrack || showcase.car !== car)) showcase.start(track, car); // the live race, on this circuit with this car
+  swapBrakeBoards(circuit, track, car);
+  circuitBuiltWith = sceneryKey();
 }
 
 // The scenery for the current circuit (built again when a graphics preset changes how many trees
-// or buildings there are).
-function showCircuit() {
-  circuit = buildCircuit(track, { car: sceneCar }); // (the braking boards depend on the car)
+// or buildings there are). built: already built (and shown) by the caller
+function showCircuit(built = null) {
+  circuit = built ?? buildCircuit(track, { car: sceneCar, ground: builder.kept.get(trackKey)?.ground }); // (the braking boards depend on the car)
   scene.add(circuit.group);
   applyTimeOfDay(world, track); // day, dusk or night (the circuit file's, or the one picked for the car)
   circuitBuiltWith = sceneryKey();
@@ -217,7 +261,7 @@ labelTracks();
 let previewTimer = 0;
 function previewSoon() {
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => { if (!race) loadTrack(trackSelect.value); }, 220);
+  previewTimer = setTimeout(() => { if (!race) previewTrack(trackSelect.value); }, 220);
 }
 trackSelect.addEventListener('change', previewSoon);
 
@@ -324,7 +368,7 @@ menuUI = setupMenu({
   onCar: (id) => { // another car: its model, the circuit list's times, and the circuit and live race for it
     myCar = getCar(id); setSelectedCar(id);
     carModelReady = loadCarModel(myCar.model);
-    carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.start(track, myCar); }); // its model is in
+    carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.refreshPlayer(); }); // its model is in
     labelTracks();
     previewSoon();
   },
@@ -338,7 +382,7 @@ const lobby = new Lobby({
   // the host's circuit, car and time of day, behind the lobby
   previewTrack: (st) => {
     if (trackSelect.value !== st.track) { trackSelect.value = st.track; menuUI.refresh(); }
-    loadTrack(st.track, getCar(st.car), st.time);
+    previewTrack(st.track, getCar(st.car), st.time);
   },
   menuChoice: () => ({ car: myCar.id, time: myTime }), // what a new room starts with
   onStart: (cfg) => startGame(cfg),
@@ -346,7 +390,7 @@ const lobby = new Lobby({
   onClosed: () => { exitRace(); menu.classList.add('hidden'); }, // the room is gone: the lobby says why
   onDnf: (car) => hud.toast(`${car.team.name} is out`, 2.5),
   onSession: (on) => { // keep racing in a background tab; out of the room, your own car and time again
-    if (on) keepTicking(tick); else { stopTicking(); if (!race) loadTrack(trackSelect.value); }
+    if (on) keepTicking(tick); else { stopTicking(); if (!race) previewTrack(trackSelect.value); }
   },
 });
 window.addEventListener('pagehide', () => lobby.session?.leave());
@@ -358,7 +402,7 @@ const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classL
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
 
 loadTrack(trackSelect.value);                               // first circuit + live race behind the menu
-carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.start(track, myCar); }); // swap in your car's model once it has loaded
+carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.refreshPlayer(); }); // swap in your car's model once it has loaded
 
 // cfg: race settings (solo: from the menu; online: from the host)
 async function startGame(cfg = soloConfig()) {

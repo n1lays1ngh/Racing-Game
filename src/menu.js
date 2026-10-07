@@ -179,6 +179,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     return out;
   }
   function drawCars() {
+    $('car-pick').style.setProperty('--cars', cars.length); // (the big letters shrink to fit more cars in the row)
     $('car-pick').innerHTML = cars.map((c) => {
       const nums = numbers.get(c), driven = getStats(c.id).total.laps;
       const stats = STATS.map((s) => {

@@ -6,7 +6,7 @@ import { Race } from './race.js';
 import { AIDriver } from './ai.js';
 import { pointAt, sampleAt } from './track.js';
 import { heightAtS } from './elevation.js';
-import { carCams } from './carModel.js';
+import { carCams, modelReady } from './carModel.js';
 import { createRaceModel, syncModels } from './carLod.js';
 
 const SHOTS = ['trackside', 'tracking', 'heli', 'trackside', 'front', 'tcam', 'trackside', 'tracking'];
@@ -16,6 +16,7 @@ export class Showcase {
     constructor(scene, camera) {
         this.scene = scene; this.camera = camera;
         this.race = null; this.models = [];
+        this.kept = new Map(); // car models kept from one live race to the next (building twenty cars takes a moment)
         this.fade = document.getElementById('cut-fade');
         this.caption = document.getElementById('live-caption');
         this.pos = new THREE.Vector3(); this.look = new THREE.Vector3(); this.lookSmooth = new THREE.Vector3();
@@ -29,11 +30,7 @@ export class Showcase {
         race.player.ai = new AIDriver(race.player.state, track, race.profile, 1.0, 1.12); // your car races too
         race.countdown = race.lightsOutAt;                                                 // lights out straight away
         this.race = race;
-        this.models = race.cars.map((c) => { // (Hypercar, GT3: AI cars are the full model close to the camera)
-            const m = createRaceModel(c, race.carDef);
-            this.scene.add(m);
-            return m;
-        });
+        this.models = race.cars.map((c) => { const m = this.model(c); this.scene.add(m); return m; });
         syncModels(this.models, race.cars, this.camera);
         this.shotIndex = -1;
         this.cut('grid');
@@ -44,6 +41,25 @@ export class Showcase {
     stop() {
         for (const m of this.models) this.scene.remove(m);
         this.models = []; this.race = null;
+    }
+
+    // The model for a car in the live race: the one it had last time if there was one (the same car and team),
+    // else a new one. Yours is your car's model once that has loaded (the built-in car until then).
+    model(c) {
+        const car = this.race.carDef, key = `${car.id}|${c.isPlayer ? `you|${modelReady(car)}` : c.team.name}`;
+        let m = this.kept.get(key);
+        if (!m) { m = createRaceModel(c, car); this.kept.set(key, m); }
+        return m;
+    }
+
+    // Your car's model has just loaded: swap it in for the built-in car, without starting the race again
+    refreshPlayer() {
+        const race = this.race; if (!race) return;
+        const i = race.cars.indexOf(race.player), was = this.models[i], m = this.model(race.player);
+        if (m === was) return;
+        this.scene.remove(was); this.scene.add(m); this.models[i] = m;
+        syncModels(this.models, race.cars, this.camera);
+        this.onStart?.(this); // (main.js: your car's headlights, on the new model)
     }
 
     // ---- the director ----

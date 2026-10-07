@@ -128,10 +128,10 @@ quicker still.
 | W / ↑                | Throttle                       |
 | S / ↓ / Space        | Brake (hold when stopped to reverse) |
 | A D / ← →            | Steer                          |
-| C                    | Cycle camera: chase, far chase, T-cam (a roof cam on the Hypercar and GT3), cockpit |
+| C                    | Cycle camera: chase, far chase, T-cam (a roof cam on the Hypercar, GT3 and 911), cockpit |
 | Q (hold)             | Look behind                    |
 | V                    | Rear-view mirror on / off      |
-| H                    | Headlights on / off (Hypercar and GT3; on by themselves at night) |
+| H                    | Headlights on / off (Hypercar, GT3 and 911; on by themselves at night) |
 | R                    | Reset onto the track           |
 | M                    | Mute                           |
 | Z                    | Map: whole circuit or road ahead |
@@ -226,6 +226,8 @@ src/
     index.js        The list of cars — add or remove cars here
     f1.js           The F1 car (RB19); every setting is explained in it
   track.js          Circuit file → samples, walls, surfaces, racing line; CIRCUIT_DEFAULTS
+  trackWorker.js    Builds a circuit's data and ground in a worker while the menu carries on
+  circuitBuilder.js Runs that worker for the menu and keeps the last few circuits
   elevation.js      Hills and crests from a circuit's elevation list
   banking.js        Banked corners
   terrain.js        Ground that follows the track's height (or a circuit's real ground)
@@ -329,8 +331,8 @@ rigged), `cameras` (where the chase cameras sit) and `times` (when it races: see
 at a time: you pick it in the menu (the host picks it online). To add a car, copy `f1.js`, change what's
 different, and add it to the list. `npm run sim -- 3 hard monza <car id>` races it headless.
 
-The cars are the F1 car (Red Bull RB19), the Hypercar (Ferrari 499P) and the GT3 (Mercedes-AMG GT3 in Red Bull
-colours). Each drives like itself, tuned with the sim against real lap times: the Hypercar does a flying lap of
+The cars are the F1 car (Red Bull RB19), the Hypercar (Ferrari 499P), the GT3 (Mercedes-AMG GT3 in Red Bull
+colours) and the 911 GT3 R (Porsche 911 GT3 R, the 992, in the pink "Roxy" livery). Each drives like itself, tuned with the sim against real lap times: the Hypercar does a flying lap of
 Le Mans in about 3:26 (the 499P qualified in 3:25.1 in 2026), the GT3 about 3:55 there (LMGT3 pole: 3:52.4) and
 8:12 round the Nürburgring 24h lap (pole: 8:11.0). The Hypercar has less power and downforce than the F1 car,
 traction control, no ABS, and a hybrid front axle that deploys by itself above 190 km/h (the HUD says HYBRID).
@@ -339,25 +341,32 @@ they're working) but no hybrid. Each has its own engine sound (`sound` in its fi
 `src/audio.js`): the Hypercar a twin-turbo V6 that revs to 8,800, deeper than the F1 car's, with a louder turbo and
 the front motor's whine when it deploys; the GT3 a 6.2 V8 with the burble of its cross-plane crank.
 
+The 911 GT3 R is the same class as the GT3, and like real GT3 cars under the Balance of Performance the two lap
+within a few tenths of each other (alone in the sim: 0.4 s quicker round Monaco, 0.4 s slower round Le Mans), but
+they get there differently: the 911's flat-six hangs out behind the rear axle, so it puts its power down earlier out
+of slow corners, brakes a little later and turns in sharply, and the tail steps out on the power if you're greedy;
+the AMG is a touch quicker down the straights. It's lighter (1,250 kg), revs to 9,400, has ABS and traction
+control, and uses the GT3's engine sound. An AI race in it puts the built-in GT3 on the grid (driving like 911s).
+
 Your car is the real model in its own livery (the 499P in Ferrari red, the AMG in Max Verstappen's Red Bull
-colours), with a live screen on the 499P's steering wheel and on the AMG's dash. The T-cam is a roof camera on
-these two, and the cockpit camera sits at the driver's eyes in the left-hand seat. The AI cars never drive your
+colours, the 911 in Roxy pink), with a live screen on the 499P's steering wheel and on the AMG's and 911's dash.
+The T-cam is a roof camera on these three, and the cockpit camera sits at the driver's eyes in the left-hand seat. The AI cars never drive your
 car: they're a generic Le Mans Hypercar and a generic GT3 made in code (`src/carBodies.js`), in their team's
 colours, with spoked rims, brake calipers and their own lights. (AI F1 cars are the built-in F1 car.)
 
 **When a car races** (the Time buttons under the circuit, or N): every car can race every circuit by day or by
 night under floodlights all round the lap (through the Nordschleife's woods too: `FLOODLIGHTS` in
 `src/lighting.js`), and at twilight where that's the circuit's own time (Abu Dhabi). Until you pick one, each
-circuit starts at its own time (the `time` in its file: Bahrain or Singapore at night). In the Hypercar and GT3,
+circuit starts at its own time (the `time` in its file: Bahrain or Singapore at night). In the Hypercar, GT3 and 911,
 Le Mans and the Nürburgring also have a night without floodlights (`darkNights` in their files): a real endurance
 night, floodlights only along the pit straight and paddock, the rest of the lap lit by the moon (`TIMES.dark` in
-`src/lighting.js`) and your headlights. The Hypercar and GT3's headlights come on by themselves at night
+`src/lighting.js`) and your headlights. The Hypercar, GT3 and 911's headlights come on by themselves at night
 (H switches them; the green LIGHTS light under the speed shows they're on):
 two real spotlights shaped like a race car's main beams, plus a pool of light on the road ahead
 (`HEADLIGHTS` in `src/headlights.js`; each car's lamp positions and colour are `headlights` in its file).
 
 **Track limits** (all four wheels past the white line): in the F1 car the lap is invalidated straight away. The
-Hypercar and GT3 get warnings first (the banner says "Warning 2 of 5", the lap timer "Limits 2/5"): each trip off
+Hypercar, GT3 and 911 get warnings first (the banner says "Warning 2 of 5", the lap timer "Limits 2/5"): each trip off
 the track is one strike, and only the 5th in a lap invalidates it (`trackLimits` in the car's file, `TRACK_LIMITS`
 in `src/race.js`). Pressing R still invalidates the lap straight away.
 
@@ -369,12 +378,13 @@ the rigged, compressed copies in `public/models/` that `tools/prepare-car.mjs` m
 ## Using your own car model (.glb)
 
 Each car's model is set in `model` in its file: the RB19 is `public/models/rb19.glb` (`src/cars/f1.js`), the
-499P `ferrari_499p.glb` (`hypercar.js`) and the AMG `amg_gt3.glb` (`gt3.js`).
+499P `ferrari_499p.glb` (`hypercar.js`), the AMG `amg_gt3.glb` (`gt3.js`) and the 911 `porsche_911_gt3r.glb`
+(`porsche.js`).
 The wheels spin (with a motion-blur disc at speed), the front wheels steer and the steering wheel turns
 with your input. That works because the model file has the wheels and steering wheel as separate parts
 named `wheel_FL`, `wheel_FR`, `wheel_RL`, `wheel_RR` and `steering_wheel`, each with its pivot point
 stored in the node's `extras` (`pivot`; `pivotPoint` on a node with children, since three.js's loader reads
-`pivot` there as something else). The 499P and AMG also have `hub_FL` / `hub_FR`, the brake calipers that steer
+`pivot` there as something else). The 499P, AMG and 911 also have `hub_FL` / `hub_FR`, the brake calipers that steer
 but don't spin, and `display_anchor`, where the live screen goes. Set `forAI: true` to give every car on the
 grid the full model in its own livery, or `url: null` to go back to the built-in car.
 
@@ -393,6 +403,10 @@ where the driver's eyes and the roof are, for the onboard cameras in the car's f
   (https://sketchfab.com/3d-models/ferrari-499p-wwwvecarzcom-f87c672819f34a759ee171733284c53c), licensed CC-BY-4.0.
 - Car model: "Mercedes Benz AMG GT3 Red Bull" by toddeppe on Sketchfab
   (https://sketchfab.com/3d-models/mercedes-benz-amg-gt3-red-bull-83c34fe5c0d64d838bc3c5e0f2d7f56a), licensed CC-BY-4.0.
+- Car model: "Porsche 992 GT3 R "Roxy"" by VTX on Sketchfab
+  (https://sketchfab.com/3d-models/porsche-992-gt3-r-roxy-7c86ab48c79d4310b5618da1f74b57d3), licensed
+  CC-BY-NC-SA-4.0: non-commercial only (no selling the game or charging to play it while it has this car), and the
+  game's copy of the model (`public/models/porsche_911_gt3r.glb`) is shared under the same licence.
 - Circuit layouts: bacinger/f1-circuits (MIT). Elevation: F1 timing data via TracingInsights.
 - Le Mans and Daytona: centrelines from tobi/track-atlas (https://github.com/tobi/track-atlas, MIT), built from
   OpenStreetMap data (© OpenStreetMap contributors, ODbL) and, for Daytona, 2021 aerial survey data (Florida DEP).
@@ -416,6 +430,12 @@ where the driver's eyes and the roof are, for the onboard cameras in the car's f
 All the graphics settings are in `src/settings.js`. If the frame rate is low, lower `pixelRatio`
 (biggest win on Retina/4K screens), then `shadowMapSize`, `trees` and `buildings`. Press V in a race
 to turn the mirror off. Per circuit, `scenery.trees` / `scenery.buildings` in its file still set the numbers.
+
+Switching circuit or car in the menu doesn't freeze it: the circuit's data and ground are worked out in a worker
+(`src/trackWorker.js`), the scenery is built a piece a frame while the live race carries on, and it swaps in when
+it's ready (`previewTrack` in `src/main.js`, `circuitSteps` in `src/scenery.js`). The last few circuits are kept
+(`CIRCUIT_CACHE` in `src/circuitBuilder.js`), so going back to one, or starting a race on the one you're looking at,
+is instant. Another car on the same circuit only moves the braking boards, and the live race keeps its car models.
 
 ## A note on naming
 
