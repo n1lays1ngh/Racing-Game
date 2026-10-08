@@ -101,8 +101,11 @@ export const RACE_BUTTONS = {
   [BTN.R3]: 'KeyV',     // mirror
   [BTN.MENU]: 'KeyZ',   // map: whole circuit / road ahead
   [BTN.VIEW]: 'KeyM',   // mute
-  [BTN.LEFT]: 'KeyH',   // headlights
+  [BTN.L3]: 'KeyH',     // headlights
   [BTN.UP]: 'KeyT',     // timing tower: interval / gap to leader
+  [BTN.DOWN]: 'KeyB',   // box: pit this lap
+  [BTN.LEFT]: 'Comma',  // display (MFD): previous page
+  [BTN.RIGHT]: 'Period', // … next page
 };
 export const LOOK_BACK = { key: 'KeyQ', on: 0.55, off: 0.35 }; // right stick down past `on` (let go below `off`)
 
@@ -119,6 +122,7 @@ const SCREENS = {
   pause:    { root: 'pause', b: 'Escape', buttons: { [BTN.MENU]: 'Escape' } },
   results:  { root: 'results', b: 'click:btn-menu', buttons: { [BTN.MENU]: 'click:btn-again' } },
   stats:    { root: 'stats', b: 'click:st-back', buttons: { [BTN.MENU]: 'click:st-back' } },
+  career:   { root: 'career', b: 'click:cr-back', buttons: { [BTN.MENU]: 'click:cr-race' } },
   lobby:    { root: 'lobby', b: 'click:lb-back', buttons: { [BTN.MENU]: 'click:lb-go' } },
   controls: { root: 'controls', b: 'click:ctl-back', buttons: { [BTN.MENU]: 'click:ctl-back' } },
 };
@@ -130,6 +134,7 @@ function screen() {
   if (visible('controls')) return 'controls';
   if (visible('pause')) return 'pause';
   if (visible('results')) return 'results';
+  if (visible('career')) return 'career';
   if (visible('stats')) return 'stats';
   if (visible('lobby')) return 'lobby';
   if (visible('menu')) { const step = $('menu').dataset.step; return step === 'home' ? 'home' : step === 'setup' ? 'setup' : 'steps'; }

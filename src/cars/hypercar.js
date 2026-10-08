@@ -21,6 +21,10 @@ export default {
 
   // ---- Track limits (race.js): how many times you can go off in a lap before it's invalidated (F1: 1) ----
   trackLimits: { strikes: 5 },
+  // ---- Pit stops (pitstop.js): seconds stationary in the box (tyres and a splash of fuel, game length) ----
+  pitStop: { time: 8 },
+  damage: { strength: 1.5, frontAero: 0.3 },  // (damage.js) closed bodywork: takes more than an F1 car
+  tyreLife: 1.5,          // endurance tyres: they last 1.5× as long as the F1 car's (tyres.js)
 
   // ---- How it drives ----
   physics: {

@@ -57,7 +57,7 @@ export default {
   // ---- Buildings ----
   // Pit road runs along the inside of the tri-oval, with the garages in the infield behind it.
   pits: [{ from: -200, to: 110 }],
-  pitLane: { entry: -320, exit: 240 },
+  pitLane: { entry: -320, exit: 240, limit: 72 },
   stands: [
     { at: -480, len: 300, side: 'R', name: "Daytona Rising (Turn 4 end)" },
     { at: -150, len: 340, side: 'R', name: "Daytona Rising (Start/Finish)" },

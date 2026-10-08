@@ -193,7 +193,7 @@ function nightDome() {
       varying vec3 vDir;
       void main() {
         vDir = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = (projectionMatrix * modelViewMatrix * vec4(position, 1.0)).xyww; // on the far plane: behind everything
       }`,
     fragmentShader: `
       uniform float uTime, uStars, uMilky;
@@ -237,11 +237,11 @@ function nightDome() {
         #include <colorspace_fragment>
         #include <dithering_fragment>
       }`,
-    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, dithering: true,
+    side: THREE.BackSide, depthWrite: false, fog: false, dithering: true,
   });
   mat.fragmentShader = mat.fragmentShader.replace('uniform float uTime', '#include <common>\n      #include <dithering_pars_fragment>\n      uniform float uTime');
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1000, 48, 24), mat);
-  dome.renderOrder = -1000; dome.frustumCulled = false; // always drawn first, behind everything
+  dome.renderOrder = 1e6; dome.frustumCulled = false; // drawn after the solid things, behind them: the stars are only worked out where you see sky
   dome.onBeforeRender = (renderer, scene, camera) => { // follow whichever camera is drawing (main view or mirror)
     dome.position.copy(camera.position); dome.updateMatrixWorld();
     mat.uniforms.uTime.value = performance.now() / 1000;
@@ -560,7 +560,8 @@ export function buildFloodlights(track, groundHeight, spacing = GRAPHICS.floodli
   group.userData.pools = bakePools(track, spots);
   // Swap in the tower model once it has loaded: scaled so the middle of its lamp banks is where the
   // lamps are aimed from (the glare and the light pools are worked out from there).
-  loadModel('floodlight_tower.glb').then((model) => {
+  // (Low graphics keeps the towers drawn in code: the model is ~25 times the triangles, and there are dozens of them)
+  if (GRAPHICS.towerModel !== false) loadModel('floodlight_tower.glb').then((model) => {
     if (!model || !inScene(group)) return;                       // no model, or the circuit has changed
     const lamp = model.parts.find((p) => p.material.name === 'Material.004') ?? model.parts[0];
     const mid = (lamp.geometry.boundingBox.min.y + lamp.geometry.boundingBox.max.y) / 2;

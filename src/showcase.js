@@ -8,6 +8,7 @@ import { pointAt, sampleAt } from './track.js';
 import { heightAtS } from './elevation.js';
 import { carCams, modelReady } from './carModel.js';
 import { createRaceModel, syncModels } from './carLod.js';
+import { PitCrews } from './pitcrew.js';
 
 const SHOTS = ['trackside', 'tracking', 'heli', 'trackside', 'front', 'tcam', 'trackside', 'tracking'];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -32,6 +33,7 @@ export class Showcase {
         this.race = race;
         this.models = race.cars.map((c) => { const m = this.model(c); this.scene.add(m); return m; });
         syncModels(this.models, race.cars, this.camera);
+        this.crews = new PitCrews(this.scene, race); // (the AI stops in the live race too)
         this.shotIndex = -1;
         this.cut('grid');
         this.onStart?.(this); // (main.js: your car's headlights)
@@ -40,6 +42,7 @@ export class Showcase {
 
     stop() {
         for (const m of this.models) this.scene.remove(m);
+        this.crews?.dispose(); this.crews = null;
         this.models = []; this.race = null;
     }
 
@@ -97,6 +100,7 @@ export class Showcase {
         for (let k = 0; k < steps; k++) race.step(dt / steps, { throttle: 0, brake: 0, steer: 0 });
         race.takeEvents();
         syncModels(this.models, race.cars, this.camera);
+        this.crews?.update(dt, this.models);
 
         this.shotTime += dt;
         if (this.shotTime > this.shotLength) this.cut();

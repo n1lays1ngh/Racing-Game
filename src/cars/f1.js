@@ -22,6 +22,9 @@ export default {
 
   // ---- Track limits (race.js): how many times you can go off in a lap before it's invalidated ----
   trackLimits: { strikes: 3 },
+  // ---- Pit stops (pitstop.js): seconds stationary in the box (four tyres) ----
+  pitStop: { time: 2.4 },
+  damage: { strength: 1, frontAero: 0.45 }, // (damage.js) the most fragile: open wheels, a big front wing that carries a lot of the downforce
 
   // ---- How it drives (physics.js; the AI plans its corner speeds and braking from the same numbers) ----
   physics: {
@@ -97,6 +100,7 @@ export default {
     blurSpeed: [4, 11],       // m/s where the motion blur on the wheels starts / is complete
     // Paint finish: the RB19 is matte. Lower maxMetalness / raise minRoughness for less shine.
     finish: { maxMetalness: 0.2, minRoughness: 0.5, clearcoat: 0.06, clearcoatRoughness: 0.3 },
+    tyreStripes: true,        // the compound's colour band on the tyres' sidewalls (tyres.js)
     // Onboard cameras for this model: z = metres forward (+) / back (−) from the car's centre,
     // y = metres above the road, tilt = degrees up (+) / down (−).
     cams: { tcam: { z: -0.40, y: 1.50, tilt: -5 }, cockpit: { z: 0.25, y: 0.80, tilt: -4 } },

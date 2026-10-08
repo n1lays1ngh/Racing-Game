@@ -22,7 +22,20 @@ export default {
   ],
 
   // ---- Buildings ----
-  pits: [{ from: 2150, to: 2420 }],
+  pits: [{ from: -1176, to: -936 }], // garages: where real cars stop at their boxes (F1 timing data)
+  // Pit lane: its centreline from real cars' pit stops (F1 timing data via FastF1 / TracingInsights: in-laps and
+  // out-laps of three drivers), in the same metres as `points`, from where they cross the white line going in to
+  // where they cross it coming out. limit: the speed limit, km/h.
+  pitLane: {
+    limit: 60,
+    points: [
+      [193.8, -529], [197.8, -528.3], [249.4, -354.4], [275.6, -334.4], [277.4, -330.9], [279.2, -327.3], [281.8, -322], [283.5, -318.5],
+      [285.2, -315.1], [286.8, -311.8], [288.3, -308.5], [289.8, -305.1], [291.2, -301.8], [292.6, -298.4], [293.9, -294.8], [295.2, -291.1],
+      [296.5, -287.2], [297.9, -283.2], [299.3, -279.2], [300.7, -275.2], [302.2, -271.3], [303.6, -267.5], [305, -263.7], [306.4, -259.9],
+      [307.8, -256.2], [309.2, -252.4], [310.5, -248.7], [311.8, -245], [313.1, -241.2], [314.3, -237.4], [315.5, -233.6], [316.7, -229.7],
+      [317.8, -225.9], [319, -222], [320.1, -218.1], [321.2, -214.2], [322.8, -208.3], [324.4, -204.4],
+    ],
+  },
   stands: [
     { at: 2330, len: 110, side: 'L', name: "Tribune T (start)" },
     { at: 2645, len: 50, side: 'out', name: "Sainte Dévote" },

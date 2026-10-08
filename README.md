@@ -148,6 +148,8 @@ quicker still.
 | V                    | Rear-view mirror on / off      |
 | H                    | Headlights on / off (Hypercar, GT3 and 911; on by themselves at night) |
 | R                    | Reset onto the track           |
+| B                    | Box: pit this lap (the line takes you into the pit lane; again to cancel) |
+| , / .                | Display pages: map, pit stop   |
 | M                    | Mute                           |
 | Z                    | Map: whole circuit or road ahead |
 | T                    | Timing tower: interval or gap to leader |
@@ -170,7 +172,9 @@ Controller (Xbox names, PlayStation in brackets):
 | R3                   | Mirror                         |
 | Menu (Options)       | Map: whole circuit or road ahead |
 | View (Create)        | Mute                           |
-| D-pad left / up      | Headlights / timing tower      |
+| L3 / D-pad up        | Headlights / timing tower      |
+| D-pad down           | Box: pit this lap              |
+| D-pad left / right   | Display pages                  |
 | Menus and pause      | D-pad or left stick moves between the buttons, A chooses, B goes back, LB / RB move a slider by 10. Start screen: Y multiplayer, X your stats. Race setup: X time of day. Lobby: the host's Menu button starts the race |
 
 Mapping, stick and trigger settings and rumble are in `src/input.js`.

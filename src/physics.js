@@ -13,6 +13,8 @@ import { bankLift, bankRoll } from './banking.js';
 import { PITLANE, pitBounds, onPitLane, pitSpeedLimit } from './pitlane.js';
 import { ersStep } from './ers.js';
 import { SLIPSTREAM } from './slipstream.js';
+import { tyreStep } from './tyres.js';
+import { hitDamage } from './damage.js';
 import F1 from './cars/f1.js';
 
 // The F1 car's numbers (src/cars/f1.js). Every car has its own in its file in src/cars/; each car's state
@@ -41,9 +43,10 @@ export function steerLimit(vf, p = CAR) {
 
 // Cornering grip. vcurv > 0 in a dip (car pressed into the road = more grip),
 // < 0 over a crest (car goes light = less grip).
-export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0, p = CAR) {
+// aero: share of the downforce left (a damaged wing, damage.js)
+export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0, p = CAR, aero = 1) {
   const gEff = Math.max(p.g + vcurv * vf * vf, 2);
-  return p.mu * surfaceGrip * (gEff + p.downforce * vf * vf);
+  return p.mu * surfaceGrip * (gEff + aero * p.downforce * vf * vf);
 }
 
 export function stepCar(car, input, track, dt) {
@@ -75,15 +78,19 @@ export function stepCar(car, input, track, dt) {
   const thr = clamp(input.throttle, 0, 1), brk = clamp(input.brake, 0, 1);
   car.throttle = thr; car.brake = brk;
 
+  // damage (damage.js, career): less grip and downforce, less drive, a bent car pulls to one side
+  const dfx = car.damage?.fx;
+
   // --- Steering ---------------------------------------------------------
-  const target = clamp(input.steer, -1, 1) * steerLimit(vf, p) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
+  const target = clamp(input.steer + (dfx?.pull ?? 0), -1, 1) * steerLimit(vf, p) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
   car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
 
   // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
   const bankGrip = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
   // car.tow: in another car's slipstream (slipstream.js, set by race.js): dirty air costs a little grip …
   const tow = car.tow ?? 0, dirty = 1 - SLIPSTREAM.dirtyAir * tow;
-  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty, vcurv, p) + bankGrip, 2);
+  // … and worn tyres (tyres.js) have less grip, fresh softs more
+  const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty * (car.tyreGrip ?? 1) * (dfx?.grip ?? 1), vcurv, p, dfx?.aero ?? 1) + bankGrip, 2);
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   // (a car with ABS, p.abs, never locks: the HUD shows ABS working where it would have)
@@ -120,7 +127,7 @@ export function stepCar(car, input, track, dt) {
 
   // --- Throttle / brake ---------------------------------------------------
   if (thr > 0) {
-    if (vf >= -0.5) vf += drive * p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)) * dt;
+    if (vf >= -0.5) vf += drive * (dfx?.power ?? 1) * p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)) * dt;
     else vf = Math.min(0, vf + thr * 10 * dt); // throttle while reversing = stop
   }
   if (brk > 0) {
@@ -155,6 +162,7 @@ export function stepCar(car, input, track, dt) {
   car.vz = fz * vf + lz * vl;
   car.x += car.vx * dt;
   car.z += car.vz * dt;
+  tyreStep(car, dt, { lat: Math.min(1.2, latUse), brake: brk, throttle: drive, slip: car.slip, lock: car.lockF, dist: Math.abs(vf) * dt, length: track.length }); // tyre wear (tyres.js)
   car.vf = vf;
   car.speed = Math.hypot(car.vx, car.vz);
   car.wheelSpin += vf * dt / 0.36;
@@ -190,6 +198,7 @@ function hitBarrier(car, track, i, side, pen, dt) {
     const vt = car.vx * tx + car.vz * tz, dv = Math.min(Math.abs(vt), mu * (1 + e) * vn) * Math.sign(vt);
     car.vx -= tx * dv; car.vz -= tz * dv;
     if (vn > 2) { car.yawRate *= 0.5; car.hitWall = Math.min(1, vn / 15 + 0.2); } // a real hit, not a brush
+    if (car.damage) hitDamage(car, nx * side, nz * side, vn, 'wall'); // (career: damage.js)
     // Turn the nose away from the wall: a share of the angle on impact, then steadily while you keep
     // pushing into it, so the car slides along and drives off instead of pinning itself.
     const into = (Math.sin(car.h) * nx + Math.cos(car.h) * nz) * side;      // > 0: nose points at the wall

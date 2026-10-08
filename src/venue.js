@@ -43,8 +43,8 @@ export const VENUE = {
   pits: {
     front: 12,             // barrier to garage fronts for a pit building with no pit lane in front (the pit lane's
                            // own width is in pitlane.js)
-    depth: 26,             // depth of the building
-    garage: 6, garageDepth: 13,
+    depth: 30,             // depth of the building
+    garage: 7, garageDepth: 16,  // garage height and depth
     floors: [              // the floors above the garages: height, and how far each steps back (balconies)
       { h: 4.2, back: 0 },
       { h: 4.2, back: 3 },
@@ -363,12 +363,12 @@ const WHITE = [0.92, 0.93, 0.95];
 
 export function buildPits(track, { sideFrame, footprintClear, blocked, ribbon, pitLane }) {
   const mat = materials(), P = VENUE.pits, parts = byMaterial(), group = new THREE.Group();
-  const side = track.infield, wallOf = (i) => (side > 0 ? track.wallL[i] : track.wallR[i]);
+  const side = track.pitLane?.side ?? track.infield, wallOf = (i) => (side > 0 ? track.wallL[i] : track.wallR[i]); // the garages: on the pit lane's side
   const pl = track.pitLane, onLane = (i) => !!(pl && pl.side === side && pl.range[i]);
   const front = (i) => (pl && pl.side === side && pl.building[i] ? pl.out[i] : wallOf(i) + P.front); // garages on the pit lane's edge
   let bays = 0, tower = P.raceControl;
   for (const pit of [...track.pits].sort((a, b) => b.len - a.len)) {   // race control on the longest building
-    const chunks = Math.max(1, Math.round(pit.len / 14)), clen = pit.len / chunks;
+    const chunks = Math.max(1, Math.round(pit.len / PITLANE.garagePiece)), clen = pit.len / chunks;
     const spots = Array.from({ length: chunks }, (_, c) => {
       const i = sampleAt(track, pit.s + (c + 0.5) * clen), off = front(i);
       return { i, off, m: sideFrame(track, i, side, off), from: sampleAt(track, pit.s + c * clen) };

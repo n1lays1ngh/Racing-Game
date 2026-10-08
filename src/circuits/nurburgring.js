@@ -72,7 +72,7 @@ export default {
   // the end of the Hohenrain connection and rejoins before the first corner. Grandstands only on the Grand Prix
   // part and at T13, where the Nordschleife starts.
   pits: [{ from: -440, to: 120 }],
-  pitLane: { entry: -591, exit: 255 },
+  pitLane: { entry: -591, exit: 255, limit: 60 },
   stands: [
     { at: -330, len: 160, side: 'L', name: "Main Grandstand (Hohenrain end)" },
     { at: -130, len: 200, side: 'L', name: "Main Grandstand" },

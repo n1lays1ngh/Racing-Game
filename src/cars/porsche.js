@@ -17,6 +17,10 @@ export default {
   // ---- When it races, and track limits (see hypercar.js) ----
   darkNights: ['lemans', 'nurburgring'],
   trackLimits: { strikes: 5 },
+  // ---- Pit stops (pitstop.js): seconds stationary in the box (tyres and fuel, game length) ----
+  pitStop: { time: 8 },
+  damage: { strength: 1.8, frontAero: 0.2 },  // (damage.js) a road car underneath: the toughest
+  tyreLife: 1.5,          // endurance tyres: they last 1.5× as long as the F1 car's (tyres.js)
 
   // ---- How it drives ----
   physics: {

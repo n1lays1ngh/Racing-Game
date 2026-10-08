@@ -52,9 +52,88 @@
         <div id="ghost-row" class="ghost-row hidden"><span>Ghost</span><b id="ghost-time">--:--.---</b><em id="ghost-note"></em></div>
       </section>
 
-      <section id="map-panel" class="hud-panel"><!-- Z / the controller's Menu button: whole circuit or the road ahead -->
-        <span id="map-name" class="map-name">Circuit</span>
+      <!-- the multi-function display (hud.js MFD): pages switched with , and . (D-pad left / right, or its arrows).
+           Map page: Z / the controller's Menu button switches whole circuit / road ahead -->
+      <section id="map-panel" class="hud-panel" data-page="map">
+        <!-- tabs for the pages (career races have four; other races just the map) -->
+        <nav id="mfd-tabs" class="mfd-tabs">
+          <button type="button" data-tab="map" tabindex="-1"><span id="map-name">Map</span></button>
+          <button type="button" data-tab="pit" tabindex="-1">Pit</button>
+          <button type="button" data-tab="tyres" tabindex="-1">Tyres</button>
+          <button type="button" data-tab="damage" tabindex="-1">Damage</button>
+        </nav>
+        <!-- you've asked to box: shown on every page -->
+        <div id="mfd-box" class="mfd-box hidden"><b>Box this lap</b><span id="mfd-box-dist"></span></div>
         <canvas id="minimap"></canvas>
+
+        <!-- pit stop (pitstop.js): box call, the stop, the pit lane, the next set of tyres -->
+        <div id="mfd-pit" class="mfd-page">
+          <button type="button" id="mfd-box-btn" class="mfd-call" tabindex="-1"><span class="off">Box this lap</span><span class="on">Boxing this lap</span><kbd>B</kbd></button>
+          <p id="mfd-status" class="mfd-status">No stops yet</p>
+          <div class="mfd-cells">
+            <div><span>Pit entry</span><b id="mfd-entry">–</b></div>
+            <div><span>Limit</span><b id="mfd-limit">–</b></div>
+            <div><span>Lane</span><b id="mfd-lane">–</b></div>
+          </div>
+          <p class="mfd-label">Next tyres</p>
+          <div id="mfd-next" class="tyre-pick">
+            <button type="button" data-c="soft" tabindex="-1"><i class="tyre" data-c="soft">S</i><b>Soft</b><small data-life>–</small></button>
+            <button type="button" data-c="medium" tabindex="-1"><i class="tyre" data-c="medium">M</i><b>Medium</b><small data-life>–</small></button>
+            <button type="button" data-c="hard" tabindex="-1"><i class="tyre" data-c="hard">H</i><b>Hard</b><small data-life>–</small></button>
+          </div>
+          <p class="mfd-hint"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> pick · in the pit lane <kbd>←</kbd><kbd>→</kbd></p>
+        </div>
+
+        <!-- tyres (tyres.js): what's left of each tyre, the set, the grip -->
+        <div id="mfd-tyres" class="mfd-page">
+          <div class="ty-head"><i id="ty-badge" class="tyre big" data-c="medium">M</i><div><b id="ty-name">Medium</b><small id="ty-laps">New set</small></div></div>
+          <div class="ty-car">
+            <div class="ty" style="grid-area: fl"><span><i></i></span><b>100</b></div>
+            <div class="ty" style="grid-area: fr"><span><i></i></span><b>100</b></div>
+            <svg class="ty-body" viewBox="0 0 100 200" aria-hidden="true"><use href="#car-top"/></svg>
+            <div class="ty" style="grid-area: rl"><span><i></i></span><b>100</b></div>
+            <div class="ty" style="grid-area: rr"><span><i></i></span><b>100</b></div>
+          </div>
+          <div class="mfd-cells">
+            <div><span>Grip</span><b id="ty-grip">–</b></div>
+            <div><span>Set lasts</span><b id="ty-life">–</b></div>
+          </div>
+        </div>
+
+        <!-- damage (damage.js): where the car is hurt; box for repairs -->
+        <div id="mfd-damage" class="mfd-page">
+          <div class="dmg-wrap">
+            <svg class="dmg-car" viewBox="0 0 100 200" aria-hidden="true">
+              <use href="#car-top" class="dmg-base"/>
+              <g data-p="front"><path d="M8 12h84v9H8z"/><path d="M6 8h5v17H6zM89 8h5v17h-5z"/></g>
+              <g data-p="left"><rect x="9" y="34" width="17" height="30" rx="4"/><rect x="7" y="138" width="20" height="36" rx="4"/><path d="M38 96 30 104v34l8 12z"/></g>
+              <g data-p="right"><rect x="74" y="34" width="17" height="30" rx="4"/><rect x="73" y="138" width="20" height="36" rx="4"/><path d="M62 96l8 8v34l-8 12z"/></g>
+              <g data-p="rear"><path d="M24 178h52v11H24z"/><path d="M40 164h20l-3 12H43z"/></g>
+            </svg>
+            <div class="dmg-list">
+              <div data-row="front"><span>Front wing</span><b>0%</b><i><u></u></i></div>
+              <div data-row="left"><span>Left side</span><b>0%</b><i><u></u></i></div>
+              <div data-row="right"><span>Right side</span><b>0%</b><i><u></u></i></div>
+              <div data-row="rear"><span>Rear</span><b>0%</b><i><u></u></i></div>
+            </div>
+          </div>
+          <div class="mfd-cells">
+            <div><span>Car</span><b id="dmg-status">No damage</b></div>
+            <div><span>Repairs</span><b id="dmg-repair">–</b></div>
+          </div>
+        </div>
+
+        <!-- a top-down race car, drawn once and used by the tyre and damage pages -->
+        <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+          <symbol id="car-top" viewBox="0 0 100 200">
+            <path class="ct-arm" d="M26 49h14M60 49h14M27 156h13M60 156h13"/>
+            <path class="ct-shell" d="M47 20h6l3 34 4 4 2 38 8 8v34l-6 10-3 16H43l-3-16-6-10v-34l8-8 2-38 4-4z"/>
+            <ellipse class="ct-cockpit" cx="50" cy="84" rx="5.5" ry="11"/>
+            <path class="ct-wing" d="M8 12h84v9H8zM24 178h52v11H24z"/>
+            <rect class="ct-wheel" x="9" y="34" width="17" height="30" rx="4"/><rect class="ct-wheel" x="74" y="34" width="17" height="30" rx="4"/>
+            <rect class="ct-wheel" x="7" y="138" width="20" height="36" rx="4"/><rect class="ct-wheel" x="73" y="138" width="20" height="36" rx="4"/>
+          </symbol>
+        </defs></svg>
       </section>
     </div>
 
@@ -80,7 +159,8 @@
         <span id="ers-mode" class="ers-mode"></span>
       </div>
       <div class="dash-row aids">
-        <span id="aid-abs" class="aid">ABS</span><span id="aid-tc" class="aid">TC</span><span id="aid-lights" class="aid">Lights</span>
+        <span id="aid-abs" class="aid">ABS</span><span id="aid-tc" class="aid">TC</span><span id="aid-lights" class="aid">Lights</span><span id="aid-dmg" class="aid dmg-lamp" title="Damage: see the damage page">DMG</span>
+        <div id="ty-mini" class="ty-mini" title="Your tyres: what's left of each"><i class="tyre" data-c="medium">M</i><span><i></i><i></i><i></i><i></i></span></div>
         <div id="tow" class="tow"><span>Tow</span><div class="tow-bar"><div id="tow-fill"></div></div></div>
       </div>
     </section>
@@ -131,6 +211,10 @@
           </button>
           <button id="btn-quick" class="door-quick" type="button"><b>Quick race</b><span id="quick-sub">Formula 1, 3 laps</span></button>
         </div>
+        <button id="btn-career" class="door" type="button">
+          <span class="st-ico"><i></i><i></i><i></i></span>
+          <span class="door-txt"><b>Career</b><small id="cr-door-sub">A championship: pit stops, tyres and strategy</small></span>
+        </button>
         <button id="btn-mp" class="door" type="button">
           <span class="mp-ico"><i></i><i></i></span>
           <span class="door-txt"><b>Multiplayer</b><small>Race your friends online, up to 10 drivers</small></span>
@@ -339,6 +423,21 @@
     </div>
   </div>
 
+  <!-- ===== Career (career.js): set up a championship, or the season so far and the next round ===== -->
+  <div id="career" class="overlay hidden">
+    <div class="st-screen cr-screen">
+      <header class="st-head">
+        <div>
+          <div class="res-kicker"><span class="slash"></span><span id="cr-kicker">Career</span></div>
+          <h2 id="cr-title" class="st-title">Career</h2>
+          <div id="cr-sub" class="res-sub"></div>
+        </div>
+        <div class="head-btns"><button id="cr-back" class="st-back" type="button"><span>‹ Menu</span><kbd>Esc</kbd></button></div>
+      </header>
+      <div id="cr-body"></div>
+    </div>
+  </div>
+
   <!-- ===== Controls (main.js): from the start screen and the pause menu ===== -->
   <div id="controls" class="overlay hidden">
     <div class="ctl-screen">
@@ -363,13 +462,16 @@
               <tr><td>Steer</td><td><kbd>A</kbd><kbd>D</kbd><kbd>←</kbd><kbd>→</kbd></td><td><i class="pb st">L</i><em>left stick</em></td></tr>
               <tr><td>ERS boost (hold)</td><td><kbd>Shift</kbd></td><td><i class="pb sh">L1</i><em>LB</em></td></tr>
               <tr><td>Look back (hold)</td><td><kbd>Q</kbd></td><td><i class="pb st">R</i><em>right stick down</em></td></tr>
+              <tr><td>Box: pit this lap (again to cancel)</td><td><kbd>B</kbd></td><td><i class="pb dp">↓</i><em>D-pad down</em></td></tr>
+              <tr><td>Tyres: soft, medium, hard (on the grid: your start; racing: your next set)</td><td><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></td><td class="none">← → in the pit lane</td></tr>
+              <tr><td>Display page: map, pit…</td><td><kbd>,</kbd><kbd>.</kbd></td><td><i class="pb dp">←</i><i class="pb dp">→</i><em>D-pad</em></td></tr>
               <tr><td>Reset onto the track</td><td><kbd>R</kbd></td><td><i class="pb face x">X</i><em>□</em></td></tr>
               <tr><td>Camera</td><td><kbd>C</kbd></td><td><i class="pb face y">Y</i><em>△</em></td></tr>
               <tr><td>Pause</td><td><kbd>Esc</kbd><kbd>P</kbd></td><td><i class="pb face b">B</i><em>○</em></td></tr>
               <tr><td>Mirror</td><td><kbd>V</kbd></td><td><i class="pb st">R3</i><em>press the right stick</em></td></tr>
               <tr><td>Map: whole circuit or road ahead</td><td><kbd>Z</kbd></td><td><i class="pb sys">≡</i><em>Menu / Options</em></td></tr>
               <tr><td>Mute</td><td><kbd>M</kbd></td><td><i class="pb sys">⧉</i><em>View / Create</em></td></tr>
-              <tr><td>Headlights (Hypercar, GT3)</td><td><kbd>H</kbd></td><td><i class="pb dp">←</i><em>D-pad left</em></td></tr>
+              <tr><td>Headlights (Hypercar, GT3, 911)</td><td><kbd>H</kbd></td><td><i class="pb st">L3</i><em>press the left stick</em></td></tr>
               <tr><td>Tower: interval or gap to leader</td><td><kbd>T</kbd></td><td><i class="pb dp">↑</i><em>D-pad up</em></td></tr>
               <tr><td>Graphics preset</td><td><kbd>G</kbd></td><td class="none">–</td></tr>
               <tr><td>Frame rate counter</td><td><kbd>F</kbd></td><td class="none">–</td></tr>

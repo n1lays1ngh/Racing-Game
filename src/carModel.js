@@ -21,6 +21,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { steerLimit, gearbox } from './physics.js';
 import { bodyFor, rimGeometry, NEW_BODIES } from './carBodies.js';
 import F1 from './cars/f1.js';
+import { TYRES as COMPOUND_SETS } from './tyres.js';
 
 // The F1 car's model settings (src/cars/f1.js: `model`). Each car has its own in its file.
 export const CAR_MODEL = F1.model;
@@ -144,6 +145,7 @@ function numberTexture(num, color) {
 
 // ---------- the car ----------
 const COMPOUNDS = [0xe8261f, 0xffd12a, 0xf2f2f2]; // soft / medium / hard sidewall stripe
+const COMPOUND_MAT = new THREE.MeshBasicMaterial({ color: 0xffd12a }); // (the models' band, before each car has its own)
 
 // The built-in cars: one body shape per kind of car (`builtin` in the car's model settings, src/cars/):
 //   f1    open wheels, halo, wings (the F1 car), here in BODIES: it fills the material buckets (B) and says where
@@ -191,7 +193,7 @@ const BODIES = {
     B.body.push(sidePlate([[-0.35, 0.95], [-1.9, 0.6], [-1.95, 0.5], [-1.2, 0.62], [-0.45, 0.86]], 0.012, 0));
     for (const s of [-1, 1]) { // number on the fin
       const num = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.2), M.number);
-      num.position.set(s * 0.012, 0.8, -0.95); num.rotation.y = s * Math.PI / 2; car.add(num);
+      num.position.set(s * 0.012, 0.8, -0.95); num.rotation.y = s * Math.PI / 2; num.userData.detail = true; car.add(num);
     }
 
     // --- Sidepods (downwash style) with dark inlets ---
@@ -320,22 +322,34 @@ function createBuiltinCar(team = {}, kind = 'f1', cams = null) {
     tyre.rotation.z = Math.PI / 2; tyre.castShadow = true; wheel.add(tyre);
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(rim, rim, width - 0.01, 32), M.cover);
     barrel.rotation.z = Math.PI / 2; wheel.add(barrel);
-    const side = Math.sign(x);
-    if (shape.tyre.stripe) for (const face of [-1, 1]) {
-      const stripe = new THREE.Mesh(new THREE.RingGeometry(0.29, 0.305, 40), compound);
-      stripe.position.x = face * (w2 + 0.001); stripe.rotation.y = face * Math.PI / 2; wheel.add(stripe);
-    }
-    for (let j = 0; j < 3; j++) { // marks on the wheel cover so you can see it spin
-      const mark = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.09, 0.03), marks);
-      mark.position.set(side * (w2 - 0.002), Math.cos((j * 2 * Math.PI) / 3) * 0.15, Math.sin((j * 2 * Math.PI) / 3) * 0.15);
-      mark.rotation.x = (j * 2 * Math.PI) / 3; wheel.add(mark);
-    }
+    // the compound stripes on both sidewalls and the marks on the cover (so you can see it spin): one mesh, one draw
+    const decor = new THREE.Mesh(wheelDecor(Math.sign(x), w2, !!shape.tyre.stripe), marks);
+    decor.userData.detail = true; wheel.add(decor);
     wheels.push(wheel); if (front) steerPivots.push(pivot);
   };
   for (const [x, z, width, front] of shape.wheels) makeWheel(x, z, width, front);
 
-  car.userData = { wheels, steerPivots, cams: cams ?? shape.cams };
+  // details: small parts not drawn on a car far from the camera (carLod.js, GRAPHICS.detailDistance)
+  const details = [];
+  car.traverse((o) => { if (o.userData.detail || o.name === 'builtin_helmet' || o.name === 'builtin_visor') details.push(o); });
+  car.userData = { wheels, steerPivots, cams: cams ?? shape.cams, compoundMat: shape.tyre.stripe ? compound : null, details };
   return car;
+}
+
+// A wheel's stripes and spin marks, merged (shared by every car: the same for each side and tyre width)
+const decors = new Map();
+function wheelDecor(side, w2, stripe) {
+  const key = `${side}|${w2}|${stripe}`;
+  if (decors.has(key)) return decors.get(key);
+  const parts = [];
+  if (stripe) for (const face of [-1, 1]) parts.push(new THREE.RingGeometry(0.29, 0.305, 40).rotateY(face * Math.PI / 2).translate(face * (w2 + 0.001), 0, 0));
+  for (let j = 0; j < 3; j++) {
+    const a = (j * 2 * Math.PI) / 3;
+    parts.push(new THREE.BoxGeometry(0.004, 0.09, 0.03).rotateX(a).translate(side * (w2 - 0.002), Math.cos(a) * 0.15, Math.sin(a) * 0.15));
+  }
+  const g = mergeGeometries(parts.map((q) => q.toNonIndexed()));
+  decors.set(key, g);
+  return g;
 }
 
 // ---------- the built-in Hypercar and GT3 (carBodies.js) ----------
@@ -528,6 +542,10 @@ function rigModel(root, cfg) {
     const tread = new THREE.Mesh(tyreShellGeometry(t.R * 1.004, t.W * 0.96, rim), shellMat);
     tread.name = 'blur';
     steer.add(tread);
+    if (cfg.tyreStripes) { // the compound's colour band on the outside sidewall (each car colours its own: createModelCar)
+      const side = Math.sign(p.x) || 1, band = new THREE.Mesh(new THREE.RingGeometry(t.R * 0.8, t.R * 0.86, 48), COMPOUND_MAT);
+      band.rotation.y = side * Math.PI / 2; band.position.x = side * (t.W * 0.5 + 0.003); band.name = 'compound'; spin.add(band);
+    }
     for (const face of [-1, 1]) { // smeared wheel cover inside the rim
       const disc = new THREE.Mesh(new THREE.CircleGeometry(t.R * rim * 1.02, 48), faceMat(t.colour));
       disc.rotation.y = face * Math.PI / 2; disc.position.x = face * (t.W * 0.48 + 0.002); disc.name = 'blur';
@@ -621,12 +639,14 @@ function createModelCar(cfg, { lite = false } = {}) {
       display = makeDisplay(o.userData.aspect); o.material = new THREE.MeshBasicMaterial({ map: display.tex, toneMapped: false });
     }
   });
+  const band = new THREE.MeshBasicMaterial({ color: 0xffd12a }); // its own tyre compound colour (syncCarModel)
+  car.traverse((o) => { if (o.name === 'compound') o.material = band; });
   // each car fades its own wheel blur
   const own = new Map([...blurMats].map((m) => [m, m.clone()]));
   car.traverse((o) => { if (o.name === 'blur') o.material = own.get(o.material); });
   const steeringWheel = car.getObjectByName('steering_pivot');
   const swAxis = new THREE.Vector3().fromArray(steeringWheel?.userData.axis ?? [0, 0, -1]).normalize();
-  car.userData = { model: true, cfg, wheels, steerPivots, blurMats: [...own.values()], steeringWheel, swAxis, display,
+  car.userData = { model: true, cfg, wheels, steerPivots, blurMats: [...own.values()], steeringWheel, swAxis, display, compoundMat: cfg.tyreStripes ? band : null,
     cams: cfg.cams, spinVis: 0, lastSpin: null, frame: 0 };
   return car;
 }
@@ -684,6 +704,8 @@ export function syncCarModel(model, state) {
     for (const w of u.wheels) w.rotation.x = state.wheelSpin;
   }
   for (const p of u.steerPivots) p.rotation.y = (state.steer ?? 0) * cfg.frontWheelSteer;
+  const cmp = state.tyres?.compound; // the tyres it's on (tyres.js): the sidewall band's colour
+  if (u.compoundMat && cmp && u.compoundShown !== cmp) { u.compoundShown = cmp; u.compoundMat.color.setHex(COMPOUND_SETS.compounds[cmp].colour); }
   // Follow the slope of the hill, plus a little pitch for weight transfer
   model.rotation.x = -(state.pitch ?? 0) + state.brake * 0.012 - state.throttle * 0.006;
   model.rotation.z = state.roll ?? 0; // lean with banked corners

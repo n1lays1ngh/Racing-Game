@@ -37,9 +37,17 @@ export function syncModels(models, cars, camera) {
   const swapping = [];
   models.forEach((m, i) => {
     const c = cars[i];
-    m.visible = !c.dnf;
+    m.visible = !c.dnf || !!c.parked || (c.isPlayer && !!c.retired); // (a car out with damage stays where it parked: race.js retire)
     const lod = m.userData.lod;
-    if (!lod) { syncCarModel(m, c.state); return; }
+    if (!lod) {
+      syncCarModel(m, c.state);
+      const det = m.userData.details; // far away: the small parts aren't drawn (GRAPHICS.detailDistance, settings.js)
+      if (det?.length && !c.isPlayer) {
+        const far = (c.state.x - camera.position.x) ** 2 + (c.state.z - camera.position.z) ** 2 > (GRAPHICS.detailDistance ?? 80) ** 2;
+        if (m.userData.far !== far) { m.userData.far = far; for (const o of det) o.visible = !far; }
+      }
+      return;
+    }
     lod.d = Math.hypot(c.state.x - camera.position.x, c.state.z - camera.position.z);
     swapping.push([m, c]);
   });

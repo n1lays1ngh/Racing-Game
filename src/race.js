@@ -4,6 +4,9 @@ import { createCarState, stepCar, placeCar, CAR, clamp } from './physics.js';
 import { AIDriver, buildSpeedProfile } from './ai.js';
 import { towFor } from './slipstream.js';
 import { getCar, DEFAULT_CAR } from './cars/index.js';
+import { PitStops } from './pitstop.js';
+import { TYRES, fitTyres, chooseCompound } from './tyres.js';
+import { DAMAGE, fitDamage, hitDamage, repair } from './damage.js';
 
 // The grid: you plus 19 AI drivers (made-up teams). Add or remove entries to change the field size.
 // The tower shows the first three letters of each name, so keep those unique.
@@ -106,12 +109,13 @@ export class Race {
   //   localId: which of them is you. collisions: false = cars drive through each other.
   // car: which car everyone races (an id from src/cars/, or the car itself); one kind of car per race.
   constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName,
-    humans = null, localId = null, collisions = true, car = DEFAULT_CAR } = {}) {
+    humans = null, localId = null, collisions = true, car = DEFAULT_CAR, tyres = null, career = false, round = null, playerGrid = null, damage = null } = {}) {
     this.track = track;
     this.carDef = typeof car === 'string' || car == null ? getCar(car) : car;
     this.laps = laps;
     this.collisions = collisions;
     this.difficulty = difficulty;
+    this.career = !!career; this.round = round; // career (career.js): pit stops and tyres are only in career races
     this.countdownClock = null;   // online: a shared clock runs the start lights (else they count up here)
     this.state = 'countdown';     // countdown → racing → finished
     this.time = 0;                // race clock, starts at lights out
@@ -133,6 +137,7 @@ export class Race {
     const order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).map((k) => ({ teamIdx: k }));
     if (humans) humans.forEach((h, k) => order.push({ teamIdx: 0, human: h, id: 100 + k }));
     else order.push({ teamIdx: 0, human: { id: localId } }); // alone = pole position
+    if (playerGrid && !humans) order.splice(Math.min(order.length - 1, Math.max(0, playerGrid - 1)), 0, order.pop()); // (career: your grid slot)
     order.forEach(({ teamIdx, human, id }, slot) => {
       const team = { ...TEAMS[teamIdx] };
       const isPlayer = !!human && human.id === localId;
@@ -163,6 +168,22 @@ export class Race {
       this.cars.push(car);
     });
     this.player = this.cars.find(c => c.isPlayer);
+    this.pits = this.career ? new PitStops(this) : null; // career: boxes, the AI's stops, the stops themselves (pitstop.js)
+    // Tyres (tyres.js): you start on your pick (TYRES.start, or 1 / 2 / 3 on the grid), the AI on a mix, and a pit stop
+    // fits the set you chose on the pit page (car.nextTyres), or the softest one that lasts the rest of the race
+    if (this.career) for (const c of this.cars) {
+      const pick = c.isHuman ? (c.isPlayer ? tyres : null) ?? TYRES.start
+        : this.laps < TYRES.twoCompounds ? chooseCompound(this, this.laps)
+        : Math.random() < 0.35 ? 'soft' : Math.random() < 0.8 ? 'medium' : 'hard';
+      fitTyres(c.state, pick, this);
+    }
+    // Damage (damage.js): career only, Low / Medium / Real (the career's setting); repaired at a pit stop
+    this.damage = this.career && damage ? damage : null;
+    if (this.damage) for (const c of this.cars) fitDamage(c.state, this.damage, this.carDef);
+    if (this.pits) this.pits.onService = (c) => {
+      fitTyres(c.state, c.nextTyres ?? chooseCompound(this, this.laps - c.lapsDone, c.state.tyres?.used), this); c.nextTyres = null;
+      repair(c.state);
+    };
     this.bestLapOverall = null;
     this.updatePositions();
     this.cars.forEach((c, i) => { c.position = i + 1; }); // grid order until the start
@@ -192,11 +213,19 @@ export class Race {
     for (const car of this.cars) {
       if (car.dnf) continue;
       if (car.remote) { car.advance?.(dt); this.countLap(car); continue; } // driven from the network
-      const input = car.ai ? car.ai.update(dt, this.cars) : playerInput; // (the AI sees every car: ai.js)
+      this.pits?.update(car, dt); // pit stops: in the pit lane the car drives itself (pitstop.js)
+      const driver = car.ai ?? car.pitAI;
+      let input = driver ? driver.update(dt, this.cars) : playerInput; // (the AI sees every car: ai.js)
+      if (car.retiring) { // broken (damage.js): no drive, coast to a stop, then out
+        input = { ...input, throttle: 0, brake: Math.max(0.5, input.brake ?? 0), boost: false };
+        car.retireT = (car.retireT ?? 0) + dt;
+        if (car.state.speed < 1 || car.retireT > 6) { this.retire(car); continue; }
+      }
       stepCar(car.state, input, this.track, dt);
+      if (car.state.damage?.changed) this.damageNews(car);
       this.updateLap(car);
       this.checkLimits(car);
-      if (car.ai) { // AI wedged against a wall or another car for a while: put it back on the track (like pressing R)
+      if (car.ai && car.pit?.state !== 'stop') { // AI wedged against a wall or another car for a while: put it back on the track (like pressing R)
         car.stuck = car.state.speed < 1.5 ? (car.stuck ?? 0) + dt : 0;
         if (car.stuck > 2.5) {
           // back on the road where it stopped, on whichever line is clearest of the other cars
@@ -218,6 +247,29 @@ export class Race {
     }
     this.resolveContacts();
     this.updatePositions();
+  }
+
+  // Damage just changed (damage.js): tell you when a part gets bad ({ type: 'damage', part, level }), and a car that's
+  // broken stops racing
+  damageNews(car) {
+    const d = car.state.damage; d.changed = false;
+    if (car.isPlayer) for (const part of DAMAGE.parts) {
+      const level = DAMAGE.warn.filter((w) => d.parts[part] >= w).length;
+      if (level > (d.warned[part] ?? 0)) { d.warned[part] = level; this.events.push({ type: 'damage', part, level }); }
+    }
+    if (d.out && !car.retiring && !car.dnf && car.finishTime == null) { car.retiring = d.out; car.retireT = 0; }
+  }
+
+  // Out of the race: parked off the track if there's room (else the marshals take it away), DNF.
+  // Events: { type: 'retired', part } for you (your race is over: the results), { type: 'out', car, part } for the others
+  retire(car) {
+    car.dnf = true; car.retired = car.retiring; car.retiring = null;
+    const st = car.state, t = this.track, i = Math.max(0, st.trackIndex), side = Math.sign(st.lateral) || 1;
+    const lat = Math.min(t.hw[i] + (t.kerb ?? 1) + 4, (side > 0 ? t.wallL[i] : t.wallR[i]) - 2);
+    car.parked = lat > t.hw[i] + 1.5 && !st.inPitLane;
+    if (car.parked) placeCar(st, t, st.s, side * lat);
+    if (car.isPlayer) { this.state = 'finished'; this.events.push({ type: 'retired', part: car.retired }); }
+    else this.events.push({ type: 'out', car, part: car.retired });
   }
 
   updateLap(car) {
@@ -352,6 +404,7 @@ export class Race {
         if ((A.x - B.x) ** 2 + (A.z - B.z) ** 2 > 64) continue;
         const pa = A.spec?.physics ?? CAR, pb = B.spec?.physics ?? CAR, reach = pa.radius + pb.radius;
         const offA = pa.contactOffset ?? 1.4, offB = pb.contactOffset ?? 1.4;
+        let hit = 0, hx = 0, hz = 0; // the hardest touch between these two this step (damage.js)
         for (const oa of [offA, -offA]) {
           for (const ob of [offB, -offB]) {
             const ax = A.x + Math.sin(A.h) * oa, az = A.z + Math.cos(A.h) * oa;
@@ -369,6 +422,7 @@ export class Race {
             B.x += dx * push * wb; B.z += dz * push * wb;
             const rel = (B.vx - A.vx) * dx + (B.vz - A.vz) * dz;
             if (rel < 0) {
+              if (-rel > hit) { hit = -rel; hx = dx; hz = dz; }
               const j = -rel * 1.2; // mostly inelastic
               A.vx -= dx * j * wa; A.vz -= dz * j * wa;
               B.vx += dx * j * wb; B.vz += dz * j * wb;
@@ -378,6 +432,12 @@ export class Race {
               }
             }
           }
+        }
+        if (hit > 0 && this.damage) { // career: both cars take it, each where it was hit
+          if (A.damage && !ca.remote) hitDamage(A, hx, hz, hit, 'car');
+          if (B.damage && !cb.remote) hitDamage(B, -hx, -hz, hit, 'car');
+          if (A.damage?.changed) this.damageNews(ca);
+          if (B.damage?.changed) this.damageNews(cb);
         }
       }
     }

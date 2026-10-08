@@ -37,6 +37,10 @@ export default {
 
   // ---- Buildings ----
   pits: [{ from: -400, to: -20 }],   // pit building on the infield side
+  pitLane: {                 // optional: the real pit lane (else one is laid out beside the pit building)
+    limit: 80,               //   speed limit, km/h
+    points: [],              //   its centreline [x, z] like `points` (OpenStreetMap); either direction
+  },                         //   or { entry, exit } (lap distances) for a made-up lane, or false for none
   stands: [                  // grandstands. side: 'L' | 'R' | 'out' (outside of the corner at that point)
     // { at: -180, len: 200, side: 'L', name: 'Main Grandstand' },
     // { at: 560, len: 90, side: 'out', name: 'Turn 1' },

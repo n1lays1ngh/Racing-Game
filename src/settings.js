@@ -15,6 +15,8 @@
 //   viewDistance   metres; things further away aren't drawn (the haze is pulled in to match)
 //   detailedCars   online: how many friends' cars get the full car model at once (carLod.js)
 //   blur           frosted-glass blur behind the HUD and menu panels (redrawn every frame over the 3D view)
+//   towerModel     night races: the detailed floodlight tower model (false = simple towers drawn in code, far fewer triangles)
+//   detailDistance metres: AI cars further away than this skip their small parts (wheel marks, helmet, numbers)
 // Per circuit, scenery.trees / scenery.buildings in its file still set the base numbers.
 
 export const PRESETS = {
@@ -24,7 +26,7 @@ export const PRESETS = {
     trees: 0.4, forest: 0.15, buildings: 0.6,
     viewDistance: 3000,
     mirror: false, mirrorScale: 0.5, mirrorSamples: 0,
-    detailedCars: 1, blur: false,
+    detailedCars: 1, blur: false, detailDistance: 35, towerModel: false,
   },
   medium: {
     pixelRatio: 1, antialias: true,
@@ -32,7 +34,7 @@ export const PRESETS = {
     trees: 0.7, forest: 0.5, buildings: 1,
     viewDistance: 5000,
     mirror: true, mirrorScale: 0.6, mirrorSamples: 0,
-    detailedCars: 2, blur: false,
+    detailedCars: 2, blur: false, detailDistance: 70, towerModel: true,
   },
   high: { // the game's original look
     pixelRatio: 1.25, antialias: true,
@@ -40,11 +42,19 @@ export const PRESETS = {
     trees: 1, forest: 1, buildings: 1.5,
     viewDistance: 8000,
     mirror: true, mirrorScale: 1, mirrorSamples: 4,
-    detailedCars: 3, blur: true,
+    detailedCars: 3, blur: true, detailDistance: 120, towerModel: true,
+  },
+  ultra: { // for a strong graphics card: full Retina resolution, sharper shadows, the whole circuit in view
+    pixelRatio: 2, antialias: true,
+    shadows: true, shadowMapSize: 4096, shadowCasters: 'all',
+    trees: 1, forest: 1, buildings: 1.5,
+    viewDistance: 12000,
+    mirror: true, mirrorScale: 1, mirrorSamples: 4,
+    detailedCars: 6, blur: true, detailDistance: 250, towerModel: true,
   },
 };
-export const PRESET_ORDER = ['low', 'medium', 'high'];
-export const PRESET_NAMES = { low: 'Low', medium: 'Medium', high: 'High' };
+export const PRESET_ORDER = ['low', 'medium', 'high', 'ultra'];
+export const PRESET_NAMES = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' };
 export const DEFAULT_PRESET = 'medium'; // first visit
 
 // The same in every preset

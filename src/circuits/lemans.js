@@ -40,7 +40,7 @@ export default {
   // The pit building is on the inside of the pit straight; the pit lane leaves after the Ford chicanes and
   // rejoins before the Dunlop curve.
   pits: [{ from: -230, to: 380 }],
-  pitLane: { entry: -265, exit: 435 },
+  pitLane: { entry: -265, exit: 435, limit: 60 },
   stands: [
     { at: -210, len: 150, side: 'L', name: "Main Grandstand (Ford end)" },
     { at: -20, len: 210, side: 'L', name: "Main Grandstand" },

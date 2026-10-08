@@ -24,6 +24,11 @@ import { StatsScreen } from './statsScreen.js';
 import { CARS, getCar, selectedCar, setSelectedCar, timesFor, raceSetup } from './cars/index.js';
 import { OPTIONS, setOption, onOption } from './options.js';
 import { buildRacingLine, disposeRacingLine } from './racingLine.js';
+import { pitRoute } from './pitlane.js';
+import { PitCrews } from './pitcrew.js';
+import { TYRES, fitTyres } from './tyres.js';
+import { DAMAGE } from './damage.js';
+import { Career } from './career.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 import { setupSupport, raceFinished, askOnResults } from './support.js';
 import { Cinema } from './cinema.js';
@@ -138,7 +143,7 @@ function showCircuit(built = null) {
 // ---------- graphics presets: Low / Medium / High (settings.js) ----------
 const startedWithAA = GRAPHICS.antialias; // edge smoothing is fixed when the page loads
 let circuitBuiltWith = null;              // the tree / building counts the current circuit was built with
-const sceneryKey = () => [GRAPHICS.trees, GRAPHICS.forest, GRAPHICS.buildings, GRAPHICS.floodlightSpacing, sceneCar.id].join('|');
+const sceneryKey = () => [GRAPHICS.trees, GRAPHICS.forest, GRAPHICS.buildings, GRAPHICS.floodlightSpacing, GRAPHICS.towerModel, sceneCar.id].join('|');
 
 // How far the camera sees. The haze is pulled in to end before that, so nothing pops in or out.
 function applyViewDistance() {
@@ -159,6 +164,16 @@ function applyShadowCasters() {
     o.userData.castShadow0 ??= o.castShadow; // as the circuit built it
     const tree = !!o.parent?.userData.trees;  // the trees group (scenery.js)
     o.castShadow = o.userData.castShadow0 && (mode === 'all' || (mode === 'noTrees' && !tree));
+  });
+}
+// Low ('cars'): your car's wheels (the detailed models' wheels are tens of thousands of triangles each) cast no
+// shadow of their own; the body's shadow covers them. (tick() runs this every second, with applyShadowCasters)
+function applyCarShadows() {
+  const mode = GRAPHICS.shadowCasters, mine = race ? models[race.cars.indexOf(race.player)] : null;
+  mine?.traverse((o) => {
+    if (!o.isMesh || !/^(wheel|tyre|tire|rim)/i.test(o.name)) return;
+    o.userData.castShadow0 ??= o.castShadow;
+    o.castShadow = o.userData.castShadow0 && mode !== 'cars';
   });
 }
 
@@ -269,6 +284,7 @@ trackSelect.addEventListener('change', previewSoon);
 
 // ---------- game state ----------
 let race = null;
+let pitCrews = null; // the pit crews of the race you're in (pitcrew.js)
 let statsRun = null; // records your stats for the race you're in (stats.js)
 let models = [];
 let paused = false;
@@ -307,10 +323,13 @@ function newRace(cfg = soloConfig()) {
     return m;
   });
   syncModels(models, race.cars, camera);
+  pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // career: the crews in front of the garages (pitcrew.js)
+  hud.setMode(race.career); // career: the pit and tyre pages
   headlights.attach(models[race.cars.indexOf(race.player)], race.carDef, autoOn(timeOf(track))); // on at night
   cams = carCams(models[race.cars.indexOf(race.player)]);
   hud.setCamera(camLabel(camMode));
   nameTags.setup(race);
+  boxCall = boxInLane = false; hud.setBox(false); hud.onBox = () => setBox(!boxCall); hud.onTyres = pickTyres;
   showRacingLine();
   startGhost();
   snapCamera();
@@ -322,8 +341,51 @@ function newRace(cfg = soloConfig()) {
 let racingLine = null;
 function showRacingLine() {
   disposeRacingLine(racingLine); racingLine = null;
-  if (race && OPTIONS.racingLine) { racingLine = buildRacingLine(track, race.playerProfile, race.carDef.physics); scene.add(racingLine); }
-  hud.setRacingLine(racingLine?.userData.zones ?? null); // (and on the minimap)
+  const route = race && boxCall ? pitRoute(track) : null; // asked to box: the line goes into the pits (shown even with the line off)
+  if (race && (OPTIONS.racingLine || route)) {
+    racingLine = buildRacingLine(track, race.playerProfile, race.carDef.physics, route && { ...route, only: !OPTIONS.racingLine });
+    scene.add(racingLine);
+  }
+  hud.setRacingLine(OPTIONS.racingLine ? racingLine?.userData.zones ?? null : null); // (and on the minimap)
+  hud.setPitRoute(route);
+}
+
+// ---------- tyres (tyres.js): 1 / 2 / 3, the pit page's buttons, or ← → while the team drives you down the pit lane ----------
+// On the grid it changes the set you start on; racing, the set you'll get at your next stop.
+let steerWas = 0;
+function pickTyres(c) {
+  const p = race?.player;
+  if (!p || !TYRES.compounds[c] || p.finishTime != null) return;
+  if (race.state === 'countdown') { fitTyres(p.state, c, race); hud.toast(`Starting on ${TYRES.compounds[c].name.toLowerCase()}s`, 1.4); return; }
+  p.nextTyres = c; hud.toast(`Next tyres: ${TYRES.compounds[c].name}`, 1.4);
+}
+function tyreKeys(input) {
+  ['Digit1', 'Digit2', 'Digit3'].forEach((k, n) => { if (wasPressed(k)) pickTyres(TYRES.order[n]); });
+  const p = race.player, inLane = p.pitAI && p.pit?.state === 'in';
+  const dir = (wasPressed('ArrowRight') || wasPressed('KeyD') ? 1 : 0) - (wasPressed('ArrowLeft') || wasPressed('KeyA') ? 1 : 0)
+    || (Math.abs(input.steer) > 0.6 && Math.abs(steerWas) <= 0.6 ? -Math.sign(input.steer) : 0); // (the stick: left = softer)
+  steerWas = input.steer;
+  if (inLane && dir) {
+    const cur = p.nextTyres ?? TYRES.order[1], k = Math.min(2, Math.max(0, TYRES.order.indexOf(cur) + dir));
+    pickTyres(TYRES.order[k]);
+  }
+}
+
+// ---------- box, box: asking to pit (B / D-pad right) ----------
+// The line (on the track and the map) takes you into the pit lane, like a team calling you in. It stays until you've
+// driven through the pits, or you call it off.
+let boxCall = false, boxInLane = false;
+function setBox(on, say = true) {
+  if (on && (!race?.pits || !track.pitLane || !race || race.player.finishTime != null)) return;
+  boxCall = on; boxInLane = false; hud.setBox(on); race.player.boxCall = on; // (the display's pit page, and a BOX tag on every page: hud.js)
+  if (say) hud.toast(on ? 'Box, box: pit this lap' : 'Pit call cancelled', 1.6);
+  if (race) showRacingLine();
+}
+function boxCheck(st) { // every frame: through the pits (out of the lane, past its middle) ends the call
+  if (!boxCall) return;
+  if (st.inPitLane) { boxInLane = true; return; }
+  const p = track.pitLane, k = (st.trackIndex - p.i0 + track.n) % track.n;
+  if (boxInLane && k > p.steps / 2) setBox(false, false);
 }
 // The ghost: your best lap ever at this circuit in this car (ghost.js), raced in practice. Laps are recorded in every
 // race you drive offline; a faster clean flying lap becomes the new ghost.
@@ -430,6 +492,12 @@ window.addEventListener('pagehide', () => statsRun?.end());                     
 document.addEventListener('visibilitychange', () => { if (document.hidden) statsRun?.flush(); }); // save what's driven so far
 
 // Your stats (main menu → Your stats; statsScreen.js)
+// Career (career.js): a championship, round by round; pit stops and tyres are only in career races
+let lastCfg = null; // the race you're in, to restart it
+const career = new Career({ tracks: TRACKS, onRace: (cfg) => startGame(cfg), onClose: () => menu.classList.remove('hidden') });
+career.color = () => playerColor;
+document.getElementById('btn-career').addEventListener('click', () => { menu.classList.add('hidden'); career.open(); });
+function toCareer() { exitRace(); career.open(); }
 const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
 
@@ -438,6 +506,7 @@ carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase
 
 // cfg: race settings (solo: from the menu; online: from the host)
 async function startGame(cfg = soloConfig()) {
+  lastCfg = cfg;
   clearTimeout(previewTimer); // (the race builds its circuit itself)
   audio.start();
   audio.setCar(getCar(cfg.car)); // its engine sound (audio.js)
@@ -450,11 +519,11 @@ async function startGame(cfg = soloConfig()) {
 }
 const online = () => !!lobby.session;
 document.getElementById('btn-start').addEventListener('click', () => startGame());
-document.getElementById('btn-again').addEventListener('click', () => (online() ? toLobby() : startGame()));
+document.getElementById('btn-again').addEventListener('click', () => (online() ? toLobby() : race?.career ? toCareer() : startGame()));
 document.getElementById('btn-menu').addEventListener('click', toMenu);
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-quit').addEventListener('click', toMenu);
-document.getElementById('btn-restart').addEventListener('click', () => { setPaused(false); online() ? toLobby() : startGame(); });
+document.getElementById('btn-restart').addEventListener('click', () => { setPaused(false); online() ? toLobby() : startGame(race?.career ? lastCfg : undefined); });
 
 // Clear the race away; the live race plays behind the menus again
 function exitRace() {
@@ -464,7 +533,9 @@ function exitRace() {
   paused = false; audio.suspend(); rearView.hide();
   for (const m of models) scene.remove(m);
   models = [];
-  disposeRacingLine(racingLine); racingLine = null; hud.setRacingLine(null);
+  pitCrews?.dispose(); pitCrews = null;
+  disposeRacingLine(racingLine); racingLine = null; hud.setRacingLine(null); hud.setPitRoute(null);
+  boxCall = boxInLane = false; hud.setBox(false);
   ghostRec = null; ghostLap = null; ghostAsk++; ghostCar.hide(true); hud.setGhost(null, false); hud.ghostAt = null;
   if (race) { race = null; showcase.start(track, sceneCar); }
 }
@@ -484,7 +555,7 @@ function toLobby() {
 // Buttons on the pause and results screens say what they do online
 function onlineLabels() {
   const s = lobby.session, set = (sel, on, off) => { document.querySelector(sel).textContent = s ? on : off; };
-  set('#btn-again', 'Back to lobby', 'Race again');
+  set('#btn-again', 'Back to lobby', race?.career ? 'Back to career' : 'Race again');
   set('#btn-menu', 'Leave room', 'Main menu');
   set('#btn-restart span', s?.isHost ? 'End race · back to lobby' : 'Retire · back to lobby', 'Restart race');
   set('#btn-quit span', 'Leave room', 'Quit to menu');
@@ -599,6 +670,7 @@ function showResults() {
   $('results-fl').textContent = fl ? `${fl.name} ${formatTime(fl.time)}` : '--';
   $('results-fl').classList.toggle('purple', !!fl);
   if (results.classList.contains('hidden')) { // just opened
+    if (race.career && !race.recorded) { race.recorded = true; career.record(race); } // career: points and the next round
     askOnResults(); // now and then, a card asking for support (support.js)
     results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true });
   }
@@ -663,7 +735,7 @@ function tick(timestamp) {
   world.sky.material.uniforms.time.value += dt;
   if (wasPressed('KeyF') && !typing()) toggleFps();
   shadowSweep += dt;
-  if (shadowSweep > 1) { shadowSweep = 0; applyShadowCasters(); } // scenery that loaded since (see applyShadowCasters)
+  if (shadowSweep > 1) { shadowSweep = 0; applyShadowCasters(); applyCarShadows(); } // scenery that loaded since (see applyShadowCasters)
 
   if (!race) { // menu: live AI race filmed like TV
     camera.up.set(0, 1, 0); // (the race camera leans with the car; the TV cameras don't)
@@ -689,14 +761,17 @@ function tick(timestamp) {
   if (wasPressed('KeyM')) audio.setMuted(!audio.muted);
   if (wasPressed('KeyH') && headlights.has) hud.toast(headlights.toggle() ? 'Headlights on' : 'Headlights off', 1.2);
   if (wasPressed('KeyR') && race.state === 'racing' && race.player.finishTime == null) race.resetPlayer(); // (invalidates the lap: race.js)
+  if (wasPressed('KeyB')) setBox(!boxCall); // box, box: the line into the pits
 
   const input = readInput(dt);
+  if (race.career) tyreKeys(input); // career: your tyres: start set, next set, the choice in the pit lane
   const session = lobby.session;
   if (!paused || session) { // online the race doesn't stop for the pause menu: your car coasts
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
     const steps = Math.ceil(dt / (1 / 120));
     for (let i = 0; i < steps; i++) race.step(dt / steps, paused ? IDLE : input);
     ghostRec?.record(); // your lap, for the ghost (ghost.js)
+    boxCheck(race.player.state); // asked to box: done once you're through the pits
     // Messages for this frame, put together so a circuit record isn't hidden by "Final lap" in the same moment
     let msg = null, secs = 2.2;
     for (const e of race.takeEvents()) {
@@ -709,6 +784,16 @@ function tick(timestamp) {
         const r = statsRun?.lap(e);
         if (r?.best && r.prevBest != null) { msg = `Circuit record  ${formatTime(r.lap.t)}  −${(r.prevBest - r.lap.t).toFixed(3)}`; secs = 3; }
         else if (e.valid === false) msg ??= `Lap deleted  ${formatTime(e.time)}`; // invalidated: doesn't count
+      }
+      if (e.type === 'pitIn') { msg = 'Pit lane: choose your tyres  ← →'; hud.mfdShow('pit'); }
+      if (e.type === 'pitStop' && e.car.isPlayer) { msg = `Pit stop  ${e.time.toFixed(2)} s`; secs = 2.6; }
+      // damage (career: damage.js): a part getting bad, someone out, or you
+      if (e.type === 'damage') { msg = `${DAMAGE.names[e.part]} ${e.level > 1 ? 'badly damaged: box for repairs' : 'damage'}`; secs = 2.6; hud.mfdShow('damage'); }
+      if (e.type === 'out') msg ??= `${e.car.team.name} retires: ${DAMAGE.names[e.part].toLowerCase()}`;
+      if (e.type === 'retired') {
+        msg = `Retired: ${DAMAGE.names[e.part].toLowerCase()} damage`; secs = 3; hud.mfdShow('damage');
+        const out = race;
+        setTimeout(() => { if (race === out) showResults(); }, 3000);
       }
       if (e.type === 'finalLap') msg = msg ? `${msg}  ·  Final lap` : 'Final lap';
       if (e.type === 'finish') {
@@ -725,6 +810,7 @@ function tick(timestamp) {
 
   session?.tick(dt, timestamp); // online: swap car positions with the others
   syncModels(models, race.cars, camera); // other cars: the full model only for the nearest few (carLod.js)
+  pitCrews?.update(paused && !session ? 0 : dt, models); // crews out to the cars that are stopping, wheels off and on
   headlights.update(dt, race.player.state); // (after your car has moved: the light on the road follows it)
   hud.ghostAt = ghostCar.update(race, paused && !session ? 0 : dt); // the ghost car, and where it is for the minimap
 

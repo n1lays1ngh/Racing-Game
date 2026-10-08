@@ -106,11 +106,122 @@ kbd {
 .bt-gap { font-size: 16px; font-weight: 900; transition: color 0.3s; }
 .bt-row.good .bt-gap { color: var(--sec-green); }
 .bt-row.bad .bt-gap { color: #ff5a4d; }
-#map-panel { width: 264px; }
-.map-name { position: absolute; left: 10px; top: 7px; z-index: 1; font-size: 12px; font-weight: 700; color: var(--hud-muted); }
-#minimap { display: block; margin: 20px auto 4px; }
-#map-panel.zoom #minimap { margin-top: 12px; margin-bottom: 12px; }
-#map-panel.zoom .map-name { color: #cfd4db; }
+#map-panel { width: 100%; }
+.map-name { font-size: 12px; font-weight: 700; color: var(--hud-muted); }
+#minimap { display: block; margin: 8px auto 8px; }
+#map-panel.zoom #minimap { margin-top: 8px; margin-bottom: 10px; }
+
+/* ---- the multi-function display (hud.js MFD): tabs across the top, one page under them ----
+   Same language as the tower: flat dark plates, square corners, small muted labels over bold figures, and colour
+   only where it means something: the tyre compounds, wear and damage (fine → yellow → orange → red), the box call. */
+:root {
+  --mfd-pad: 14px;
+  --ok: #2fd27a; --warn: #ffd21f; --hurt: #ff8a1f; --bad: #ff3b30; --box: #2b9bff;
+  --part: #3a3f48;                          /* an undamaged part of the car */
+}
+#map-panel button { margin: 0; border-radius: 2px; text-transform: none; letter-spacing: 0; font-family: inherit; }
+#map-panel button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+.mfd-tabs { display: flex; height: 30px; border-bottom: 1px solid var(--line); }
+.mfd-tabs button { pointer-events: auto; flex: 1; min-width: 0; padding: 0 4px; border: 0; border-radius: 0 !important; background: none !important; cursor: pointer;
+  font: 700 12px/30px inherit; color: var(--hud-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfd-tabs button:hover { color: var(--ink); }
+.mfd-tabs button.on { color: var(--ink); box-shadow: inset 0 -2px 0 var(--red); }
+.mfd-tabs button.on .map-name { color: inherit; }
+.mfd-tabs.single button { cursor: default; text-align: left; padding-left: var(--mfd-pad); box-shadow: none; }
+.mfd-box { display: flex; justify-content: space-between; align-items: center; height: 24px; padding: 0 var(--mfd-pad);
+  background: var(--box); color: #04121c; font-size: 12px; font-weight: 900; animation: boxGlow 1.6s ease-in-out infinite; }
+.mfd-box span { font-weight: 700; }
+@keyframes boxGlow { 50% { background: #5cb4ff; } }
+
+.mfd-page { display: none; padding: 12px var(--mfd-pad) var(--mfd-pad); }
+#map-panel:not([data-page="map"]) #minimap { display: none; }
+#map-panel[data-page="pit"] #mfd-pit, #map-panel[data-page="tyres"] #mfd-tyres, #map-panel[data-page="damage"] #mfd-damage { display: block; }
+
+/* label over figure, in two or three columns */
+.mfd-cells { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-top: 1px solid var(--line); margin-top: 12px; }
+.mfd-cells div { display: flex; flex-direction: column; gap: 1px; padding: 8px 0 0; min-width: 0; }
+.mfd-cells div + div { padding-left: 10px; border-left: 1px solid var(--line); }
+.mfd-cells span, .mfd-label { font-size: 11px; font-weight: 600; color: var(--hud-muted); }
+.mfd-cells b { font-size: 15px; font-weight: 900; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfd-label { margin: 14px 0 6px; }
+.mfd-hint { margin: 10px 0 0; font-size: 11px; color: var(--hud-muted); }
+
+/* the tyre icon, as on the TV graphics: a black disc, the compound's colour round the rim and on the letter */
+.tyre { --c: #ffd12a; display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: #0b0c0f; color: var(--c); box-shadow: inset 0 0 0 3px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.6);
+  font: 900 11px/1 inherit; font-style: normal; }
+.tyre[data-c="soft"] { --c: #ff3328; } .tyre[data-c="hard"] { --c: #f2f2f2; }
+.tyre.big { width: 34px; height: 34px; font-size: 16px; box-shadow: inset 0 0 0 4px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.tc-tyre { --c: #ffd12a; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; margin-left: 4px; vertical-align: middle;
+  background: #0b0c0f; color: var(--c); box-shadow: inset 0 0 0 2px var(--c); font: 900 8px/1 inherit; }
+.tc-tyre.soft { --c: #ff3328; } .tc-tyre.hard { --c: #f2f2f2; }
+
+/* pit page */
+.mfd-call { pointer-events: auto; width: 100%; height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 2px; background: rgba(255, 255, 255, 0.04); color: var(--ink);
+  font: 900 14px/1 inherit; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.mfd-call:hover { border-color: rgba(255, 255, 255, 0.32); }
+.mfd-call .on { display: none; }
+.mfd-call.on { background: var(--box); border-color: var(--box); color: #04121c; }
+.mfd-call.on .on { display: inline; } .mfd-call.on .off { display: none; }
+.mfd-call.on kbd { background: rgba(0, 0, 0, 0.15); border-color: rgba(0, 0, 0, 0.25); color: #04121c; }
+.mfd-status { margin: 10px 0 0; font-size: 13px; font-weight: 700; color: var(--ink); }
+.tyre-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tyre-pick button { pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px 7px;
+  border: 1px solid var(--line); border-radius: 2px; background: rgba(255, 255, 255, 0.03); color: var(--hud-muted); cursor: pointer;
+  font: 700 12px/1.1 inherit; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.tyre-pick button .tyre { opacity: 0.55; transition: opacity 0.15s; }
+.tyre-pick button b { color: inherit; font-weight: 700; }
+.tyre-pick button small { margin: 0; font-size: 10px; color: var(--hud-muted); font-weight: 600; }
+.tyre-pick button:hover { border-color: rgba(255, 255, 255, 0.25); }
+.tyre-pick button.on { border-color: #fff; background: rgba(255, 255, 255, 0.09); color: var(--ink); }
+.tyre-pick button.on .tyre { opacity: 1; }
+
+/* tyres page: the set, then each tyre as a gauge that empties as it wears */
+.ty-head { display: flex; align-items: center; gap: 10px; }
+.ty-head div { display: flex; flex-direction: column; min-width: 0; }
+.ty-head b { font-size: 16px; font-weight: 900; }
+.ty-head small { margin: 0; font-size: 11px; color: var(--hud-muted); }
+.ty-car { display: grid; grid-template: "fl body fr" 1fr "rl body rr" 1fr / 40px 1fr 40px; gap: 14px 10px; height: 168px; margin-top: 12px; }
+.ty-body { grid-area: body; justify-self: center; width: 84px; height: 168px; }
+.ty-body { --ct-wheel: none; }
+.ty { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ty span { position: relative; flex: 1; width: 26px; border-radius: 5px; background: #16181d; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.ty span::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 7px, rgba(0, 0, 0, 0.28) 7px 8px); } /* tread */
+.ty i { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: var(--ok); transition: height 0.5s, background 0.5s; }
+.ty b { font-size: 13px; font-weight: 900; color: var(--ink); }
+.ty.crit span { animation: tyPulse 0.9s ease-in-out infinite; }
+@keyframes tyPulse { 50% { box-shadow: inset 0 0 0 1px var(--bad), 0 0 10px rgba(255, 59, 48, 0.75); } }
+.ty-car.fresh .ty span { animation: tyFlip 0.6s ease-out; }
+@keyframes tyFlip { from { transform: scaleY(0.2); opacity: 0; } }
+
+/* the car drawn from above (index.html #car-top): a quiet outline behind the tyres and the damage */
+.ct-shell { fill: rgba(255, 255, 255, 0.07); stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; }
+.ct-wing { display: var(--ct-wing, inline); fill: rgba(255, 255, 255, 0.07); stroke: rgba(255, 255, 255, 0.28); stroke-width: 1; }
+.ct-cockpit { fill: #0b0c0f; stroke: rgba(255, 255, 255, 0.28); }
+.ct-arm { stroke: rgba(255, 255, 255, 0.28); stroke-width: 2; fill: none; }
+.ct-wheel { display: var(--ct-wheel, inline); fill: #16181d; stroke: rgba(255, 255, 255, 0.2); }
+
+/* damage page */
+.dmg-wrap { display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: center; }
+.dmg-car { width: 92px; height: 184px; }
+.dmg-car .dmg-base { --ct-wing: none; --ct-wheel: none; }
+.dmg-car [data-p] { fill: var(--part); stroke: rgba(255, 255, 255, 0.3); stroke-width: 1; transition: fill 0.4s; }
+.dmg-car .crit { animation: dmgPulse 0.8s ease-in-out infinite; }
+@keyframes dmgPulse { 50% { opacity: 0.4; } }
+.dmg-list { display: flex; flex-direction: column; gap: 12px; }
+.dmg-list div { display: grid; grid-template-columns: 1fr auto; row-gap: 4px; }
+.dmg-list span { font-size: 12px; font-weight: 600; color: var(--hud-muted); }
+.dmg-list b { font-size: 13px; font-weight: 900; color: var(--ink); }
+.dmg-list i { grid-column: 1 / -1; height: 3px; background: rgba(255, 255, 255, 0.08); }
+.dmg-list u { display: block; height: 100%; width: 0; background: var(--part); transition: width 0.4s, background 0.4s; }
+#dmg-status.bad { color: var(--bad); } #dmg-status.hurt { color: var(--hurt); }
+.ty-mini { display: flex; align-items: center; gap: 6px; margin-left: 6px; }
+.ty-mini .tyre { width: 18px; height: 18px; font-size: 9px; box-shadow: inset 0 0 0 2px var(--c); }
+.ty-mini span { display: grid; grid-template-columns: 5px 5px; gap: 3px 8px; }
+.ty-mini span i { width: 5px; height: 8px; border-radius: 1px; background: var(--ok); }
+.dmg-lamp { display: none; }
+.dmg-lamp.bad { background: var(--bad); color: #fff; }
 /* practice with the ghost: the lap it's driving */
 .ghost-row { display: flex; align-items: baseline; gap: 10px; margin: 0 -14px; padding: 7px 14px 8px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--hud-muted); }
 .ghost-row span { color: #9fd6ff; }
@@ -838,7 +949,7 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 .home-title { max-width: 760px; margin-top: clamp(0px, 5vh, 70px); }
 .home-title .title { margin: 0 0 16px; }
 .home-title .pitch { margin: 0; max-width: 540px; }
-.home-doors { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.home-doors { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; } /* Race, Career, Multiplayer, Your stats */
 /* the doors: a slanted plate behind each (skewed, so the slant is the same however tall a door is) */
 #menu .door, #menu .door-quick { position: relative; isolation: isolate; text-align: left; border: 0; background: none; }
 #menu .door::before, #menu .door-quick::before {
@@ -876,6 +987,7 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 #menu.boot .home-doors > :nth-child(1) { animation-delay: 1.6s; }
 #menu.boot .home-doors > :nth-child(2) { animation-delay: 1.7s; }
 #menu.boot .home-doors > :nth-child(3) { animation-delay: 1.8s; }
+#menu.boot .home-doors > :nth-child(4) { animation-delay: 1.9s; }
 
 /* ---- 1 · car ---- */
 .mn-car { flex-direction: column; justify-content: flex-end; gap: clamp(12px, 2.2vh, 24px); }
@@ -1301,3 +1413,69 @@ button.res-support:hover .cup { color: var(--coffee-ink); }
 .cin-take button { width: 30px; margin: 0; padding: 5px 0; font-size: 16px; border-radius: 6px; }
 .cin-take b { min-width: 26px; text-align: center; font-size: 16px; color: var(--ink); }
 #cinema .cin-line { flex: 1; margin: 0; padding: 7px 12px; gap: 10px; }
+/* ===== Career (career.js) ===== */
+.cr-screen #cr-body { display: flex; flex-direction: column; gap: 16px; }
+.cr-setup { display: flex; flex-direction: column; gap: 14px; max-width: 780px; padding: 20px 22px 22px; border-radius: 6px;
+  background: rgba(10, 12, 18, 0.9); border: 1px solid var(--edge); }
+.cr-setup .seg-row { margin-top: 0; }
+.cr-setup .seg-row > span { width: 108px; flex: none; letter-spacing: 0; text-transform: none; font-size: 14px; font-weight: 600; }
+.cr-setup .cr-card { margin: 0; text-transform: none; letter-spacing: 0; border-radius: 6px; padding: 14px 16px; background: rgba(255, 255, 255, 0.04); }
+.cr-setup .cr-card:hover { background: rgba(255, 255, 255, 0.08); }
+.cr-setup .cr-card span { font-weight: 600; line-height: 1.3; }
+.cr-setup .cr-card small { margin: 6px 0 0; font-weight: 700; }
+.cr-setup .cr-card.on { background: rgba(225, 6, 0, 0.14); }
+.cr-setup button.start { margin-top: 4px; }
+.cr-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cr-card { display: flex; flex-direction: column; gap: 4px; padding: 16px; text-align: left; cursor: pointer; color: var(--ink);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge); border-radius: 10px; font: inherit; }
+.cr-card b { font-size: 26px; font-weight: 900; font-style: italic; }
+.cr-card span { font-size: 13px; color: var(--muted); }
+.cr-card small { font-size: 12px; color: var(--muted); }
+.cr-card.on { border-color: var(--red); box-shadow: inset 0 0 0 1px var(--red); background: rgba(225, 6, 0, 0.1); }
+.cr-cal { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--muted); }
+.cr-cal span { padding: 3px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); }
+/* the season: the next round (the circuit drawn from its layout), then the standings and the calendar */
+.cr-next { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 24px; padding: 18px 22px;
+  border-radius: 6px; background: rgba(10, 12, 18, 0.9); border: 1px solid var(--edge); border-left: 4px solid var(--red); }
+.cr-map { width: 150px; height: 110px; display: block; }
+.cr-map path { fill: none; stroke: #f4f5f7; stroke-width: 2.6; stroke-linejoin: round; }
+.cr-map circle { fill: var(--red); stroke: #0b0d12; stroke-width: 1.5; }
+.cr-next-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cr-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.cr-next-info b { font-size: 40px; line-height: 1; font-weight: 900; font-style: italic; letter-spacing: -0.01em; }
+.cr-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 14px; font-weight: 600; color: #cfd4db; }
+.cr-facts i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); }
+button.start.cr-go { width: 200px; margin: 0; }
+.cr-champ { display: flex; flex-direction: column; gap: 2px; padding: 16px 22px; border-radius: 6px; background: #ffd21f; color: #12100a; }
+.cr-champ b { font-size: 26px; font-weight: 900; font-style: italic; }
+.cr-champ span { font-size: 14px; font-weight: 700; }
+.cr-tables { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
+.cr-panel { display: flex; flex-direction: column; min-height: 0; border-radius: 6px; overflow: hidden;
+  background: rgba(10, 12, 18, 0.9); border: 1px solid var(--edge); border-top: 3px solid var(--red); }
+.cr-panel h3 { margin: 0; padding: 12px 16px 10px; font-size: 16px; font-weight: 900; font-style: italic; }
+.cr-scroll { max-height: 44vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+.cr-scroll::-webkit-scrollbar { width: 6px; } .cr-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+.cr-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cr-table th { position: sticky; top: 0; z-index: 1; padding: 7px 12px; background: #12141b; text-align: left;
+  font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+.cr-table td { height: 34px; padding: 0 12px; font-size: 15px; font-weight: 700; white-space: nowrap; }
+.cr-table tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
+.cr-table .c { text-align: center; } .cr-table .r { text-align: right; }
+.cr-table .p { width: 52px; font-weight: 900; color: var(--muted); }
+.cr-table td.p { color: var(--ink); }
+.cr-table .who i { display: inline-block; width: 4px; height: 18px; margin-right: 10px; vertical-align: -4px; }
+.cr-table .gap { font-size: 13px; font-weight: 600; color: var(--muted); }
+.cr-table .pts { font-weight: 900; }
+.cr-table tbody tr.me td { background: #f2f3f5; color: #0b0d12; }
+.cr-table tbody tr.me .gap { color: #555b66; }
+.cr-table tr.next td { background: rgba(225, 6, 0, 0.14); }
+.cr-table tr.next td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+.cr-table tr.later td { color: rgba(244, 245, 247, 0.45); }
+.cr-tag { font-size: 13px; font-weight: 900; color: #ff4d42; }
+.cr-res { font-weight: 900; } .cr-res.podium { color: #ffd21f; } .cr-res.dnf { color: #ff6b61; font-size: 13px; }
+.cr-reset { align-self: flex-start; }
+@media (max-width: 860px) {
+  .cr-cards, .cr-tables { grid-template-columns: 1fr; }
+  .cr-next { grid-template-columns: auto 1fr; } .cr-go { grid-column: 1 / -1; width: 100% !important; }
+  .cr-map { width: 110px; height: 80px; } .cr-next-info b { font-size: 30px; }
+}

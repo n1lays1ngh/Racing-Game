@@ -10,6 +10,8 @@ import { formatTime, newTrace, tracePass, traceTime, GAP_STEP } from './race.js'
 import { gearbox } from './physics.js';
 import { wasPressed } from './input.js';
 import { PITLANE } from './pitlane.js';
+import { TYRES, chooseCompound, lifeLaps } from './tyres.js';
+import { DAMAGE, repairTime } from './damage.js';
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -17,6 +19,9 @@ const MAP_SIZE = 240;      // minimap size in CSS pixels
 const REV_LEDS = 15;       // shift lights: 5 green, 5 red, 5 blue
 const TOWER_EVERY = 12;    // frames between timing tower updates (a gap that changes every frame can't be read)
 const LAP_POPUP = 4;       // s: your lap time stays up this long after the line
+// The multi-function display's pages (the panel under the lap timing; , and . or the D-pad switch them). Add a page:
+// its name here, a <div id="mfd-<name>" class="mfd-page"> in index.html, a CSS rule to show it, and its drawing in update()
+export const MFD_PAGES = ['map', 'pit', 'tyres', 'damage'];
 
 // ---- the rev counter (an SVG arc of segments) ----
 const TC = { cx: 125, cy: 110, r: 98, sweep: 125, segs: 44 }; // centre, radius, ± degrees from straight up, segments
@@ -57,7 +62,116 @@ export class HUD {
     this.frame = 0;
     this.showLeaderGap = false; // T toggles interval ↔ gap to leader
     this.spec = undefined;
+    this.mfd = 0; this.box = false; this.onBox = null; // (main.js: onBox = ask to pit / call it off)
+    this.pages = MFD_PAGES;
+    $('map-panel').addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-tab]');
+      if (tab && this.pages.length > 1) this.mfdShow(tab.dataset.tab);
+      if (e.target.closest('#mfd-box-btn')) this.onBox?.();
+      const pick = e.target.closest('[data-c]'); if (pick) this.onTyres?.(pick.dataset.c); // (main.js: your next tyres)
+      e.target.closest('button')?.blur(); // (so Space, the brake, can't press it again)
+    });
     this.setupMinimap(track);
+    this.setMode(false);
+  }
+
+  // ---------- the multi-function display: which page ----------
+  // Career races have the pit and tyre pages (pit stops and tyres are career only); other races just the map
+  setMode(career) {
+    this.pages = career ? MFD_PAGES : ['map'];
+    for (const b of $('mfd-tabs').children) b.style.display = this.pages.includes(b.dataset.tab) ? '' : 'none';
+    $('mfd-tabs').classList.toggle('single', this.pages.length === 1);
+    $('ty-mini').style.display = career ? '' : 'none';
+    $('aid-dmg').style.display = 'none'; this.dmgSeen = null;
+    this.mfd = 0; this.mfdStep(0);
+  }
+  mfdStep(d) {
+    this.mfd = (this.mfd + d + this.pages.length) % this.pages.length;
+    $('map-panel').dataset.page = this.pages[this.mfd];
+    for (const b of $('mfd-tabs').children) b.classList.toggle('on', b.dataset.tab === this.pages[this.mfd]);
+    this.mfdTitle();
+  }
+  mfdShow(page) { const k = this.pages.indexOf(page); if (k >= 0) this.mfdStep(k - this.mfd); }
+  mfdTitle() { // the map's tab: the circuit / road ahead on its own, or short next to the other tabs
+    const one = this.pages.length === 1;
+    this.el.mapName.textContent = this.mapZoom ? (one ? 'Road ahead' : 'Ahead') : one ? this.track?.name ?? 'Map' : 'Map';
+  }
+  // Box, box: you've asked to pit (main.js). Shown on every page; switched on the pit page.
+  setBox(on) {
+    this.box = on;
+    $('mfd-box').classList.toggle('hidden', !on);
+    $('mfd-box-btn').classList.toggle('on', on);
+  }
+  // Your tyres (tyres.js): on the tyre page each one empties and goes green → yellow → red as it wears (and pulses past
+  // 75%), with the set, laps on it and the grip; on the dash, a small four-tyre gauge that's always there
+  drawTyres(race, page) {
+    const st = race.player.state, t = st.tyres;
+    if (!t) return;
+    const c = TYRES.compounds[t.compound], colour = (w) => `var(--${w < 0.5 ? 'ok' : w < 0.7 ? 'warn' : w < 0.85 ? 'hurt' : 'bad'})`;
+    const mini = $('ty-mini');
+    mini.firstElementChild.textContent = c.letter; mini.firstElementChild.dataset.c = t.compound;
+    [...mini.querySelectorAll('span i')].forEach((el, k) => { el.style.background = colour(t.wear[k]); });
+    if (!page) return;
+    const car = document.querySelector('#mfd-tyres .ty-car');
+    if (this.tyresFitted !== st.tyresFitted) { // a new set: the tyres flip in
+      if (this.tyresFitted != null) { car.classList.remove('fresh'); void car.offsetWidth; car.classList.add('fresh'); }
+      this.tyresFitted = st.tyresFitted;
+    }
+    [...car.querySelectorAll('.ty')].forEach((el, k) => {
+      const w = t.wear[k], left = Math.max(0, Math.round((1 - w) * 100));
+      el.querySelector('i').style.height = `${left}%`; el.querySelector('i').style.background = colour(w);
+      el.querySelector('b').textContent = left; el.classList.toggle('crit', w >= TYRES.cliff);
+    });
+    $('ty-badge').textContent = c.letter; $('ty-badge').dataset.c = t.compound;
+    const laps = t.dist / race.track.length, grip = (st.tyreGrip / c.grip - 1) * 100;
+    $('ty-name').textContent = c.name;
+    $('ty-laps').textContent = laps < 0.2 ? 'New set' : `${laps.toFixed(1)} laps on this set`;
+    $('ty-grip').textContent = Math.abs(grip) < 0.05 ? 'Full' : `${grip < 0 ? '−' : '+'}${Math.abs(grip).toFixed(1)}%`;
+    $('ty-life').textContent = `≈ ${Math.round(t.life)} laps`;
+  }
+
+  // Damage (damage.js): on the damage page each part of the car goes green → yellow → red (pulsing when it's broken),
+  // with how bad each is, and what a stop would take; on the dash a DMG lamp once the car is hurt
+  drawDamage(race, page) {
+    const car = race.player, d = car.state.damage;
+    if (!d) return;
+    const P = d.parts, worst = Math.max(P.front, P.rear, P.left, P.right);
+    const lamp = $('aid-dmg');
+    lamp.style.display = worst >= DAMAGE.fixFrom ? '' : 'none';
+    lamp.classList.toggle('on', worst >= DAMAGE.warn[0] && worst < DAMAGE.warn[1]); lamp.classList.toggle('bad', worst >= DAMAGE.warn[1]);
+    if (!page) return;
+    // fine: grey; then yellow, orange, red; broken: red, pulsing
+    const colour = (v) => `var(--${v < DAMAGE.fixFrom ? 'part' : v < DAMAGE.warn[0] ? 'warn' : v < DAMAGE.warn[1] ? 'hurt' : 'bad'})`;
+    for (const part of DAMAGE.parts) {
+      const el = document.querySelector(`#mfd-damage [data-p="${part}"]`), v = P[part];
+      el.style.fill = colour(v); el.classList.toggle('crit', v >= Math.min(1, d.cap));
+      const row = document.querySelector(`#mfd-damage [data-row="${part}"]`);
+      row.querySelector('b').textContent = `${Math.round(v * 100)}%`;
+      const bar = row.querySelector('u'); bar.style.width = `${Math.min(100, v * 100)}%`; bar.style.background = colour(v);
+    }
+    const fix = repairTime(car.state), st = $('dmg-status');
+    st.textContent = car.retired ? 'Retired' : d.out ? 'Retiring' : worst >= DAMAGE.warn[1] ? 'Box for repairs'
+      : worst >= DAMAGE.warn[0] ? 'Damaged' : worst >= DAMAGE.fixFrom ? 'Minor damage' : 'No damage';
+    st.className = car.retired || d.out || worst >= DAMAGE.warn[1] ? 'bad' : worst >= DAMAGE.warn[0] ? 'hurt' : '';
+    $('dmg-repair').textContent = fix > 0.05 && !d.out ? `+${fix.toFixed(1)} s` : '–';
+  }
+
+  // The pit page: how far to the pit entry, the speed limit, the lane
+  drawPitPage(race) {
+    const lane = race.track.pitLane, s = race.player.state, L = race.track.length;
+    const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`);
+    $('mfd-entry').textContent = !lane ? 'No pit lane' : s.inPitLane ? 'In the pit lane' : km((lane.entry - s.s + L) % L);
+    $('mfd-limit').textContent = lane ? `${lane.limitKmh} km/h` : '–';
+    $('mfd-lane').textContent = lane ? km(lane.total) : '–';
+    const p = race.player.pit; // the stop (pitstop.js)
+    const next = race.player.nextTyres ?? chooseCompound(race, race.laps - race.player.lapsDone, race.player.state.tyres?.used);
+    for (const b of $('mfd-next').children) {
+      b.classList.toggle('on', b.dataset.c === next);
+      b.querySelector('[data-life]').textContent = `≈ ${Math.round(lifeLaps(b.dataset.c, race))} laps`;
+    }
+    $('mfd-status').textContent = !p ? '–' : p.state === 'in' ? 'The team is bringing you in' : p.state === 'stop'
+      ? `Stationary${p.repair > 0.5 ? ', repairs' : ''}  ${(p.total - p.timer).toFixed(1)} s` : p.state === 'out' ? 'Released'
+      : p.last != null ? `${p.stops} ${p.stops === 1 ? 'stop' : 'stops'}, last ${p.last.toFixed(2)} s` : 'No stops yet';
   }
 
   // ---------- your car: the rev counter for its gearbox, which lights and bars it has ----------
@@ -111,7 +225,8 @@ export class HUD {
     const ox = pad + ((span - (maxX - minX)) * scale) / 2, oz = pad + ((span - (maxZ - minZ)) * scale) / 2;
     // Mirror X so north is up (x points west in the game).
     this.toMap = (x, z) => [c.width - (ox + (x - minX) * scale), oz + (maxZ - z) * scale];
-    this.track = track; this.dpr = dpr; this.zones = null; this.linePaths = null; // (main.js sets the racing line again)
+    this.track = track; this.dpr = dpr; this.zones = null; this.linePaths = null; this.pitRoute = null; // (main.js sets the racing line again)
+    this.el.limiter.textContent = `Pit limiter ${track.pitLane?.limitKmh ?? PITLANE.limit} km/h`;
     // the same circuit in metres, for the close-up (drawn through a canvas transform)
     const road = new Path2D();
     for (let i = 0; i <= track.n; i++) { const k = i % track.n; i ? road.lineTo(track.cx[k], track.cz[k]) : road.moveTo(track.cx[k], track.cz[k]); }
@@ -168,6 +283,10 @@ export class HUD {
         path(i, j, 1); g.stroke();
       }
     }
+    if (this.pitRoute) { // asked to box: the way into the pits
+      g.beginPath(); this.pitRoute.pts.forEach(([x, z], q) => { const [px, py] = this.toMap(x, z); q ? g.lineTo(px, py) : g.moveTo(px, py); });
+      g.strokeStyle = '#33b3ff'; g.lineWidth = 3 * dpr; g.stroke();
+    }
     const third = Math.floor(track.n / 3);
     for (const [i, col, w] of [[third, 'rgba(255,255,255,0.6)', 2], [third * 2, 'rgba(255,255,255,0.6)', 2], [0, '#e10600', 3.5]]) {
       const [px, py] = this.toMap(track.cx[i], track.cz[i]);
@@ -181,7 +300,7 @@ export class HUD {
   // zoom: the close-up (true) or the whole circuit (false)
   setMapMode(zoom) {
     this.mapZoom = !!zoom;
-    this.el.mapName.textContent = this.mapZoom ? 'Road ahead' : this.track?.name ?? '';
+    this.mfdTitle();
     $('map-panel').classList.toggle('zoom', this.mapZoom);
   }
 
@@ -200,6 +319,21 @@ export class HUD {
       this.linePaths = { green, red };
     }
     if (this.track) this.drawMapBg();
+  }
+
+  // The way into the pits when you've asked to box (pitlane.js pitRoute), or null
+  setPitRoute(route) {
+    this.pitRoute = null;
+    const t = this.track;
+    if (route && t) {
+      const pts = [], path = new Path2D();
+      for (let q = 0; q <= route.len; q++) {
+        const i = (route.from + q) % t.n, o = route.offsets[i], x = t.cx[i] + t.nx[i] * o, z = t.cz[i] + t.nz[i] * o;
+        pts.push([x, z]); q ? path.lineTo(x, z) : path.moveTo(x, z);
+      }
+      this.pitRoute = { pts, path };
+    }
+    if (t) this.drawMapBg();
   }
 
   drawMinimap(race) {
@@ -260,6 +394,7 @@ export class HUD {
       g.strokeStyle = '#2fd866'; g.stroke(this.linePaths.green);
       g.strokeStyle = '#ff3b30'; g.stroke(this.linePaths.red);
     }
+    if (this.pitRoute) { g.lineWidth = Math.max(1.4, px1 * 3); g.strokeStyle = '#33b3ff'; g.stroke(this.pitRoute.path); }
     const third = Math.floor(t.n / 3); // sector lines and the start / finish across the road
     for (const [i, col, w] of [[third, 'rgba(255,255,255,0.7)', 2], [third * 2, 'rgba(255,255,255,0.7)', 2], [0, '#e10600', 4]]) {
       const e = t.hw[i] + 3;
@@ -450,8 +585,8 @@ export class HUD {
       const fastest = fl === c.team.name ? '<span class="fl" title="Fastest lap"></span>' : '';
       const cls = [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : ''].join(' ');
       return `<li class="${cls}"><span class="p">${c.position}</span>` +
-        `<span class="bar" style="background:${hex(c.team.color)}"></span><span class="n">${code(c)}${fastest}</span>` +
-        `${chg}<span class="g">${flag}${this.gapText(race, st, i)}</span></li>`;
+        `<span class="bar" style="background:${hex(c.team.color)}"></span><span class="n">${code(c)}${fastest}${c.state.tyres ? `<span class="tc-tyre ${c.state.tyres.compound}">${TYRES.compounds[c.state.tyres.compound].letter}</span>` : ''}</span>` +
+        `${chg}<span class="g">${flag}${c.state.inPitLane && race.state === 'racing' && c.finishTime == null ? 'PIT' : this.gapText(race, st, i)}</span></li>`;
     }).join('');
   }
 
@@ -582,7 +717,17 @@ export class HUD {
     this.camTimer -= dt;
     E.camChip.classList.toggle('show', this.camTimer > 0);
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) E.toast.classList.remove('show'); }
-    this.drawMinimap(race);
+    if (wasPressed('Comma')) this.mfdStep(-1);
+    if (wasPressed('Period')) this.mfdStep(1);
+    const page = this.pages[this.mfd];
+    if (page === 'map') this.drawMinimap(race);
+    else if (page === 'pit' && this.frame % 6 === 0) this.drawPitPage(race);
+    if (this.box && this.frame % 6 === 1) { // the box strip: how far to the pit entry
+      const lane = race.track.pitLane, s = race.player.state, L = race.track.length, m = lane ? (lane.entry - s.s + L) % L : 0;
+      $('mfd-box-dist').textContent = !lane ? '' : s.inPitLane ? 'Pit lane' : m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`;
+    }
+    if (this.frame % 6 === 3) this.drawTyres(race, page === 'tyres');
+    if (this.frame % 6 === 5) this.drawDamage(race, page === 'damage');
     this.frame++;
   }
 

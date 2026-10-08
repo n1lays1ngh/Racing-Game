@@ -11,6 +11,8 @@ export const RACING_LINE = {
   lift: 0.075,      // above the road (the tarmac is at 0.06, skid marks just above it)
   green: [0.12, 0.85, 0.36, 0.55],  // r, g, b, opacity
   red: [1.0, 0.16, 0.12, 0.78],
+  pit: [0.2, 0.7, 1.0, 0.8],        // down the pit lane, when you've asked to box
+
   brakeAbove: 3.5,  // m/s² of slowing more than lifting off would give = braking (red)
   blend: 3,         // samples (~2 m each) the colours fade over at each end of a braking zone
 };
@@ -52,11 +54,16 @@ export function lineColours(zones) {
 }
 
 // The mesh: a thin ribbon on the racing line, following the hills and the banking. Unlit, so it's as clear at night.
-export function buildRacingLine(track, profile, physics) {
-  const { n } = track, zones = brakeZones(track, profile, physics), col = lineColours(zones), W = RACING_LINE.width / 2;
+// route: the way into the pits when you've asked to box (pitlane.js pitRoute): the line follows it, blue down the pit
+// lane; with route.only, just that stretch is drawn (the racing line itself is switched off).
+export function buildRacingLine(track, profile, physics, route = null) {
+  const zones = brakeZones(track, profile, physics), col = lineColours(zones), W = RACING_LINE.width / 2;
+  const ro = route?.offsets ?? track.ro, lane = route && track.pitLane;
+  if (lane) for (let k = 0; k <= lane.steps; k++) col.set(RACING_LINE.pit, ((lane.i0 + k) % track.n) * 4);
+  const first = route?.only ? route.from : 0, n = route?.only ? route.len : track.n;
   const pos = new Float32Array((n + 1) * 6), colour = new Float32Array((n + 1) * 8), idx = [];
   for (let k = 0; k <= n; k++) {
-    const i = k % n, o = track.ro[i];
+    const i = (first + k) % track.n, o = ro[i];
     for (let e = 0; e < 2; e++) {
       const lat = o + (e ? W : -W), j = k * 2 + e;
       pos.set([track.cx[i] + track.nx[i] * lat, (track.h ? track.h[i] : 0) + bankLift(track, i, lat) + RACING_LINE.lift,

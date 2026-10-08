@@ -199,6 +199,7 @@ export class AIDriver {
   update(dt, others) {
     const { car, track: t, p } = this, T = AI_TUNE, n = t.n, ds = t.ds, L = t.length;
     const info = circuitInfo(t, this.profile);
+    if (this.hold) return { throttle: 0, brake: 0, steer: 0, boost: false, abs: true, grip: this.grip, lock: T.lockBonus }; // in its pit box
     if (this.launch > 0) { // lights out: a moment to react, holding the revs
       this.launch -= dt;
       return { throttle: 0.4, brake: 0, steer: 0, boost: false, abs: true, grip: this.grip, lock: T.lockBonus };
@@ -211,7 +212,8 @@ export class AIDriver {
     const head = info.head, myPsi = wrap(car.h - head[i]);
     const myExt = R + co * Math.abs(Math.sin(myPsi)), myLatV = car.vx * t.nx[i] + car.vz * t.nz[i];
     const tow = car.tow ?? 0;
-    const mu = p.mu * this.grip * this.safety * (1 - SLIPSTREAM.dirtyAir * tow); // (dirty air behind another car)
+    const mu = p.mu * this.grip * this.safety * (1 - SLIPSTREAM.dirtyAir * tow) * (car.tyreGrip ?? 1) // (dirty air behind another car; its tyres …
+      * (car.damage ? car.damage.fx.grip * (0.5 + 0.5 * car.damage.fx.aero) : 1); // … and damage: damage.js)
     this.odo += v * dt;
     if (car.s < this.lastS - L / 2) this.form = 1 + (Math.random() - 0.5) * 2 * T.form; // over the line: a new lap
     this.lastS = car.s;
@@ -252,21 +254,22 @@ export class AIDriver {
     // it. Made afresh 40 times a second (AI_TUNE.plan), and whenever the line it wants changes; in between it drives
     // the plan it has (`off`: how many samples along it the car is now) ----
     const { path, want, lo, hi, vk } = this, edge = T.edge, pace = this.skill * this.form;
-    const lane = this.lane;
+    const lane = this.lane, route = this.route, pl = route && t.pitLane; // route: into the pits (pitstop.js), its own line
     let off = (i - this.planI + n) % n, K = this.planK, squeeze = this.squeeze;
     this.planAge += dt;
-    if (this.planI < 0 || this.planAge >= T.plan || off > 8 || lane !== this.planLane || (lane && lane.lat !== this.planLat)) {
-      this.planI = i; this.planAge = 0; this.planLane = lane; this.planLat = lane?.lat; off = 0;
+    if (this.planI < 0 || this.planAge >= T.plan || off > 8 || lane !== this.planLane || (lane && lane.lat !== this.planLat) || route !== this.planRoute) {
+      this.planI = i; this.planAge = 0; this.planLane = lane; this.planLat = lane?.lat; this.planRoute = route; off = 0;
       const H = clamp((v * v) / 36 + v * 0.6 + 40, 60, MAXK * ds);
       K = this.planK = Math.min(MAXK, Math.ceil(H / ds));
       // metres it takes to move across to a new line: no more than a share of the tyres' grip at this speed goes on
       // the move (AI_TUNE.moveGrip), so the further across and the faster, the longer it takes (a GT3 more than an F1)
-      const dLat = Math.abs(lat - (lane ? lane.lat : t.ro[i])), aMax = mu * (p.g + p.downforce * v * v);
+      const dLat = Math.abs(lat - (route ? route[i] : lane ? lane.lat : t.ro[i])), aMax = mu * (p.g + p.downforce * v * v);
       const Bc = clamp(Math.max(v * 0.9, v * Math.sqrt((6 * dLat) / Math.max(T.moveGrip * aMax, 1))), 14, (MAXK - 5) * ds);
       for (let k = 0; k <= K; k++) {
         const j = (i + k) % n, hw = t.hw ? t.hw[j] : HALF_WIDTH;
         lo[k] = -hw + edge; hi[k] = hw - edge;
-        want[k] = lane ? clamp(lane.lat, lo[k] + 0.3, hi[k] - 0.3) : t.ro[j];
+        if (pl && pl.range[j]) { const o = pl.out[j] - edge; if (pl.side > 0) hi[k] = Math.max(hi[k], o); else lo[k] = Math.min(lo[k], -o); } // the pit lane
+        want[k] = route ? route[j] : lane ? clamp(lane.lat, lo[k] + 0.3, hi[k] - 0.3) : t.ro[j];
       }
       const err0 = lat - want[0];
       for (let k = 0; k <= K; k++) {
@@ -336,6 +339,7 @@ export class AIDriver {
       for (let k = 0; k < 5; k++) vk[k] = Math.min(vk[5], lineV(k));
       for (let k = K - 4; k <= K; k++) vk[k] = Math.min(vk[K - 5], lineV(k));
       vk[K] = Math.min(vk[K], this.profile[(i + K) % n] * pace); // and beyond the plan: the racing line's own speed
+      if (pl) for (let k = 0; k <= K; k++) if (pl.limit[(i + k) % n]) vk[k] = Math.min(vk[k], (pl.limitKmh ?? 80) / 3.6 - 0.4); // the pit limiter
       for (let k = K - 1; k >= 0; k--) {
         const j = (i + k) % n, next = vk[k + 1];
         const b = brakeDecel(p, next, mu, this.brakeUse, t.grade ? t.grade[j] : 0, t.vcurv ? t.vcurv[j] : 0);
@@ -346,6 +350,10 @@ export class AIDriver {
     const at = (k) => Math.min(K, k + off); // sample k metres/ds ahead of the car, in the plan
     const kr = Math.min(K, Math.max(1, Math.round((v * T.reaction) / ds)));
     let target = vk[at(kr)];
+    if (this.stopAt) { // its pit box: stop right on it
+      const d = ((this.stopAt.s - car.s + L * 1.5) % L) - L / 2;
+      target = Math.min(target, Math.sqrt(2 * 5 * Math.max(0, d - 0.3)));
+    }
 
     // ---- a car in front on its line: never closer than it can stop behind (whatever that car does) ----
     this.blocked = null;
@@ -446,6 +454,7 @@ export class AIDriver {
   decide(near, v, i, lat, info, len, Wc, dt) {
     const t = this.track, T = AI_TUNE, n = t.n, ds = t.ds, p = this.p, edge = T.edge;
     this.towing = null; // (the car whose tow it's sitting in, waiting to pull out: it follows that one closer)
+    if (this.route) { this.lane = null; return; } // heading into the pits: no racing
     const Wp = 2 * (p.radius ?? 1.25) + T.passRoom;
     // the narrowest the track gets over the next 100 m: the room there is to be beside someone
     let hw = Infinity;
