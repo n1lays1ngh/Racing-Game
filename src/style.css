@@ -1276,3 +1276,28 @@ button.res-support:hover .cup { color: var(--coffee-ink); }
 .res-ask.thanked p { margin-bottom: 2px; }
 @keyframes ask-in { from { opacity: 0; transform: translateY(12px); } }
 @media (prefers-reduced-motion: reduce) { .res-ask { animation: none; } }
+
+/* ---- cinematic replay (cinema.js) ---- */
+#cinema { display: block; padding: 0; background: none; pointer-events: none; }
+.cin-panel {
+  pointer-events: auto; position: absolute; left: clamp(16px, 4vw, 56px); bottom: clamp(16px, 6vh, 64px); width: min(460px, calc(100% - 32px));
+  padding: 22px 24px; border-radius: 10px; background: rgba(8, 9, 14, 0.88); border: 1px solid var(--edge); border-left: 5px solid var(--red);
+}
+#cinema.playing .cin-panel { display: none; }
+.cin-res { display: flex; gap: 6px; margin-top: 16px; }
+.cin-res button { flex: 1; margin: 0; padding: 8px; font-size: 13px; border-radius: 6px; }
+.cin-res button.on { background: var(--red); border-color: var(--red); }
+.cin-btns { display: grid; gap: 10px; margin-top: 14px; }
+.cin-btns .pm-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.cin-status { margin-top: 12px; line-height: 1.4; }
+.cin-progress:empty { display: none; }
+.cin-progress {
+  position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted);
+}
+.cin-ico { font-size: 13px; color: var(--red); }
+.cin-opts { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.cin-take { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.cin-take button { width: 30px; margin: 0; padding: 5px 0; font-size: 16px; border-radius: 6px; }
+.cin-take b { min-width: 26px; text-align: center; font-size: 16px; color: var(--ink); }
+#cinema .cin-line { flex: 1; margin: 0; padding: 7px 12px; gap: 10px; }

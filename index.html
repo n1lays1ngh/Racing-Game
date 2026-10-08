@@ -240,6 +240,7 @@
       <div class="mn-foot-home">
         <div class="keys">
           <button type="button" id="btn-controls" class="mn-ctl"><span class="ctl-ico" aria-hidden="true"><i></i><i></i></span><b>Controls</b><span>Keyboard and controller</span></button>
+          <button type="button" id="btn-cinema" class="mn-ctl"><span class="cin-ico" aria-hidden="true">▶</span><b>Cinematic replay</b><span>Your best lap as a video</span></button>
         </div>
         <div class="mn-gfx"><span>Graphics</span><div class="lb-seg" data-gfx></div><div class="gfx-note" data-gfx-note></div></div>
       </div>
@@ -399,6 +400,28 @@
 
   <!-- ===== Intro (plays once on load) ===== -->
   <div id="intro"><div class="intro-logo"><span class="slash"></span>Apex <b>Circuit</b></div></div>
+
+  <!-- ===== Cinematic replay (cinema.js): your best lap, filmed; watch it or save it as a video ===== -->
+  <div id="cinema" class="overlay hidden">
+    <div class="cin-panel">
+      <div class="res-kicker"><span class="slash"></span>Cinematic replay</div>
+      <h2 id="cin-title" class="st-title">Circuit</h2>
+      <div id="cin-sub" class="res-sub"></div>
+      <div id="cin-res" class="cin-res"><button type="button" data-v="1080">1080p</button><button type="button" data-v="1440">1440p</button><button type="button" data-v="2160">4K</button></div>
+      <div class="cin-opts">
+        <div class="cin-take" title="The same take always gives the same edit; another take, another edit"><span>Take</span><button type="button" id="cin-take-prev" aria-label="Previous take">‹</button><b id="cin-take">1</b><button type="button" id="cin-take-next" aria-label="Next take">›</button></div>
+        <button type="button" id="cin-line" class="set-row cin-line" role="switch" aria-checked="false"><span class="set-txt"><b>Racing line</b></span><i class="switch"></i></button>
+        <button type="button" id="cin-sound" class="set-row cin-line" role="switch" aria-checked="true"><span class="set-txt"><b>Sound</b></span><i class="switch"></i></button>
+      </div>
+      <div class="cin-btns">
+        <button type="button" id="cin-watch" class="pm-btn"><span>Watch</span></button>
+        <button type="button" id="cin-rec" class="pm-btn primary"><span>Record video</span></button>
+        <button type="button" id="cin-back" class="pm-btn"><span>Back</span><kbd>Esc</kbd></button>
+      </div>
+      <div id="cin-status" class="res-sub cin-status"></div>
+    </div>
+    <div id="cin-progress" class="cin-progress"></div>
+  </div>
 
   <!-- ===== Pause ===== -->
   <div id="pause" class="overlay hidden" data-view="main">

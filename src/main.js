@@ -26,6 +26,7 @@ import { OPTIONS, setOption, onOption } from './options.js';
 import { buildRacingLine, disposeRacingLine } from './racingLine.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 import { setupSupport, raceFinished, askOnResults } from './support.js';
+import { Cinema } from './cinema.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -378,6 +379,35 @@ menuUI = setupMenu({
 const nameTags = new NameTags(); // names over friends' cars online
 setupSupport(); // "Support me" on every menu (support.js)
 
+// Cinematic replay of your best lap (cinema.js): from the start screen, for the car and circuit picked in the menu
+let cinemaModel = null;
+const cinema = new Cinema({
+  renderer, scene, camera,
+  highGraphics: () => { // recording: the High preset, then back to yours
+    const was = GRAPHICS.preset;
+    if (setGraphicsPreset(PRESET_ORDER.at(-1))) applyGraphics();
+    return () => { if (setGraphicsPreset(was)) applyGraphics(); };
+  },
+  onFrame: (dt, st, model) => {
+    if (model !== cinemaModel) { cinemaModel = model; headlights.attach(model, myCar, autoOn(timeOf(track))); }
+    headlights.update(dt);
+    world.sun.position.set(st.x + world.sunDir.x * 150, st.y + world.sunDir.y * 150, st.z + world.sunDir.z * 150);
+    world.sun.target.position.set(st.x, st.y, st.z);
+  },
+  live: { // Watch with sound: your car's engine, live (audio.js)
+    start: (car) => { audio.start(); audio.setCar(car); audio.resume(); },
+    update: (p) => audio.update(p),
+    stop: () => audio.suspend(),
+  },
+  onExit: () => { cinemaModel = null; menu.classList.remove('hidden'); if (!race) showcase.start(track, myCar); },
+});
+document.getElementById('btn-cinema').addEventListener('click', () => {
+  clearTimeout(previewTimer);
+  loadTrack(trackSelect.value, myCar, myTime, false); // (the circuit picked in the menu, built now if it isn't on screen yet)
+  showcase.stop(); menu.classList.add('hidden');
+  cinema.open(myCar, track, { color: playerColor, accent: 0xffffff });
+});
+
 // Multiplayer lobby (lobby.js) and the online race (net/session.js)
 const lobby = new Lobby({
   tracks: TRACKS,
@@ -625,6 +655,7 @@ function frame(timestamp) {
 // One step of the game. Normally once per animation frame; online it also runs from a background
 // timer while the tab is hidden (see net/background.js), just without drawing anything.
 function tick(timestamp) {
+  if (cinema.active) { lastTime = timestamp; return; } // (the cinematic replay draws itself: cinema.js)
   const dt = lastTime == null ? 0 : Math.min(Math.max((timestamp - lastTime) / 1000, 0), 0.1);
   lastTime = timestamp;
   const drawing = !document.hidden;

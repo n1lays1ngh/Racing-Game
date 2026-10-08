@@ -11,6 +11,7 @@
     "sim": "node tools/simulate.mjs"
   },
   "dependencies": {
+    "mediabunny": "^1.61.3",
     "three": "^0.186.1"
   },
   "devDependencies": {

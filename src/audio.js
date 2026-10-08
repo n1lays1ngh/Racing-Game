@@ -185,11 +185,13 @@ export class EngineAudio {
     if (this.ready && presetName(car) !== this.engine) this.buildEngines(); // a different engine: new voices
   }
 
-  start() {
+  // given: a context to play into instead of the speakers (an OfflineAudioContext: cinema.js renders a replay's sound).
+  // this.loaded: resolves once the engine voices are ready
+  start(given = null) {
     if (this.ctx) { this.ctx.resume(); return; }
-    const ctx = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = this.ctx = given ?? new (window.AudioContext || window.webkitAudioContext)();
     // Started from a controller? Browsers only unlock sound on a click or key press, so resume on the next one.
-    if (ctx.state === 'suspended') for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => ctx.resume(), { once: true });
+    if (!given && ctx.state === 'suspended') for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => ctx.resume(), { once: true });
     // master: gentle compressor so everything sits together without clipping
     this.comp = ctx.createDynamicsCompressor();
     this.comp.threshold.value = -16; this.comp.ratio.value = 4; this.comp.attack.value = 0.004; this.comp.release.value = 0.2;
@@ -199,7 +201,7 @@ export class EngineAudio {
     this.buildLayers();
     if (ctx.audioWorklet) {
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-      ctx.audioWorklet.addModule(url).then(() => this.buildEngines()).catch((e) => console.warn('Engine sound unavailable', e));
+      this.loaded = ctx.audioWorklet.addModule(url).then(() => this.buildEngines()).catch((e) => console.warn('Engine sound unavailable', e));
     }
   }
 

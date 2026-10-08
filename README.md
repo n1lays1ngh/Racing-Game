@@ -65,6 +65,11 @@ shown in the bar at the top (click one to go back to it):
 Your choices are remembered in the browser. The menu is `index.html` (`#menu`), `src/menu.js` and the
 "Main menu" section at the end of `src/style.css`.
 
+**Cinematic replay** (start screen, bottom left): your best lap in the car and at the circuit picked in the menu (the
+ghost lap: every clean lap you drive offline is kept), filmed like TV. Watch it, or Record video: rendered frame by
+frame with the High graphics preset at 1080p, 1440p or 4K and saved as an .mp4 (smooth at 60 fps however slowly your
+computer draws it). `src/cinema.js`; the shots are `SHOTS` there.
+
 **Support me** (the coffee cup) opens my Buy Me a Coffee page (https://buymeacoffee.com/nilaysingh) in a new tab.
 It's at the right of the main menu's top bar on every page of it, in the multiplayer lobby, on Your stats and
 Controls, in the pause menu (a race stays paused behind it) and on the results. The address is `SUPPORT_URL` in
