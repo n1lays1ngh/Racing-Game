@@ -199,7 +199,7 @@ function prewarm() {
 // Apply GRAPHICS to everything that's already built.
 function applyGraphics() {
   const G = GRAPHICS, sun = world.sun;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, G.pixelRatio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, G.pixelRatio)); drs.scale = 1; drs.calm = 0; // (dynamic resolution starts again)
   if (renderer.shadowMap.enabled !== G.shadows) { // shaders have to be rebuilt for this one
     renderer.shadowMap.enabled = G.shadows;
     scene.traverse((o) => { for (const m of [].concat(o.material ?? [])) m.needsUpdate = true; });
@@ -270,6 +270,7 @@ function toggleFps() {
 const PERF = { last: null, worst: 0, sim: 0, hud: 0, draw: 0, n: 0, spikes: 0, log: [], t0: 0 };
 function countFrame(now) { // once per frame actually drawn
   const P = PERF, gap = P.last == null ? 0 : now - P.last; P.last = now;
+  dynamicResolution(gap);
   if (gap > 0 && gap < 1000) {
     P.log.push([gap, P.cur.sim, P.cur.hud, P.cur.draw]); if (P.log.length > 600) P.log.shift();
     P.worst = Math.max(P.worst, gap); if (gap > 25) P.spikes++;
@@ -281,10 +282,27 @@ function countFrame(now) { // once per frame actually drawn
   if (span < 500) return;
   const ms = (v) => (v / P.n).toFixed(1), info = renderer.info.render;
   fpsEl.innerHTML = `${Math.round((fpsFrames * 1000) / span)} fps · ${(span / fpsFrames).toFixed(1)} ms · worst ${P.worst.toFixed(1)} ms · ${PRESET_NAMES[GRAPHICS.preset]}` +
-    `<br>sim ${ms(P.sim)} · hud ${ms(P.hud)} · draw ${ms(P.draw)} ms · ${info.calls} draws · ${Math.round(info.triangles / 1000)}k tris${P.spikes ? ` · ${P.spikes} spikes` : ''}`;
+    `<br>sim ${ms(P.sim)} · hud ${ms(P.hud)} · draw ${ms(P.draw)} ms · res ${Math.round(drs.scale * 100)}% · ${info.calls} draws · ${Math.round(info.triangles / 1000)}k tris${P.spikes ? ` · ${P.spikes} spikes` : ''}`;
   fpsFrames = 0; fpsFrom = now; P.worst = 0; P.sim = P.hud = P.draw = 0; P.n = 0; P.spikes = 0;
 }
 PERF.cur = { sim: 0, hud: 0, draw: 0 };
+
+// Dynamic resolution: when frames keep missing the screen's refresh, the 3D view is drawn a step smaller (down to
+// DRS.min of the preset's resolution; the HUD is separate and stays sharp), and a step bigger again after a while
+// running smoothly. Only below ~54 fps: a 120 Hz screen running at 90 is left alone.
+const DRS = { min: 0.7, step: 0.05, check: 0.75, up: 10 }; // shares of the resolution; seconds between checks / before trying higher
+const drs = { scale: 1, t: 0, sum: 0, n: 0, calm: 0 };
+function dynamicResolution(gap) {
+  if (!(gap > 0 && gap < 100)) return;
+  drs.sum += gap; drs.n++; drs.t += gap / 1000;
+  if (drs.t < DRS.check || drs.n < 10) return;
+  const avg = drs.sum / drs.n; drs.t = drs.sum = drs.n = 0;
+  let next = drs.scale;
+  if (avg > 18.5) { next = Math.max(DRS.min, drs.scale - DRS.step); drs.calm = 0; }          // under ~54 fps: smaller
+  else if (avg < 17.5) { if ((drs.calm += DRS.check) >= DRS.up) { next = Math.min(1, drs.scale + DRS.step); drs.calm = 0; } } // smooth a while: bigger
+  else drs.calm = 0;
+  if (next !== drs.scale) { drs.scale = next; renderer.setPixelRatio(Math.min(window.devicePixelRatio, GRAPHICS.pixelRatio) * next); }
+}
 const typing = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
 
 applyGraphics(); // the saved preset (or the default) for this page
@@ -307,11 +325,34 @@ function labelTracks() {
 labelTracks();
 // The circuit, car or time of day changed in the menu: rebuild the live race behind it, once you've stopped
 // clicking through them (building a circuit takes a moment)
+// Picking a circuit, car or time of day no longer changes what's behind the menu (rebuilding it each time was slow):
+// only the circuit's exact length and climb are worked out (in the worker) for the menu. The showcase plays a short
+// playlist instead, moving on by itself (SHOWCASES below).
 let previewTimer = 0;
 function previewSoon() {
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => { if (!race) previewTrack(trackSelect.value); }, 220);
+  previewTimer = setTimeout(() => {
+    const def = getTrackDef(trackSelect.value);
+    builder.get(def, raceSetup(myCar, def, myTime)).then((d) => { if (d) menuUI?.setTrackInfo(d.track); }).catch(() => {});
+  }, 220);
 }
+// The live race behind the menu: these, in turn, each for SHOWCASE_EVERY seconds (built in the background, a piece a frame)
+const SHOWCASES = [
+  { track: 'spa', car: 'hypercar', time: null },
+  { track: 'silverstone', car: 'gt3', time: null }, { track: 'bahrain', car: 'f1', time: 'night' },
+];
+
+const SHOWCASE_EVERY = 90;
+let showcaseIndex = 0, showcaseSince = performance.now();
+function nextShowcase() {
+  if (race || cinema.active || menu.classList.contains('hidden') || document.hidden) { showcaseSince = performance.now(); return; }
+  if (performance.now() - showcaseSince < SHOWCASE_EVERY * 1000) return;
+  showcaseSince = performance.now();
+  showcaseIndex = (showcaseIndex + 1) % SHOWCASES.length;
+  const S = SHOWCASES[showcaseIndex];
+  previewTrack(S.track, getCar(S.car), S.time);
+}
+setInterval(nextShowcase, 1000);
 trackSelect.addEventListener('change', previewSoon);
 
 // ---------- game state ----------
@@ -549,7 +590,8 @@ function toCareer() { exitRace(); career.open(); }
 const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
 
-loadTrack(trackSelect.value);                               // first circuit + live race behind the menu
+loadTrack(SHOWCASES[0].track, getCar(SHOWCASES[0].car), SHOWCASES[0].time); // first circuit + live race behind the menu (the showcase playlist)
+previewSoon(); // (the menu's circuit info)
 carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.refreshPlayer(); }); // swap in your car's model once it has loaded
 
 // cfg: race settings (solo: from the menu; online: from the host)
