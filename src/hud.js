@@ -578,16 +578,29 @@ export class HUD {
     const fl = race.bestLapOverall?.name;
     const st = race.standings;
     this.el.standings.classList.toggle('compact', st.length > 12); // big fields: slimmer rows
-    this.el.standings.innerHTML = st.map((c, i) => {
+    // One row per car, built once; each update only changes what's different in a row (rebuilding the whole tower
+    // every few frames made the browser lay it all out again: a regular little hitch)
+    const ul = this.el.standings;
+    while (ul.children.length < st.length) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="p"></span><span class="bar"></span><span class="n"></span><span class="chg"></span><span class="g"></span>';
+      ul.appendChild(li);
+    }
+    while (ul.children.length > st.length) ul.lastChild.remove();
+    const set = (el, k, v) => { if (el[k] !== v) el[k] = v; };
+    const html = (el, v) => { if (el._h !== v) { el._h = v; el.innerHTML = v; } }; // (compared with what we last wrote)
+    st.forEach((c, i) => {
+      const li = ul.children[i], [p, bar, n, chg, g] = li.children;
       const moved = (this.grid.get(c) ?? c.position) - c.position;
-      const chg = moved > 0 ? `<span class="chg up">${moved}</span>` : moved < 0 ? `<span class="chg down">${-moved}</span>` : '<span class="chg"></span>';
-      const flag = c.finishTime != null ? '<span class="chq"></span>' : '';
-      const fastest = fl === c.team.name ? '<span class="fl" title="Fastest lap"></span>' : '';
-      const cls = [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : ''].join(' ');
-      return `<li class="${cls}"><span class="p">${c.position}</span>` +
-        `<span class="bar" style="background:${hex(c.team.color)}"></span><span class="n">${code(c)}${fastest}${c.state.tyres ? `<span class="tc-tyre ${c.state.tyres.compound}">${TYRES.compounds[c.state.tyres.compound].letter}</span>` : ''}</span>` +
-        `${chg}<span class="g">${flag}${c.state.inPitLane && race.state === 'racing' && c.finishTime == null ? 'PIT' : this.gapText(race, st, i)}</span></li>`;
-    }).join('');
+      set(li, 'className', [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : ''].join(' '));
+      set(p, 'textContent', String(c.position));
+      const colour = hex(c.team.color); if (bar.dataset.c !== colour) { bar.dataset.c = colour; bar.style.background = colour; }
+      const tyre = c.state.tyres?.compound;
+      html(n, `${code(c)}${fl === c.team.name ? '<span class="fl" title="Fastest lap"></span>' : ''}${tyre ? `<span class="tc-tyre ${tyre}">${TYRES.compounds[tyre].letter}</span>` : ''}`);
+      set(chg, 'className', moved > 0 ? 'chg up' : moved < 0 ? 'chg down' : 'chg');
+      set(chg, 'textContent', moved ? String(Math.abs(moved)) : '');
+      html(g, `${c.finishTime != null ? '<span class="chq"></span>' : ''}${c.state.inPitLane && race.state === 'racing' && c.finishTime == null ? 'PIT' : this.gapText(race, st, i)}`);
+    });
   }
 
   // The cars either side of you on the road, and whether the gap is coming down (green) or going up (red) for you
@@ -720,7 +733,7 @@ export class HUD {
     if (wasPressed('Comma')) this.mfdStep(-1);
     if (wasPressed('Period')) this.mfdStep(1);
     const page = this.pages[this.mfd];
-    if (page === 'map') this.drawMinimap(race);
+    if (page === 'map' && (this.mapZoom || (this.frame & 1) === 0)) this.drawMinimap(race); // (the whole circuit: 30 times a second is plenty)
     else if (page === 'pit' && this.frame % 6 === 0) this.drawPitPage(race);
     if (this.box && this.frame % 6 === 1) { // the box strip: how far to the pit entry
       const lane = race.track.pitLane, s = race.player.state, L = race.track.length, m = lane ? (lane.entry - s.s + L) % L : 0;

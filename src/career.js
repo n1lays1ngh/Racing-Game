@@ -8,12 +8,14 @@
 //   career.state              the championship (null: none)
 import { TEAMS } from './race.js';
 import { getCar } from './cars/index.js';
+import { listReplays } from './replay.js';
 
 const KEY = 'apex-circuit:career';
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
 
+const REPLAYS = '<section class="cr-panel cr-replays hidden"><h3>Race replays</h3><div id="cr-replays" class="cr-replay-list"></div></section>';
 const SPORTS = ['lemans', 'daytona', 'nurburgring', 'bahrain', 'portimao', 'silverstone', 'monza', 'cota', 'interlagos', 'qatar'];
 export const CAREER = {
   series: {
@@ -110,6 +112,19 @@ export class Career {
     save(s); this.door();
   }
 
+  // The last few career races (replay.js): watch or record them in the cinematic replay
+  async drawReplays() {
+    const list = await listReplays(), box = $('cr-replays');
+    if (!box) return;
+    box.closest('.cr-replays').classList.toggle('hidden', !list.length);
+    box.innerHTML = list.map(({ id, meta: m }) => {
+      const me = m.results?.find((r) => r.isPlayer), when = new Date(m.at ?? 0).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+      return `<div class="cr-replay"><div><b>${esc(m.trackName ?? m.track)}</b><small>${esc(m.series ?? '')}${m.round != null ? ` · round ${m.round + 1}` : ''} · ${m.laps} laps · ${when}</small></div>` +
+        `<span class="cr-res${me && !me.dnf && me.pos <= 3 ? ' podium' : ''}">${me ? (me.dnf ? 'DNF' : `P${me.pos}`) : ''}</span>` +
+        `<button type="button" class="pm-btn" data-replay="${esc(id)}"><span>Watch</span></button></div>`;
+    }).join('');
+  }
+
   standings() {
     const s = this.state; if (!s) return [];
     const names = [...TEAMS.slice(1).map((t) => t.name), '@me'];
@@ -128,6 +143,7 @@ export class Career {
     else if (d.length) { this.pick.length = Number(d.length); this.render(); }
     else if (d.diff) { this.pick.difficulty = d.diff; this.render(); }
     else if (d.dmg) { this.pick.damage = d.dmg; this.render(); }
+    else if (d.replay) this.onReplay?.(d.replay); // (main.js: the cinematic replay of that race)
     else if (b.id === 'cr-start') this.start({ name: $('opt-name').value.trim(), color: this.color?.() ?? 0xe10600 });
     else if (b.id === 'cr-race') { const cfg = this.nextRace(); if (cfg) { this.el.classList.add('hidden'); this.onRace(cfg); } }
     else if (b.id === 'cr-reset') {
@@ -151,7 +167,8 @@ export class Career {
         `<div class="seg-row"><span>AI skill</span><div class="lb-seg">${seg('diff', CAREER.difficulty, p.difficulty)}</div></div>` +
         `<div class="seg-row"><span>Damage</span><div class="lb-seg">${seg('dmg', CAREER.damage, p.damage)}</div></div>` +
         `<p class="cr-cal">${this.calendar(p.series).map((t, k) => `<span>R${k + 1} ${esc(t.name)}</span>`).join('')}</p>` +
-        `<button id="cr-start" class="start" type="button"><span>Start championship</span></button></div>`;
+        `<button id="cr-start" class="start" type="button"><span>Start championship</span></button></div>` + REPLAYS;
+      this.drawReplays();
       return;
     }
     const S = CAREER.series[s.series], cal = this.calendar(), table = this.standings(), done = s.round >= cal.length;
@@ -178,7 +195,8 @@ export class Career {
       `<thead><tr><th class="p">Pos</th><th>Driver</th><th class="c">Wins</th><th class="r">Gap</th><th class="r">Points</th></tr></thead><tbody>${rows}</tbody></table></div></section>` +
       `<section class="cr-panel"><h3>Calendar</h3><div class="cr-scroll"><table class="cr-table">` +
       `<thead><tr><th class="p">Round</th><th>Circuit</th><th>Winner</th><th class="r">You</th></tr></thead><tbody>${calRows}</tbody></table></div></section></div>` +
-      `<button id="cr-reset" class="st-back cr-reset" type="button">${done ? 'Start a new championship' : 'Reset championship'}</button>`;
+      REPLAYS + `<button id="cr-reset" class="st-back cr-reset" type="button">${done ? 'Start a new championship' : 'Reset championship'}</button>`;
+    this.drawReplays();
     // each table scrolled so your place and the next round are in view
     for (const row of body.querySelectorAll('tr.me, tr.next')) {
       const box = row.closest('.cr-scroll'); box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2);

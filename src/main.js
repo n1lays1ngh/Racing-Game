@@ -28,7 +28,9 @@ import { pitRoute } from './pitlane.js';
 import { PitCrews } from './pitcrew.js';
 import { TYRES, fitTyres } from './tyres.js';
 import { DAMAGE } from './damage.js';
-import { Career } from './career.js';
+import { installShadowLayer, addShadowChunks } from './shadowChunks.js';
+import { Career, CAREER } from './career.js';
+import { ReplayRecorder, saveReplay, loadReplay } from './replay.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 import { setupSupport, raceFinished, askOnResults } from './support.js';
 import { Cinema } from './cinema.js';
@@ -40,10 +42,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = GRAPHICS.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.info.autoReset = false; // reset once a frame (tick), so F shows the whole frame's draws
 renderer.toneMappingExposure = 0.9;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+installShadowLayer(scene); // shadow-only copies of long scenery, drawn only near you (shadowChunks.js)
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.25, GRAPHICS.viewDistance);
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
@@ -158,6 +162,7 @@ function applyViewDistance() {
 // tick() runs this again every second, because city buildings are swapped in once their models load.
 function applyShadowCasters() {
   if (!circuit) return;
+  if (GRAPHICS.shadowCasters !== 'cars') addShadowChunks(circuit.group); // long scenery casts through square-by-square copies: only those near you are drawn (Low: scenery casts none)
   const mode = GRAPHICS.shadowCasters;
   circuit.group.traverse((o) => {
     if (!o.isMesh) return;
@@ -175,6 +180,20 @@ function applyCarShadows() {
     o.userData.castShadow0 ??= o.castShadow;
     o.castShadow = o.userData.castShadow0 && mode !== 'cars';
   });
+}
+
+// Everything the race will draw, made ready while the start lights run: three.js otherwise builds a shader the first
+// time a material is drawn and uploads a texture the first time it's used, which is a hitch when it happens mid-lap
+// (a new building, a board, a car's far model). compileAsync builds them in the background where the browser can.
+function prewarm() {
+  const seen = new Set();
+  scene.traverse((o) => {
+    for (const m of [o.material].flat()) {
+      if (!m || seen.has(m)) continue; seen.add(m);
+      for (const v of Object.values(m)) if (v?.isTexture && !v.isRenderTargetTexture && !seen.has(v)) { seen.add(v); try { renderer.initTexture(v); } catch { /* not ready yet */ } }
+    }
+  });
+  renderer.compileAsync(scene, camera).catch(() => {});
 }
 
 // Apply GRAPHICS to everything that's already built.
@@ -245,14 +264,27 @@ function toggleFps() {
   fpsEl.classList.toggle('hidden', !fpsOn);
   try { localStorage.setItem('apex-circuit:fps', fpsOn ? '1' : '0'); } catch { /* private mode */ }
 }
+// F: the frame rate, the slowest frame (a spike) and where the time went on the processor: sim (physics, AI, pit stops),
+// hud, draw (handing the frame to the graphics card), every half second. PERF also keeps the last 600 frames
+// (window.game.perf) for measuring.
+const PERF = { last: null, worst: 0, sim: 0, hud: 0, draw: 0, n: 0, spikes: 0, log: [], t0: 0 };
 function countFrame(now) { // once per frame actually drawn
+  const P = PERF, gap = P.last == null ? 0 : now - P.last; P.last = now;
+  if (gap > 0 && gap < 1000) {
+    P.log.push([gap, P.cur.sim, P.cur.hud, P.cur.draw]); if (P.log.length > 600) P.log.shift();
+    P.worst = Math.max(P.worst, gap); if (gap > 25) P.spikes++;
+  }
+  P.sim += P.cur.sim; P.hud += P.cur.hud; P.draw += P.cur.draw; P.n++;
   if (!fpsOn) return;
   fpsFrom ??= now; fpsFrames++;
   const span = now - fpsFrom;
   if (span < 500) return;
-  fpsEl.textContent = `${Math.round((fpsFrames * 1000) / span)} fps · ${(span / fpsFrames).toFixed(1)} ms · ${PRESET_NAMES[GRAPHICS.preset]}`;
-  fpsFrames = 0; fpsFrom = now;
+  const ms = (v) => (v / P.n).toFixed(1), info = renderer.info.render;
+  fpsEl.innerHTML = `${Math.round((fpsFrames * 1000) / span)} fps · ${(span / fpsFrames).toFixed(1)} ms · worst ${P.worst.toFixed(1)} ms · ${PRESET_NAMES[GRAPHICS.preset]}` +
+    `<br>sim ${ms(P.sim)} · hud ${ms(P.hud)} · draw ${ms(P.draw)} ms · ${info.calls} draws · ${Math.round(info.triangles / 1000)}k tris${P.spikes ? ` · ${P.spikes} spikes` : ''}`;
+  fpsFrames = 0; fpsFrom = now; P.worst = 0; P.sim = P.hud = P.draw = 0; P.n = 0; P.spikes = 0;
 }
+PERF.cur = { sim: 0, hud: 0, draw: 0 };
 const typing = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
 
 applyGraphics(); // the saved preset (or the default) for this page
@@ -284,6 +316,7 @@ trackSelect.addEventListener('change', previewSoon);
 
 // ---------- game state ----------
 let race = null;
+let replayRec = null, lastReplay = null; // career: the race replay being recorded, and the last one saved (replay.js)
 let pitCrews = null; // the pit crews of the race you're in (pitcrew.js)
 let statsRun = null; // records your stats for the race you're in (stats.js)
 let models = [];
@@ -315,6 +348,9 @@ function newRace(cfg = soloConfig()) {
   loadTrack(cfg.track, getCar(cfg.car), cfg.time, false);
   showcase.stop();
   race = new Race(track, cfg);
+  // career: every car's position through the race, for the race replay (replay.js; the cinematic replay films it)
+  replayRec = race.career ? new ReplayRecorder(race, { track: track.id, trackName: track.name, car: race.carDef.id, time: cfg.time ?? null,
+    round: cfg.round ?? null, series: career.state ? CAREER.series[career.state.series]?.short ?? '' : '' }) : null;
   lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
   statsRun = new StatsRun(race, { online: !!lobby.session }); // your stats: time, laps, sectors, result
   models = race.cars.map((c) => { // yours, friends' and (Hypercar, GT3) AI cars: the full model close up (carLod.js)
@@ -323,6 +359,7 @@ function newRace(cfg = soloConfig()) {
     return m;
   });
   syncModels(models, race.cars, camera);
+  prewarm(); // shaders and textures ready before the lights go out (no hitch the first time something comes into view)
   pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // career: the crews in front of the garages (pitcrew.js)
   hud.setMode(race.career); // career: the pit and tyre pages
   headlights.attach(models[race.cars.indexOf(race.player)], race.carDef, autoOn(timeOf(track))); // on at night
@@ -451,7 +488,7 @@ const cinema = new Cinema({
     return () => { if (setGraphicsPreset(was)) applyGraphics(); };
   },
   onFrame: (dt, st, model) => {
-    if (model !== cinemaModel) { cinemaModel = model; headlights.attach(model, myCar, autoOn(timeOf(track))); }
+    if (model !== cinemaModel) { cinemaModel = model; headlights.attach(model, cinema.car ?? myCar, autoOn(timeOf(track))); }
     headlights.update(dt);
     world.sun.position.set(st.x + world.sunDir.x * 150, st.y + world.sunDir.y * 150, st.z + world.sunDir.z * 150);
     world.sun.target.position.set(st.x, st.y, st.z);
@@ -497,6 +534,17 @@ let lastCfg = null; // the race you're in, to restart it
 const career = new Career({ tracks: TRACKS, onRace: (cfg) => startGame(cfg), onClose: () => menu.classList.remove('hidden') });
 career.color = () => playerColor;
 document.getElementById('btn-career').addEventListener('click', () => { menu.classList.add('hidden'); career.open(); });
+// Race replays (replay.js) in the cinematic replay (cinema.js): back to the career screen afterwards
+function watchReplay(replay) {
+  if (!replay) return;
+  const car = getCar(replay.meta.car);
+  clearTimeout(previewTimer);
+  loadTrack(replay.meta.track, car, replay.meta.time, false); // (the circuit it was raced on, built now if it isn't on screen)
+  showcase.stop(); menu.classList.add('hidden'); career.el.classList.add('hidden');
+  cinema.openRace(replay, car, track, () => { cinemaModel = null; showcase.start(track, myCar); career.open(); });
+}
+document.getElementById('btn-replay').addEventListener('click', () => { if (!race?.career) return; exitRace(); watchReplay(lastReplay); });
+career.onReplay = async (id) => watchReplay(lastReplay?.id === id ? lastReplay : await loadReplay(id));
 function toCareer() { exitRace(); career.open(); }
 const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
@@ -537,6 +585,9 @@ function exitRace() {
   disposeRacingLine(racingLine); racingLine = null; hud.setRacingLine(null); hud.setPitRoute(null);
   boxCall = boxInLane = false; hud.setBox(false);
   ghostRec = null; ghostLap = null; ghostAsk++; ghostCar.hide(true); hud.setGhost(null, false); hud.ghostAt = null;
+  // career: the replay, saved once more with everything up to now (only for a race you finished or retired from)
+  if (replayRec && race?.state === 'finished') { lastReplay = replayRec.snapshot(); saveReplay(lastReplay); }
+  replayRec = null;
   if (race) { race = null; showcase.start(track, sceneCar); }
 }
 function toMenu() {
@@ -670,7 +721,11 @@ function showResults() {
   $('results-fl').textContent = fl ? `${fl.name} ${formatTime(fl.time)}` : '--';
   $('results-fl').classList.toggle('purple', !!fl);
   if (results.classList.contains('hidden')) { // just opened
-    if (race.career && !race.recorded) { race.recorded = true; career.record(race); } // career: points and the next round
+    if (race.career && !race.recorded) { // career: points and the next round, and the replay so far (saved again when you leave)
+      race.recorded = true; career.record(race);
+      if (replayRec) saveReplay(replayRec.snapshot());
+    }
+    document.getElementById('btn-replay').classList.toggle('hidden', !(race.career && replayRec));
     askOnResults(); // now and then, a card asking for support (support.js)
     results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true });
   }
@@ -718,6 +773,7 @@ function snapCamera() {
 
 // ---------- main loop ----------
 const IDLE = { throttle: 0, brake: 0, steer: 0 };
+const SHAKE = new THREE.Vector3(), LIVE = []; // (reused every frame: no garbage)
 let lastTime = null;
 let shadowSweep = 0;
 function frame(timestamp) {
@@ -746,7 +802,7 @@ function tick(timestamp) {
       world.sun.position.set(t.x + world.sunDir.x * 150, (t.y ?? 0) + world.sunDir.y * 150, t.z + world.sunDir.z * 150);
       world.sun.target.position.set(t.x, t.y ?? 0, t.z);
     }
-    if (drawing) { renderer.render(scene, camera); countFrame(timestamp); }
+    if (drawing) { renderer.info.reset(); renderer.render(scene, camera); countFrame(timestamp); }
     return;
   }
 
@@ -768,9 +824,14 @@ function tick(timestamp) {
   const session = lobby.session;
   if (!paused || session) { // online the race doesn't stop for the pause menu: your car coasts
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
-    const steps = Math.ceil(dt / (1 / 120));
-    for (let i = 0; i < steps; i++) race.step(dt / steps, paused ? IDLE : input);
+    // After a slow frame the physics catches up, but offline never more than 50 ms of it in one frame: making up a
+    // long hitch all at once would make the next frame slow too (online the race has to keep real time)
+    const simDt = session ? dt : Math.min(dt, 0.05);
+    const steps = Math.ceil(simDt / (1 / 120)), t0 = performance.now();
+    for (let i = 0; i < steps; i++) race.step(simDt / steps, paused ? IDLE : input);
+    PERF.cur.sim = performance.now() - t0;
     ghostRec?.record(); // your lap, for the ghost (ghost.js)
+    replayRec?.record(); // career: the race replay (replay.js)
     boxCheck(race.player.state); // asked to box: done once you're through the pits
     // Messages for this frame, put together so a circuit record isn't hidden by "Final lap" in the same moment
     let msg = null, secs = 2.2;
@@ -825,7 +886,7 @@ function tick(timestamp) {
   camera.position.copy(camPos);
   const SH = CAMERA.shake;
   shake = Math.max(SH.impacts ? ps.hitWall : 0, SH.kerbs && ps.surface !== 'road' && ps.speed > 5 ? 0.15 : 0, shake - dt * 3);
-  if (shake > 0) camera.position.add(new THREE.Vector3((Math.random() - 0.5) * shake * 0.25, (Math.random() - 0.5) * shake * 0.25, 0));
+  if (shake > 0) camera.position.add(SHAKE.set((Math.random() - 0.5) * shake * 0.25, (Math.random() - 0.5) * shake * 0.25, 0));
   camera.lookAt(camLook);
   const fov = CAMERA.speedFov ? 62 + Math.min(ps.speed, 95) * 0.14 : 62;
   camera.fov += (fov - camera.fov) * Math.min(1, dt * 4); camera.updateProjectionMatrix();
@@ -842,18 +903,24 @@ function tick(timestamp) {
     slip: ps.slip, surface: ps.surface, speed: ps.speed, hit: ps.hitWall,
     gear: gb.gear, brake: ps.brake, ers: ps.ersMode,
   });
-  audio.updateTraffic(race.cars.filter((c) => !c.dnf), race.player, camera); // engines around you, with Doppler
+  LIVE.length = 0; for (const c of race.cars) if (!c.dnf) LIVE.push(c);
+  audio.updateTraffic(LIVE, race.player, camera); // engines around you, with Doppler
   if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip, // controller rumble
     throttle: ps.throttle, brake: ps.brake, lock: ps.lockF, rpm: gb.rpm, gear: gb.gear });
   if (!paused) circuit.marks?.update(ps); // your tyres leave rubber on the track (tyreMarks.js)
 
+  const tH = performance.now();
   hud.update(race, dt);
+  PERF.cur.hud = performance.now() - tH;
   // Keep the results table live while the rest of the field crosses the line.
   resultsTimer -= dt;
   if (!results.classList.contains('hidden') && resultsTimer <= 0) { showResults(); resultsTimer = 0.5; }
   if (!drawing) return;
+  const tR = performance.now();
+  renderer.info.reset(); // (counted over the whole frame: the view, its shadows and the mirror)
   renderer.render(scene, camera);
   rearView.render(scene, ps); // mirror strip at the top of the screen
+  PERF.cur.draw = performance.now() - tR;
   countFrame(timestamp);
 }
 hud.show(false);
@@ -861,4 +928,4 @@ hud.setCamera(camLabel(camMode));
 requestAnimationFrame(frame);
 
 // Handy for debugging in the browser console: window.game.race
-window.game = { get race() { return race; }, get track() { return track; }, scene, camera, loadTrack };
+window.game = { get race() { return race; }, get track() { return track; }, scene, camera, loadTrack, renderer, perf: PERF };

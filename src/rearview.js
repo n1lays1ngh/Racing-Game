@@ -6,6 +6,18 @@
 import * as THREE from 'three';
 import { GRAPHICS } from './settings.js';
 
+// The mirror's image. three.js draws into an ordinary render target in different colours from the screen (no tone
+// mapping, linear colour), and switches every object's shader to match, then back for the screen: twice a frame for
+// everything in the mirror, which costs time every frame. Marked like a VR headset's target, three.js draws into it
+// exactly as it draws the screen (tone mapped, sRGB), so the same shaders serve both. The pixels are stored as they
+// are (RGBA8), and copied to the screen as they are.
+function mirrorTarget(samples) {
+  const t = new THREE.WebGLRenderTarget(4, 1, { samples });
+  t.isXRRenderTarget = true;
+  t.texture.colorSpace = THREE.SRGBColorSpace; t.texture.internalFormat = 'RGBA8';
+  return t;
+}
+
 const ME = new THREE.Euler(0, 0, 0, 'YXZ'), MQ = new THREE.Quaternion(), MB = new THREE.Vector3(), ML = new THREE.Vector3();
 
 export class RearView {
@@ -16,14 +28,18 @@ export class RearView {
     this.visible = false;
 
     this.cam = new THREE.PerspectiveCamera(55, 4, 0.3, 4000);
-    this.target = new THREE.WebGLRenderTarget(4, 1, { samples: GRAPHICS.mirrorSamples ?? 4 });
-    // The mirror image is drawn as a flipped quad over the top of the screen.
+    this.target = mirrorTarget(GRAPHICS.mirrorSamples ?? 4);
+    // The mirror image is copied, flipped left to right (mirrors swap left and right), over the top of the screen, as it
+    // is: it's already in the screen's colours
     this.hudScene = new THREE.Scene();
     this.hudCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({
-      map: this.target.texture, side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      uniforms: { map: { value: this.target.texture } },
+      vertexShader: 'varying vec2 vUv; void main() { vUv = vec2(1.0 - uv.x, uv.y); gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'uniform sampler2D map; varying vec2 vUv; void main() { gl_FragColor = texture2D(map, vUv); }',
+      depthTest: false, depthWrite: false,
     }));
-    quad.scale.x = -1; // mirrors swap left and right
+    quad.frustumCulled = false;
     this.hudScene.add(quad);
     this.quad = quad;
 
@@ -73,8 +89,8 @@ export class RearView {
     const samples = GRAPHICS.mirrorSamples ?? 4;
     if (this.target.samples !== samples) { // edge smoothing is part of the render target: make a new one
       this.target.dispose();
-      this.target = new THREE.WebGLRenderTarget(4, 1, { samples });
-      this.quad.material.map = this.target.texture; this.quad.material.needsUpdate = true;
+      this.target = mirrorTarget(samples);
+      this.quad.material.uniforms.map.value = this.target.texture;
     }
     this.cam.far = Math.min(4000, GRAPHICS.viewDistance ?? 4000); this.cam.updateProjectionMatrix();
     this.size = ''; // size it again on the next frame (resolution may have changed)

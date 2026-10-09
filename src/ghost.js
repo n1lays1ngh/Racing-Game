@@ -20,10 +20,11 @@ const F = 9; // floats per sample: t, x, y, z, heading, pitch, roll, speed, stee
 
 // ---------- storage ----------
 let dbp = null;
-function db() {
+// The game's database in this browser: 'ghosts' (best laps, here) and 'replays' (career race replays, replay.js)
+export function db() {
   dbp ??= new Promise((resolve, reject) => {
-    const r = indexedDB.open('apex-circuit', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('ghosts');
+    const r = indexedDB.open('apex-circuit', 2);
+    r.onupgradeneeded = () => { for (const n of ['ghosts', 'replays']) if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });

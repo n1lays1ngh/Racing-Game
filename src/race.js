@@ -1,7 +1,7 @@
 // Race logic: grid, start lights, laps, timing, positions, car-to-car contact.
 // No rendering here, so a whole race can be simulated headless.
 import { createCarState, stepCar, placeCar, CAR, clamp } from './physics.js';
-import { AIDriver, buildSpeedProfile } from './ai.js';
+import { AIDriver, buildSpeedProfile, newPlanStep } from './ai.js';
 import { towFor } from './slipstream.js';
 import { getCar, DEFAULT_CAR } from './cars/index.js';
 import { PitStops } from './pitstop.js';
@@ -156,6 +156,10 @@ export class Race {
         lapInvalid: false, offSec: [false, false, false], lastLapInvalid: false, lastOffSec: [false, false, false],
         strikes: 0, wasOff: false, // track limits broken this lap (cars allowed more than one), and off right now?
         crossedBack: false, // reversed back over the line: crossing it again carries on the same lap
+        // (the rest of its fields, from the start: see physics.js createCarState)
+        ai: null, pitAI: null, dnf: false, stuck: 0, lastLapAt: null,
+        box: null, pit: null, pitLaps: null, wearLimit: 0, nextTyres: null, boxCall: false,
+        retiring: null, retireT: 0, retired: null, parked: false,
       };
       if (!human) { // each driver's pace: roughly the quickest at the front of the grid (DIFFICULTY above). Not exactly
         // in order, as after a real qualifying: a few start out of place and have to fight their way back up
@@ -207,7 +211,9 @@ export class Race {
     }
 
     this.time += dt;
-    const states = this.cars.filter((c) => !c.dnf).map((c) => c.state);
+    newPlanStep(); // (the AI's plans this step: ai.js)
+    const states = this.liveStates ??= []; states.length = 0; // (one array, reused every step: no garbage)
+    for (const c of this.cars) if (!c.dnf) states.push(c.state);
     // slipstream: how much each car here is in the wake of the car(s) ahead (slipstream.js; physics.js uses it)
     for (const car of this.cars) if (!car.dnf && !car.remote) car.state.tow = towFor(car.state, states);
     for (const car of this.cars) {

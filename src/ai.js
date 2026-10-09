@@ -168,6 +168,17 @@ const WIDE = 1;         // metres outside the line before it reacts
 const ROOM = 3;         // ...and less than this much tarmac left on the outside
 const LOCK_BRAKE = 1.3; // needs 30% more lock than it has → brake, not just lift
 
+// Plans made afresh just because it's time (or the line it wants moved) are spread out: at most PLAN_BUDGET of them in
+// one physics step across the whole field (race.js calls newPlanStep each step); the rest wait a step (8 ms). In a
+// pack at the start, 15 drivers re-planning in the same step made that step many times the usual cost: a spike.
+// Plans a car can't do without (its first, or it's driven past the end of the one it has) are never held back.
+const PLAN_BUDGET = 6;
+let planBudget = PLAN_BUDGET;
+export function newPlanStep() { planBudget = PLAN_BUDGET; }
+
+// The line a driver holds instead of the racing line: always the same fields (see the constructor's note)
+const makeLane = (kind, lat, ref = null, until = 0, side = 0) => ({ kind, lat, ref, until, side, age: 0 });
+
 export class AIDriver {
   // car: the car state it drives; profile: the speed plan for the race's difficulty (race.js); skill: its pace (1 = on
   // the limit, 0.97 = 3% slower through the corners); grip: grip bonus. opts: brakeUse, safety (as in
@@ -183,7 +194,9 @@ export class AIDriver {
     this.ersReserve = r0 + Math.random() * (r1 - r0);   // some drivers save more battery than others
     this.usesErs = skill > 0.8 && (car.spec ? !!car.spec.ers : true); // (not on your cool-down lap; not if the car has none)
     this.lane = null;              // the line it's holding instead of the racing line: { kind, lat, ref, age, until }
-    this.think = 0;
+    // its own rhythm for thinking and planning, so 19 drivers don't all do it in the same physics step (a frame-time spike)
+    this.think = Math.random() * 0.085; this.planEvery = AI_TUNE.plan * (0.85 + 0.3 * Math.random());
+    this.out = { throttle: 0, brake: 0, steer: 0, boost: false, abs: true, grip: 1, lock: 1 }; // what it returns (one object, reused)
     this.odo = opts.start ? 0 : Infinity;               // metres since the start (start lanes)
     const [l0, l1] = AI_TUNE.launch;
     this.launch = opts.start ? l0 + Math.random() * (l1 - l0) : 0; // its reaction when the lights go out
@@ -193,16 +206,20 @@ export class AIDriver {
     this.near = []; this.pool = [];
     this.planI = -1; this.planAge = 0; this.planK = 0; this.planLane = null; this.planLat = null; this.squeeze = Infinity;
     this.form = 1; this.lastS = car.s;  // lap to lap a driver is never quite the same (AI_TUNE.form)
+    // (every field it ever has, set here: an object that gains fields as it goes changes shape, and the browser then
+    //  throws away the fast compiled code for update() and falls back to slow code that makes garbage)
+    this.route = null; this.stopAt = null; this.hold = false; this.planRoute = null; this.planLat = null;
+    this.blocked = null; this.towing = null; this.kDemand = -1; this.wasWide = false; this.startDone = false; this.defendedAt = -1;
   }
 
   // others: the race's cars (race.js; or just their states)
   update(dt, others) {
     const { car, track: t, p } = this, T = AI_TUNE, n = t.n, ds = t.ds, L = t.length;
     const info = circuitInfo(t, this.profile);
-    if (this.hold) return { throttle: 0, brake: 0, steer: 0, boost: false, abs: true, grip: this.grip, lock: T.lockBonus }; // in its pit box
+    if (this.hold) return this.output(0, 0, 0, false); // in its pit box
     if (this.launch > 0) { // lights out: a moment to react, holding the revs
       this.launch -= dt;
-      return { throttle: 0.4, brake: 0, steer: 0, boost: false, abs: true, grip: this.grip, lock: T.lockBonus };
+      return this.output(0.4, 0, 0, false);
     }
     const i = car.trackIndex < 0 ? 0 : car.trackIndex;
     const v = Math.max(car.vf, 0), lat = car.lateral;
@@ -242,7 +259,7 @@ export class AIDriver {
       N.ext = R + co * Math.abs(Math.sin(wrap(st.h - head[j])));
       N.lapping = o.progress != null && myProg != null && o.progress - myProg > L * 0.5; // a lap or more ahead of me
       N.lapped = o.progress != null && myProg != null && myProg - o.progress > L * 0.5;
-      N.skill = o.ai?.skill ?? null;
+      N.skill = o.ai?.skill ?? -1; // (−1: not an AI driver)
       near.push(N);
     }
 
@@ -257,7 +274,9 @@ export class AIDriver {
     const lane = this.lane, route = this.route, pl = route && t.pitLane; // route: into the pits (pitstop.js), its own line
     let off = (i - this.planI + n) % n, K = this.planK, squeeze = this.squeeze;
     this.planAge += dt;
-    if (this.planI < 0 || this.planAge >= T.plan || off > 8 || lane !== this.planLane || (lane && lane.lat !== this.planLat) || route !== this.planRoute) {
+    const mustPlan = this.planI < 0 || off > 8 || route !== this.planRoute;
+    if (mustPlan || ((this.planAge >= this.planEvery || lane !== this.planLane || (lane && lane.lat !== this.planLat)) && planBudget > 0)) {
+      if (!mustPlan) planBudget--;
       this.planI = i; this.planAge = 0; this.planLane = lane; this.planLat = lane?.lat; this.planRoute = route; off = 0;
       const H = clamp((v * v) / 36 + v * 0.6 + 40, 60, MAXK * ds);
       K = this.planK = Math.min(MAXK, Math.ceil(H / ds));
@@ -394,7 +413,7 @@ export class AIDriver {
     // ---- the turn it actually needs to get back onto its line: no faster than the tyres can take that turn ----
     // (off its line on the outside of a bend it needs a tighter turn than the line: it lifts until it can make it)
     const kNeed = Math.abs(curv), kLine = t.rcurv[i];
-    this.kDemand = this.kDemand == null ? kNeed : this.kDemand + (kNeed - this.kDemand) * Math.min(1, dt * 12);
+    this.kDemand = this.kDemand < 0 ? kNeed : this.kDemand + (kNeed - this.kDemand) * Math.min(1, dt * 12);
     const outside = (lat - path[off]) * -Math.sign(curv) + (lat - want[off]) * -Math.sign(curv); // > 0: wide of its line
     if (this.kDemand > kLine * 1.15 && v > 12 && outside > 0.8) {
       const vNeed = cornerSpeed(this.kDemand, p, mu, t.vcurv ? t.vcurv[i] : 0, t.bank ? t.bank[i] : 0) * pace;
@@ -447,7 +466,11 @@ export class AIDriver {
       boost = clear && (charge > 0.97 || charge > (fight ? 0.02 : this.ersReserve));
     }
     // AI never locks up; `lock`: its extra steering lock (AI_TUNE.lockBonus, physics.js)
-    return { throttle: throttle * this.power, brake, steer, boost, abs: true, grip: this.grip, lock: T.lockBonus };
+    return this.output(throttle * this.power, brake, steer, boost);
+  }
+  output(throttle, brake, steer, boost) {
+    const o = this.out; o.throttle = throttle; o.brake = brake; o.steer = steer; o.boost = boost; o.abs = true; o.grip = this.grip; o.lock = AI_TUNE.lockBonus;
+    return o;
   }
 
   // ---------- racecraft: which line to hold for now ----------
@@ -502,12 +525,12 @@ export class AIDriver {
       if (this.lane) return; // one thing at a time
     }
     // ---- off the grid: keep to its own side until the field has strung out ----
-    if (this.odo < T.start && dBrake > 60 && !this.startDone) { this.lane = { kind: 'start', lat: clamp(this.gridLat, lo, hi), age: 0 }; return; }
+    if (this.odo < T.start && dBrake > 60 && !this.startDone) { this.lane = makeLane('start', clamp(this.gridLat, lo, hi)); return; }
     // ---- about to be lapped: let the leader by on the straight ----
     const lapper = near.find((N) => N.lapping && N.d < 0 && N.d > -70);
     if (lapper && dBrake > 120) {
       const away = lapper.lat >= lat ? -1 : 1, to = away > 0 ? hi - 0.3 : lo + 0.3;
-      if (canMove(to)) { this.lane = { kind: 'yield', lat: to, ref: lapper.o, age: 0 }; return; }
+      if (canMove(to)) { this.lane = makeLane('yield', to, lapper.o); return; }
     }
     // ---- a slower car ahead: pass it ----
     let A = null;
@@ -517,7 +540,7 @@ export class AIDriver {
     }
     if (A) {
       const closing = v - A.v, tow = this.car.tow ?? 0;
-      const quicker = closing > T.attack.closing || A.lapped || (A.skill != null && this.skill > A.skill + 0.002) || tow > 0.25;
+      const quicker = closing > T.attack.closing || A.lapped || (A.skill >= 0 && this.skill > A.skill + 0.002) || tow > 0.25;
       // in its tow on a straight: stay in it while there's a long way to go, or while it's still too far back to get
       // alongside (the tow pulls it up to the gearbox); then pull out, nearer the braking point
       const towing = tow > 0.1 && straight && closing < 4;
@@ -538,7 +561,7 @@ export class AIDriver {
           if (A.latV * s > 0.6) score -= 2.5;                      // it's moving that way: covering it
           if (score > bestScore) { bestScore = score; best = { s, at }; }
         }
-        if (best && canMove(best.at)) { this.lane = { kind: 'pass', lat: best.at, side: best.s, ref: A.o, age: 0 }; return; }
+        if (best && canMove(best.at)) { this.lane = makeLane('pass', best.at, A.o, 0, best.s); return; }
       }
       if (quicker && A.d < 25) return; // on the attack: eyes forward, it isn't looking to defend as well
     }
@@ -555,7 +578,7 @@ export class AIDriver {
         const inside = side > 0 ? hi - 0.4 : lo + 0.4, ro = t.ro[i], to = ro + (inside - ro) * this.defence;
         if (!already && canMove(to)) {
           // held until it turns in: from the inside it then takes the corner its own way (the plan rejoins the line)
-          this.lane = { kind: 'defend', lat: to, ref: B.o, until: C[info.next[i]].turnIn, age: 0 };
+          this.lane = makeLane('defend', to, B.o, C[info.next[i]].turnIn);
           this.defendedAt = info.next[i]; // (once per corner)
         }
       }

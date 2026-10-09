@@ -506,10 +506,21 @@
   <!-- ===== Cinematic replay (cinema.js): your best lap, filmed; watch it or save it as a video ===== -->
   <div id="cinema" class="overlay hidden">
     <div class="cin-panel">
-      <div class="res-kicker"><span class="slash"></span>Cinematic replay</div>
+      <div class="res-kicker"><span class="slash"></span><span id="cin-kicker">Cinematic replay</span></div>
       <h2 id="cin-title" class="st-title">Circuit</h2>
       <div id="cin-sub" class="res-sub"></div>
-      <div id="cin-res" class="cin-res"><button type="button" data-v="1080">1080p</button><button type="button" data-v="1440">1440p</button><button type="button" data-v="2160">4K</button></div>
+      <div class="cin-grid">
+        <label class="cin-field"><span>Clip</span><select id="cin-clip" class="cin-select"></select></label>
+        <label id="cin-follow-row" class="cin-field hidden"><span>Camera on</span><select id="cin-follow" class="cin-select"></select></label>
+      </div>
+      <div class="cin-field cin-wide"><span>Angles <em id="cin-cam-note"></em></span><div id="cin-cams" class="cin-chips"></div></div>
+      <div class="cin-grid">
+        <div class="cin-field"><span>Parts</span>
+          <div class="cin-parts"><button type="button" id="cin-parts-dn" aria-label="Fewer parts">−</button><input id="cin-parts" type="number" min="1" max="20" value="1" inputmode="numeric"><button type="button" id="cin-parts-up" aria-label="More parts">+</button><em id="cin-part-len"></em></div>
+        </div>
+        <div class="cin-field"><span>Size</span><div id="cin-res" class="cin-res"><button type="button" data-v="1080">1080p</button><button type="button" data-v="1440">1440p</button><button type="button" data-v="2160">4K</button></div></div>
+      </div>
+      <div id="cin-partsel-row" class="cin-field cin-wide hidden"><span>Record these parts</span><div id="cin-partsel" class="cin-chips cin-nums"></div></div>
       <div class="cin-opts">
         <div class="cin-take" title="The same take always gives the same edit; another take, another edit"><span>Take</span><button type="button" id="cin-take-prev" aria-label="Previous take">‹</button><b id="cin-take">1</b><button type="button" id="cin-take-next" aria-label="Next take">›</button></div>
         <button type="button" id="cin-line" class="set-row cin-line" role="switch" aria-checked="false"><span class="set-txt"><b>Racing line</b></span><i class="switch"></i></button>
@@ -582,6 +593,7 @@
         </div>
         <div class="res-actions">
           <button id="btn-again" class="res-btn primary">Race again</button>
+          <button id="btn-replay" class="res-btn hidden" type="button">Watch replay</button>
           <button id="btn-menu" class="res-btn">Main menu</button>
           <button class="res-btn res-support" type="button" data-support><span>Support me</span></button>
         </div>

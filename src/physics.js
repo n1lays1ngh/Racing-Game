@@ -33,6 +33,10 @@ export function createCarState(x, z, heading, spec = F1) {
     surface: 'road', hitWall: 0,
     trackIndex: -1, s: 0, lateral: 0,
     wheelSpin: 0,
+    // (every field any part of the game sets, from the start: a state that gains fields mid-race changes shape, and the
+    //  browser's fast compiled code for the physics and the AI is thrown away; see ai.js)
+    absActive: false, tcActive: false, pitLimiter: false, inPitLane: false, lightsOn: false, autopilot: false,
+    tow: 0, ers: 1, ersMode: '', tyres: null, tyreGrip: 1, tyresFitted: 0, damage: null,
   };
 }
 
@@ -162,7 +166,7 @@ export function stepCar(car, input, track, dt) {
   car.vz = fz * vf + lz * vl;
   car.x += car.vx * dt;
   car.z += car.vz * dt;
-  tyreStep(car, dt, { lat: Math.min(1.2, latUse), brake: brk, throttle: drive, slip: car.slip, lock: car.lockF, dist: Math.abs(vf) * dt, length: track.length }); // tyre wear (tyres.js)
+  if (car.tyres) tyreStep(car, dt, { lat: Math.min(1.2, latUse), brake: brk, throttle: drive, slip: car.slip, lock: car.lockF, dist: Math.abs(vf) * dt, length: track.length }); // tyre wear (tyres.js)
   car.vf = vf;
   car.speed = Math.hypot(car.vx, car.vz);
   car.wheelSpin += vf * dt / 0.36;

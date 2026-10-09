@@ -87,7 +87,7 @@ export class PitStops {
     const k = mod(st.trackIndex - lane.i0, t.n), inRange = k <= lane.steps;
     if (p.state === 'none') {
       const toEntry = mod(lane.entry - st.s, t.length), lap = car.lapsDone + 1;
-      car.wearLimit ??= 0.7 + Math.random() * 0.15;
+      if (!car.wearLimit) car.wearLimit = 0.7 + Math.random() * 0.15; // (0 until set: race.js)
       const w = st.tyres?.wear, avg = w ? (w[0] + w[1] + w[2] + w[3]) / 4 : 0;
       const worn = avg >= car.wearLimit && (lap <= race.laps - 2 || avg >= 0.97); // (with a lap to go it nurses them home)
       const due = p.stops < car.pitLaps.length && lap >= car.pitLaps[p.stops]; // (the stop its strategy needs)
