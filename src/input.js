@@ -123,6 +123,7 @@ const SCREENS = {
   results:  { root: 'results', b: 'click:btn-menu', buttons: { [BTN.MENU]: 'click:btn-again' } },
   stats:    { root: 'stats', b: 'click:st-back', buttons: { [BTN.MENU]: 'click:st-back' } },
   career:   { root: 'career', b: 'click:cr-back', buttons: { [BTN.MENU]: 'click:cr-race' } },
+  replays:  { root: 'replays', b: 'click:rp-back' },
   lobby:    { root: 'lobby', b: 'click:lb-back', buttons: { [BTN.MENU]: 'click:lb-go' } },
   controls: { root: 'controls', b: 'click:ctl-back', buttons: { [BTN.MENU]: 'click:ctl-back' } },
 };
@@ -135,6 +136,7 @@ function screen() {
   if (visible('pause')) return 'pause';
   if (visible('results')) return 'results';
   if (visible('career')) return 'career';
+  if (visible('replays')) return 'replays';
   if (visible('stats')) return 'stats';
   if (visible('lobby')) return 'lobby';
   if (visible('menu')) { const step = $('menu').dataset.step; return step === 'home' ? 'home' : step === 'setup' ? 'setup' : 'steps'; }

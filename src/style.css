@@ -700,6 +700,19 @@ body.gfx-noblur *, body.gfx-noblur *::before, body.gfx-noblur *::after { backdro
 #stats.hidden { display: none !important; }
 #career { display: block; padding: 0; overflow-y: auto; z-index: 6; } /* (scrolls on short screens, like the stats) */
 #career.hidden { display: none !important; }
+/* ---- Race replays (replays.js) ---- */
+#replays { display: block; padding: 0; overflow-y: auto; z-index: 6; }
+#replays.hidden { display: none !important; }
+.rp-screen { max-width: 860px; }
+.rp-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.rp-tabs button { width: auto; margin: 0; display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 6px; font-size: 14px;
+  letter-spacing: 0; text-transform: none; color: var(--muted); }
+.rp-tabs button small { margin: 0; min-width: 20px; padding: 1px 6px; border-radius: 9px; background: rgba(255, 255, 255, 0.1); color: inherit; font-size: 11px; }
+.rp-tabs button.on { background: var(--red); border-color: var(--red); color: #fff; }
+.rp-panel .cr-replay:first-child { border-top: 0; }
+.rp-empty { margin: 0; padding: 22px 18px; font-size: 14px; color: var(--muted); }
+.rp-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; box-shadow: inset 0 0 0 2px currentColor; position: relative; }
+.rp-ico::after { content: ''; position: absolute; left: 13px; top: 10px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent currentColor; }
 .st-screen { width: min(1280px, 100%); margin: 0 auto; padding: 5vh clamp(16px, 4vw, 56px) 7vh; animation: pause-in 0.35s cubic-bezier(.2,.8,.2,1) both; }
 .st-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-bottom: 24px; }
 .st-head-l { display: flex; align-items: flex-end; gap: 22px; min-width: 0; }
@@ -951,7 +964,7 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 .home-title { max-width: 760px; margin-top: clamp(0px, 5vh, 70px); }
 .home-title .title { margin: 0 0 16px; }
 .home-title .pitch { margin: 0; max-width: 540px; }
-.home-doors { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; } /* Race, Career, Multiplayer, Your stats */
+.home-doors { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr)); gap: 12px; } /* Race, Career, Multiplayer, Race replays, Your stats */
 /* the doors: a slanted plate behind each (skewed, so the slant is the same however tall a door is) */
 #menu .door, #menu .door-quick { position: relative; isolation: isolate; text-align: left; border: 0; background: none; }
 #menu .door::before, #menu .door-quick::before {
@@ -990,6 +1003,7 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 #menu.boot .home-doors > :nth-child(2) { animation-delay: 1.7s; }
 #menu.boot .home-doors > :nth-child(3) { animation-delay: 1.8s; }
 #menu.boot .home-doors > :nth-child(4) { animation-delay: 1.9s; }
+#menu.boot .home-doors > :nth-child(5) { animation-delay: 2s; }
 
 /* ---- 1 · car ---- */
 .mn-car { flex-direction: column; justify-content: flex-end; gap: clamp(12px, 2.2vh, 24px); }

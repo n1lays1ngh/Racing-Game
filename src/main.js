@@ -31,6 +31,7 @@ import { DAMAGE } from './damage.js';
 import { installShadowLayer, addShadowChunks } from './shadowChunks.js';
 import { Career, CAREER } from './career.js';
 import { ReplayRecorder, saveReplay, loadReplay } from './replay.js';
+import { ReplaysScreen } from './replays.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 import { setupSupport, raceFinished, askOnResults } from './support.js';
 import { Cinema } from './cinema.js';
@@ -341,7 +342,6 @@ const SHOWCASES = [
   { track: 'spa', car: 'hypercar', time: null },
   { track: 'silverstone', car: 'gt3', time: null }, { track: 'bahrain', car: 'f1', time: 'night' },
 ];
-
 const SHOWCASE_EVERY = 90;
 let showcaseIndex = 0, showcaseSince = performance.now();
 function nextShowcase() {
@@ -389,9 +389,11 @@ function newRace(cfg = soloConfig()) {
   loadTrack(cfg.track, getCar(cfg.car), cfg.time, false);
   showcase.stop();
   race = new Race(track, cfg);
-  // career: every car's position through the race, for the race replay (replay.js; the cinematic replay films it)
-  replayRec = race.career ? new ReplayRecorder(race, { track: track.id, trackName: track.name, car: race.carDef.id, time: cfg.time ?? null,
-    round: cfg.round ?? null, series: career.state ? CAREER.series[career.state.series]?.short ?? '' : '' }) : null;
+  // every car's position through the race, for the race replay (replay.js; Race replays): career races and offline
+  // quick races with other cars (not online, not practice on your own)
+  replayRec = !cfg.humans && race.cars.length > 1 ? new ReplayRecorder(race, { kind: race.career ? 'career' : 'quick',
+    track: track.id, trackName: track.name, car: race.carDef.id, time: cfg.time ?? null, round: race.career ? cfg.round ?? null : null,
+    series: race.career && career.state ? CAREER.series[career.state.series]?.short ?? '' : '' }) : null;
   lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
   statsRun = new StatsRun(race, { online: !!lobby.session }); // your stats: time, laps, sectors, result
   models = race.cars.map((c) => { // yours, friends' and (Hypercar, GT3) AI cars: the full model close up (carLod.js)
@@ -575,17 +577,30 @@ let lastCfg = null; // the race you're in, to restart it
 const career = new Career({ tracks: TRACKS, onRace: (cfg) => startGame(cfg), onClose: () => menu.classList.remove('hidden') });
 career.color = () => playerColor;
 document.getElementById('btn-career').addEventListener('click', () => { menu.classList.add('hidden'); career.open(); });
-// Race replays (replay.js) in the cinematic replay (cinema.js): back to the career screen afterwards
-function watchReplay(replay) {
+// Race replays (replay.js), filmed in the cinematic replay (cinema.js); back: where to go afterwards
+function watchReplay(replay, back) {
   if (!replay) return;
   const car = getCar(replay.meta.car);
   clearTimeout(previewTimer);
   loadTrack(replay.meta.track, car, replay.meta.time, false); // (the circuit it was raced on, built now if it isn't on screen)
-  showcase.stop(); menu.classList.add('hidden'); career.el.classList.add('hidden');
-  cinema.openRace(replay, car, track, () => { cinemaModel = null; showcase.start(track, myCar); career.open(); });
+  showcase.stop(); menu.classList.add('hidden'); career.el.classList.add('hidden'); replaysScreen.el.classList.add('hidden');
+  cinema.openRace(replay, car, track, () => { cinemaModel = null; showcase.start(track, myCar); back(); });
 }
-document.getElementById('btn-replay').addEventListener('click', () => { if (!race?.career) return; exitRace(); watchReplay(lastReplay); });
-career.onReplay = async (id) => watchReplay(lastReplay?.id === id ? lastReplay : await loadReplay(id));
+const replayById = async (id) => (lastReplay?.id === id ? lastReplay : await loadReplay(id));
+// Main menu → Race replays: career races and quick races, each in its own tab
+const replaysScreen = new ReplaysScreen({
+  onWatch: async (id) => watchReplay(await replayById(id), () => replaysScreen.open()),
+  onClose: () => menu.classList.remove('hidden'),
+});
+document.getElementById('btn-replays').addEventListener('click', () => { menu.classList.add('hidden'); replaysScreen.open(); });
+// the results screen: this race's replay (career: back to the career screen; quick race: to Race replays)
+document.getElementById('btn-replay').addEventListener('click', () => {
+  if (!replayRec) return;
+  const kind = race?.career ? 'career' : 'quick';
+  exitRace();
+  watchReplay(lastReplay, kind === 'career' ? () => career.open() : () => replaysScreen.open('quick'));
+});
+career.onReplay = async (id) => watchReplay(await replayById(id), () => career.open());
 function toCareer() { exitRace(); career.open(); }
 const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
@@ -763,11 +778,9 @@ function showResults() {
   $('results-fl').textContent = fl ? `${fl.name} ${formatTime(fl.time)}` : '--';
   $('results-fl').classList.toggle('purple', !!fl);
   if (results.classList.contains('hidden')) { // just opened
-    if (race.career && !race.recorded) { // career: points and the next round, and the replay so far (saved again when you leave)
-      race.recorded = true; career.record(race);
-      if (replayRec) saveReplay(replayRec.snapshot());
-    }
-    document.getElementById('btn-replay').classList.toggle('hidden', !(race.career && replayRec));
+    if (race.career && !race.recorded) { race.recorded = true; career.record(race); } // career: points and the next round
+    if (replayRec && !race.replaySaved) { race.replaySaved = true; saveReplay(replayRec.snapshot()); } // the replay so far (again when you leave)
+    document.getElementById('btn-replay').classList.toggle('hidden', !replayRec);
     askOnResults(); // now and then, a card asking for support (support.js)
     results.classList.remove('hidden'); $('btn-again').focus({ preventScroll: true });
   }

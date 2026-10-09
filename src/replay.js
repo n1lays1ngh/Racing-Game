@@ -1,6 +1,7 @@
-// Race replays (career races): where every car was, REPLAY.rate times a second, from lights out to when you left the
-// race, so the cinematic replay (cinema.js) can film the whole race afterwards. The last REPLAY.keep races are kept in
-// this browser (IndexedDB, with the ghost laps: ghost.js); a new one replaces the oldest.
+// Race replays (career races and offline quick races): where every car was, REPLAY.rate times a second, from lights out to when you left the
+// race, so the cinematic replay (cinema.js) can film the whole race afterwards. The last REPLAY.keep races of each kind
+// (meta.kind: 'career' or 'quick') are kept in this browser (IndexedDB, with the ghost laps: ghost.js); a new one
+// replaces the oldest of its kind. Main menu → Race replays (replays.js), the career screen, the results screen.
 //
 //   const rec = new ReplayRecorder(race, meta)   main.js, a career race starting (meta: track, car, time of day, round…)
 //   rec.record()                                 every frame
@@ -66,9 +67,13 @@ export async function listReplays() {
 }
 export async function saveReplay(replay) {
   try {
-    const list = (await listReplays()).filter((r) => r.id !== replay.id);
-    list.unshift({ id: replay.id, meta: replay.meta });
-    const drop = list.splice(REPLAY.keep);
+    const all = (await listReplays()).filter((r) => r.id !== replay.id), seen = {}, drop = [];
+    all.unshift({ id: replay.id, meta: replay.meta });
+    const list = all.filter((r) => { // the newest REPLAY.keep of each kind
+      const k = r.meta.kind ?? 'career';
+      if ((seen[k] = (seen[k] ?? 0) + 1) <= REPLAY.keep) return true;
+      drop.push(r); return false;
+    });
     await store('readwrite', (s) => {
       s.put({ meta: replay.meta, samples: replay.samples }, `data:${replay.id}`);
       for (const r of drop) s.delete(`data:${r.id}`);

@@ -114,7 +114,7 @@ export class Career {
 
   // The last few career races (replay.js): watch or record them in the cinematic replay
   async drawReplays() {
-    const list = await listReplays(), box = $('cr-replays');
+    const list = (await listReplays()).filter((r) => (r.meta.kind ?? 'career') === 'career'), box = $('cr-replays');
     if (!box) return;
     box.closest('.cr-replays').classList.toggle('hidden', !list.length);
     box.innerHTML = list.map(({ id, meta: m }) => {

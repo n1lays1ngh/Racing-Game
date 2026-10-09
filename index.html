@@ -219,6 +219,10 @@
           <span class="mp-ico"><i></i><i></i></span>
           <span class="door-txt"><b>Multiplayer</b><small>Race your friends online, up to 10 drivers</small></span>
         </button>
+        <button id="btn-replays" class="door" type="button">
+          <span class="rp-ico" aria-hidden="true"></span>
+          <span class="door-txt"><b>Race replays</b><small>Watch and record your last races</small></span>
+        </button>
         <button id="btn-stats" class="door" type="button">
           <span class="st-ico"><i></i><i></i><i></i></span>
           <span class="door-txt"><b>Your stats</b><small id="st-open-sub">Lap records for every circuit</small></span>
@@ -504,6 +508,25 @@
   <div id="intro"><div class="intro-logo"><span class="slash"></span>Apex <b>Circuit</b></div></div>
 
   <!-- ===== Cinematic replay (cinema.js): your best lap, filmed; watch it or save it as a video ===== -->
+  <!-- ===== Race replays (replays.js): the last career races and quick races, to watch or record ===== -->
+  <div id="replays" class="overlay hidden">
+    <div class="st-screen rp-screen">
+      <header class="st-head">
+        <div>
+          <div class="res-kicker"><span class="slash"></span><span>Replays</span></div>
+          <h2 class="st-title">Race replays</h2>
+          <div class="res-sub">Your last 3 races of each kind, from lights out to the flag: watch them, or record them as videos</div>
+        </div>
+        <div class="head-btns"><button id="rp-back" class="st-back" type="button"><span>‹ Menu</span><kbd>Esc</kbd></button></div>
+      </header>
+      <div id="rp-tabs" class="rp-tabs">
+        <button type="button" data-tab="career"><span>Career</span><small>0</small></button>
+        <button type="button" data-tab="quick"><span>Quick race</span><small>0</small></button>
+      </div>
+      <section class="cr-panel rp-panel"><div id="rp-list" class="cr-replay-list"></div></section>
+    </div>
+  </div>
+
   <div id="cinema" class="overlay hidden">
     <div class="cin-panel">
       <div class="res-kicker"><span class="slash"></span><span id="cin-kicker">Cinematic replay</span></div>
