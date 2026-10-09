@@ -13,7 +13,7 @@
 //   flags: 1 out of the race, 2 parked by the track (when out), 4 in the pit lane, 8 × (tyre compound + 1)
 import { db } from './ghost.js';
 
-export const REPLAY = { rate: 20, keep: 3 };
+export const REPLAY = { rate: 20, keep: 7 };
 export const RF = 10;
 export const COMPOUNDS = ['soft', 'medium', 'hard'];
 

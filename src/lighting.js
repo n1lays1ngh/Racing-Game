@@ -13,7 +13,8 @@
 // reflect. The sun itself comes from the directional light (so it casts the shadows), so the photo's
 // own sun is toned down. At night the photo (a grass field under the night sky, with lamps along the
 // horizon) only lights the scene, with the banks of floodlights added to what the cars reflect; the
-// sky you see is drawn by a shader (nightDome) so the stars stay pin-sharp at any screen size.
+// sky you see is a photo of the real night sky (NIGHT_SKY.photo, from ambientCG, CC0) on a dome (nightDome),
+// or stars drawn by the shader if the photo is off or not loaded yet.
 // If a photo can't be loaded, a sky made in code is used instead.
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
@@ -58,6 +59,13 @@ export const NIGHT_SKY = {
   cityGlow: [0.03, 0.02, 0.015],     // street circuits: orange city glow
   stars: 1.0,                        // brightness of the stars (0 = none)
   milkyWay: 1.0,                     // brightness of the Milky Way (fainter at street circuits)
+  // The night sky photo (public/hdri/): the upper half of the sky, bottom edge = the horizon. null = drawn stars only.
+  photo: 'night_sky_4k.jpg',
+  photoGain: 0.08,                   // how bright the photo is (1 = as shot; 0.08 ≈ as dark as the drawn sky)
+  photoGainDark: 0.1,                // … on a dark night (only the pits lit)
+  photoGainCity: 0.05,               // … at street circuits (city light washes the stars out)
+  photoContrast: 1.25,               // > 1: stars brighter against the same sky; 1 = as shot
+  photoTurn: 0,                      // turns the photo round (0–1 of a full turn): where the Milky Way sits
 };
 // Tone mapping: how the bright/dark range is squeezed onto the screen. 'neutral' keeps colours
 // (liveries, grass, sky) true to life; 'aces' is punchier and more saturated; 'agx' is softer.
@@ -181,14 +189,27 @@ function loadNightEnv(world, T) {
 }
 
 // ---------- night sky ----------
-// A sphere that follows the camera and is drawn behind everything. The stars are worked out per pixel
-// (not a picture), so each one is a crisp dot one or two pixels wide at any resolution; bright ones
-// get a little glow and they twinkle slightly. Plus a faint Milky Way and the floodlight glow on the horizon.
+// A sphere that follows the camera and is drawn behind everything, showing the night sky photo (NIGHT_SKY.photo)
+// with the floodlight glow on the horizon. Until the photo has loaded (or with photo: null) the stars are worked
+// out per pixel instead: crisp dots that twinkle slightly, and a faint Milky Way.
+let nightPhoto = null;
+function loadNightPhoto(mat) {
+  if (!NIGHT_SKY.photo) return;
+  nightPhoto ??= new THREE.TextureLoader().loadAsync(`/hdri/${NIGHT_SKY.photo}`).then((t) => {
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+    t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; // always seen enlarged: no mipmaps (and no seam where it wraps)
+    return t;
+  });
+  nightPhoto.then((t) => { mat.uniforms.uPhoto.value = t; mat.uniforms.uPhotoOn.value = 1; })
+    .catch((err) => console.warn(`Night sky photo /hdri/${NIGHT_SKY.photo} not loaded, drawing the stars instead.`, err));
+}
 function nightDome() {
   const S = NIGHT_SKY, v3 = (a) => new THREE.Vector3(...a);
   const mat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uZenith: { value: v3(S.zenith) }, uGlow: { value: v3(S.glow) },
-      uStars: { value: S.stars }, uMilky: { value: S.milkyWay } },
+      uStars: { value: S.stars }, uMilky: { value: S.milkyWay },
+      uPhoto: { value: null }, uPhotoOn: { value: 0 }, uPhotoGain: { value: S.photoGain },
+      uPhotoContrast: { value: S.photoContrast }, uPhotoTurn: { value: S.photoTurn } },
     vertexShader: `
       varying vec3 vDir;
       void main() {
@@ -196,8 +217,9 @@ function nightDome() {
         gl_Position = (projectionMatrix * modelViewMatrix * vec4(position, 1.0)).xyww; // on the far plane: behind everything
       }`,
     fragmentShader: `
-      uniform float uTime, uStars, uMilky;
+      uniform float uTime, uStars, uMilky, uPhotoOn, uPhotoGain, uPhotoContrast, uPhotoTurn;
       uniform vec3 uZenith, uGlow;
+      uniform sampler2D uPhoto;
       varying vec3 vDir;
       float hash13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
       vec3 hash33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
@@ -221,8 +243,20 @@ function nightDome() {
       void main() {
         vec3 dir = normalize(vDir);
         float h = dir.y, px = max(length(fwidth(dir)), 1e-5);
-        vec3 col = mix(uGlow, uZenith, 1.0 - exp(-max(h, 0.0) * 5.5));
-        col *= 1.0 - 0.6 * smoothstep(0.0, -0.12, h);           // below the horizon (mostly hidden)
+        float sky = 1.0 - exp(-max(h, 0.0) * 5.5);              // 0 at the horizon (all glow), 1 higher up
+        float dim = 1.0 - 0.6 * smoothstep(0.0, -0.12, h);      // below the horizon (mostly hidden)
+        if (uPhotoOn > 0.5) {
+          // the photo: round the sky like three.js's equirect maps; up the picture from the horizon (bottom) to overhead (top)
+          vec2 uv = vec2(atan(dir.z, dir.x) * 0.15915494 + 0.5 + uPhotoTurn, asin(clamp(h, 0.0, 1.0)) * 0.63661977);
+          vec3 p = texture2D(uPhoto, uv).rgb;
+          p = pow(p / 0.025, vec3(uPhotoContrast)) * 0.025;    // contrast round the sky's own brightness (0.025): stars stand out more
+          gl_FragColor = vec4(mix(uGlow, p * uPhotoGain, sky) * dim, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+          #include <dithering_fragment>
+          return;
+        }
+        vec3 col = mix(uGlow, uZenith, sky) * dim;
         float up = smoothstep(0.0, 0.3, h);                     // haze near the horizon hides the stars
         vec3 N = normalize(vec3(0.35, 0.55, 0.76));             // the Milky Way: a soft band of light
         float b = dot(dir, N), band = exp(-b * b / 0.018);
@@ -246,6 +280,7 @@ function nightDome() {
     dome.position.copy(camera.position); dome.updateMatrixWorld();
     mat.uniforms.uTime.value = performance.now() / 1000;
   };
+  loadNightPhoto(mat);
   return dome;
 }
 
@@ -270,6 +305,7 @@ export function applyTimeOfDay(world, track) {
     world.nightDome.visible = true;
     world.nightDome.material.uniforms.uGlow.value.set(...(city ? NIGHT_SKY.cityGlow : time === 'dark' ? NIGHT_SKY.darkGlow : NIGHT_SKY.glow));
     world.nightDome.material.uniforms.uMilky.value = NIGHT_SKY.milkyWay * (city ? 0.3 : 1);
+    world.nightDome.material.uniforms.uPhotoGain.value = city ? NIGHT_SKY.photoGainCity : time === 'dark' ? NIGHT_SKY.photoGainDark : NIGHT_SKY.photoGain;
     world.scene.background = null;
   } else {
     world.sky.visible = true;
