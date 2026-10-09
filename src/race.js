@@ -42,13 +42,16 @@ export const TEAMS = [
 //   grip     grip over yours (1 = the same car as you; above 1 so the AI can keep up with a very quick human)
 //   safety   how close to the grip limit it plans its corner speeds (1 = right on it)
 //   defence  how far it moves over to cover the inside when someone's right behind before a corner (0 = never)
-// Lap times on its own against a perfect lap in the same car, roughly: easy 6–9% slower, medium 2–4% slower, hard from
-// 1% quicker (the front of the grid) to 1–2% slower (the back), expert 2–2.5% quicker to 0.5–1.5% quicker.
+//   attack   aggression: how soon it has a go at a car it's stuck behind, how late it brakes when racing someone and
+//            how far back it'll dive from (0–1; each driver a little different, ai.js AI_TUNE.attack / fight)
+// Everyone has the same car: on the straights the field is nearly level (power), the difference is in the corners
+// and on the brakes. Set against a quick human on the racing line (track.js, K1999): easy 6–8.5 % slower a lap,
+// medium 2.5–4.5 % slower, hard level at the front to 1.5 % slower at the back, expert 1.3 % quicker to level.
 export const DIFFICULTY = {
-  easy:   { pace: [0.94, 0.917],  power: [0.944, 0.91],  brakeUse: [0.86, 0.843], grip: 1.0,  safety: 0.97, defence: 0.25 },
-  medium: { pace: [0.975, 0.954], power: [0.976, 0.948], brakeUse: [0.93, 0.911], grip: 1.0,  safety: 0.99, defence: 0.45 },
-  hard:   { pace: [1.0, 0.98],    power: [0.995, 0.966], brakeUse: [0.98, 0.96],  grip: 1.03, safety: 1.0,  defence: 0.65 },
-  expert: { pace: [1.0, 0.985],   power: [1.0, 0.982],   brakeUse: [1.0, 0.98],   grip: 1.08, safety: 1.0,  defence: 0.8 },
+  easy:   { pace: [0.9, 0.86],    power: [0.98, 0.96], brakeUse: [0.9, 0.88],  grip: 1.0,  safety: 0.97, defence: 0.3,  attack: 0.3 },
+  medium: { pace: [0.97, 0.93],   power: [1, 0.99],    brakeUse: [0.96, 0.94], grip: 1.0,  safety: 0.99, defence: 0.45, attack: 0.6 },
+  hard:   { pace: [1.01, 0.98],   power: [1, 1],       brakeUse: [1.0, 0.98],  grip: 1.02, safety: 1.0,  defence: 0.55, attack: 0.85 },
+  expert: { pace: [1.02, 0.99],   power: [1, 1],       brakeUse: [1.0, 0.99],  grip: 1.06, safety: 1.0,  defence: 0.6,  attack: 1 },
 };
 // a [quickest, slowest] setting for a driver `rank` of the way down the grid (0 = the front, 1 = the back)
 export const paceAt = (x, rank) => (Array.isArray(x) ? x[0] + (x[1] - x[0]) * rank : x);
@@ -167,7 +170,7 @@ export class Race {
         const pace = paceAt(diff.pace, rank) * (1 + (Math.random() - 0.5) * 0.004);
         car.ai = new AIDriver(state, track, this.profile, Math.min(pace, 1.02), diff.grip, {
           brakeUse: paceAt(diff.brakeUse, rank), power: Math.min(1, paceAt(diff.power, rank)),
-          safety: diff.safety, defence: diff.defence, start: true });
+          safety: diff.safety, defence: diff.defence, attack: diff.attack, start: true });
       }
       this.cars.push(car);
     });

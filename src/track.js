@@ -10,6 +10,7 @@ import { layoutPitLane } from './pitlane.js';
 export const TRACKS = CIRCUITS;
 export const HALF_WIDTH = 7;     // default half-width (permanent circuits are 14 m wide)
 export const KERB_WIDTH = 1.5;   // default kerb width
+export const RACING_LINE_EDGE = 0.3; // metres between the racing line (a car's centre) and the white line at the apex/edges
 export const WALL_OFFSET = 24;   // widest barrier distance used anywhere (for scenery spacing)
 
 // Defaults for each kind of circuit. Anything set in a circuit file wins.
@@ -228,31 +229,54 @@ function limitWalls(t) {
   }
 }
 
-// Racing line: first pull the line tight through the corners (shortest path),
-// then smooth out the sharp kinks that leaves at each apex so the line
-// follows proper arcs. The AI's corner speeds come from this line.
+// Racing line: K1999 (Rémi Coulom's, as in TORCS). Each point is moved across the track until its curvature is the
+// average of its neighbours' (weighted by distance), so the curvature changes evenly through every corner: wide on
+// the way in, the inside at the apex, wide again on the way out, using the whole track. Coarse to fine (every 64th
+// point, then every 32nd … every point), the points in between filled in. The AI's corner speeds come from this line.
+// (It replaced a smoothing pass that left the line short of the edges: 3–10 % slower a lap.)
+export const RACING_LINE = { iterations: 40 }; // per pass, × √(spacing): more = closer to the best line, slower to build
 function computeRacingLine(t) {
   const { n } = t;
-  const lim = (i) => Math.max(t.hw[i] - 1.2, 0.5); // how close to the track edge the AI may go
-  const o = t.ro;
-  const px = new Float32Array(n), pz = new Float32Array(n);
-  // Minimum-curvature line: straighten the path as much as the track width allows, which gives the
-  // classic outside–apex–outside line through every corner. Each point moves toward where a smooth
-  // curve through its neighbours would put it. Coarse to fine (k = spacing in samples) so long
-  // corners settle too; updated in place with a small step so it stays stable.
-  for (const [k, iters] of [[16, 120], [8, 160], [4, 200], [2, 250], [1, 300]]) {
-    for (let iter = 0; iter < iters; iter++) {
-      for (let i = 0; i < n; i++) { px[i] = t.cx[i] + t.nx[i] * o[i]; pz[i] = t.cz[i] + t.nz[i] * o[i]; }
-      for (let i = 0; i < n; i++) {
-        const a2 = (i - 2 * k + 2 * n) % n, a = (i - k + n) % n, b = (i + k) % n, b2 = (i + 2 * k) % n;
-        const tx = (-px[a2] + 4 * px[a] + 4 * px[b] - px[b2]) / 6, tz = (-pz[a2] + 4 * pz[a] + 4 * pz[b] - pz[b2]) / 6;
-        const target = (tx - t.cx[i]) * t.nx[i] + (tz - t.cz[i]) * t.nz[i];
-        o[i] = Math.max(-lim(i), Math.min(lim(i), o[i] + (target - o[i]) * 0.4));
-        px[i] = t.cx[i] + t.nx[i] * o[i]; pz[i] = t.cz[i] + t.nz[i] * o[i];
+  // how close to the white line the car's centre gets (RACING_LINE_EDGE): its outside wheels on the kerb, like a
+  // quick human driver uses the whole track
+  const lim = (i) => Math.max(t.hw[i] - RACING_LINE_EDGE, 0.5);
+  const o = t.ro; o.fill(0);
+  const X = (i) => t.cx[i] + t.nx[i] * o[i], Z = (i) => t.cz[i] + t.nz[i] * o[i];
+  const curv3 = (ax, az, bx, bz, cx, cz) => { // signed 1/R of the circle through three points (+ = turning left)
+    const x1 = bx - ax, z1 = bz - az, x2 = cx - bx, z2 = cz - bz;
+    const d = Math.hypot(x1, z1) * Math.hypot(x2, z2) * Math.hypot(cx - ax, cz - az);
+    return d > 1e-9 ? (2 * (x1 * z2 - z1 * x2)) / d : 0;
+  };
+  for (let step = 64; step >= 1; step >>= 1) {
+    const idx = []; for (let i = 0; i + step / 2 < n; i += step) idx.push(i);
+    const m = idx.length, iters = Math.round(RACING_LINE.iterations * Math.sqrt(step));
+    for (let it = 0; it < iters; it++) {
+      for (let q = 0; q < m; q++) {
+        const pp = idx[(q - 2 + m) % m], p = idx[(q - 1 + m) % m], i = idx[q], nb = idx[(q + 1) % m], nn = idx[(q + 2) % m];
+        const xi = X(i), zi = Z(i), xp = X(p), zp = Z(p), xn = X(nb), zn = Z(nb);
+        const ri0 = curv3(X(pp), Z(pp), xp, zp, xi, zi), ri1 = curv3(xi, zi, xn, zn, X(nn), Z(nn));
+        const lp = Math.hypot(xi - xp, zi - zp), ln = Math.hypot(xi - xn, zi - zn);
+        const target = (ln * ri0 + lp * ri1) / Math.max(ln + lp, 1e-6), security = (lp * ln) / 800;
+        // put the point on the straight line between its neighbours, then move it sideways until it bends as much
+        // as the target (how much a small move changes its curvature, worked out numerically)
+        const dx = xn - xp, dz = zn - zp, nX = t.nx[i], nZ = t.nz[i], den = dz * nX - dx * nZ, old = o[i];
+        let sOn = Math.abs(den) > 1e-9 ? ((xp - t.cx[i]) * dz - (zp - t.cz[i]) * dx) / den : old;
+        if (!Number.isFinite(sOn)) sOn = old;
+        const dl = 0.01, g = curv3(xp, zp, t.cx[i] + nX * (sOn + dl), t.cz[i] + nZ * (sOn + dl), xn, zn) / dl;
+        let v = Math.abs(g) > 1e-9 ? sOn + target / g : sOn;
+        // the inside of the bend: up to the limit (less a margin while the points are still far apart); the outside:
+        // the limit, or wherever it already was if beyond
+        const L = lim(i), inner = Math.max(0, L - security);
+        if (target >= 0) { v = Math.max(v, -L); if (v > inner) v = old > inner ? Math.min(old, v) : inner; v = Math.min(v, L); }
+        else { v = Math.min(v, L); if (v < -inner) v = old < -inner ? Math.max(old, v) : -inner; v = Math.max(v, -L); }
+        o[i] = v;
       }
     }
+    for (let q = 0; q < m; q++) { // the points in between: straight between their neighbours on this pass
+      const a = idx[q], b = q + 1 < m ? idx[q + 1] : idx[0] + n;
+      for (let j = a + 1; j < b; j++) { const f = (j - a) / (b - a); o[j % n] = o[a] * (1 - f) + o[b % n] * f; }
+    }
   }
-  smoothInPlace(o, 4); // iron out any small wiggles
   for (let i = 0; i < n; i++) o[i] = Math.max(-lim(i), Math.min(lim(i), o[i]));
   for (let i = 0; i < n; i++) { t.rx[i] = t.cx[i] + t.nx[i] * o[i]; t.rz[i] = t.cz[i] + t.nz[i] * o[i]; }
   // Curvature from the circle through points 10 m either side (less noisy).

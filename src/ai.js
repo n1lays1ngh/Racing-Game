@@ -32,7 +32,8 @@ export const AI_TUNE = {
   // Corners slower than `below` (m/s; 25 = 90 km/h) are planned this much faster. 1 = off.
   slowCorners: { below: 25, boost: 1.04 },
   minWideSpeed: 9,     // when it runs wide in a tight corner it slows to no less than this (m/s) to get back on line
-  edge: 1.0,           // metres between its line (the car's centre) and the edge of the track
+  edge: 0.3,           // metres between its line (the car's centre) and the edge of the track (the racing line's
+                       // own: RACING_LINE_EDGE, track.js): its outside wheels go on the kerb
   moveGrip: 0.4,       // moving across the track (to pass, to defend, back to the racing line) uses at most this share
                        // of the tyres' grip, so it never has to brake for its own change of line
   reaction: 0.05,      // s: it starts braking this much before the last moment
@@ -45,15 +46,29 @@ export const AI_TUNE = {
     closing: 0.6,      // m/s: … if it's catching it at least this fast (or is the quicker driver, or is in its tow)
     slingshot: 260,    // m: in the tow with more straight than this left, it stays in the tow before pulling out
     giveUp: 9,         // s: gives up a move that hasn't worked by then
+    pressure: 1.0,     // s: stuck this close behind a car …
+    patience: 5,       // s: … for this long (÷ its aggression) and it tries a move at the next braking zone anyway
+    dive: 3,           // m (× aggression): how far short of alongside it may be at turn-in and still go for it (it
+                       // makes that up on the brakes)
   },
-  defend: { range: 0.75, from: 50, to: 280 }, // s behind; metres before the next braking point it moves (if at all)
-  start: 350,          // m: off the grid each car keeps to its own side of the track
-  launch: [0.12, 0.32], // s: how long it takes to react to the lights going out (each driver differs, each start)
+  // a car behind: it covers the inside if that car is within `range` s of it, or catching it fast enough to be by
+  // the braking point; the move starts between `from` and `to` seconds before the braking point (at its speed)
+  // (late enough that the attacker has picked its side: an early move only opens the door for a switchback)
+  defend: { range: 0.75, from: 0.6, to: 2.4 },
+  // Fighting (a car within `range` m ahead, or `behind` m behind): it brakes later (this much more of its braking,
+  // × aggression, up to `maxBrake`) and carries a little more speed through the corners (`pace`, × aggression)
+  fight: { range: 25, behind: 15, brake: 0.04, maxBrake: 1.02, pace: 0.008 },
+  boxed: 0.7,          // s: squeezed out by a car level with it within this much road: it tucks in behind that car …
+  yieldDrop: 0.5,      // m/s: … this much slower than it (ready to fight back on the exit)
+  start: 120,          // m: off the grid each car keeps to its own side of the track (then it races: closes doors)
+  scramble: 150,       // m past the first corner's apex: until then (lap 1) a car with another right ahead pulls out
+                       // alongside it, so the field goes into turn 1 two and three abreast instead of in a queue
+  launch: [0.1, 0.24], // s: how long it takes to react to the lights going out (each driver differs, each start)
   ers: {
     straight: 1.6,     // deploys when the road ahead is clear to accelerate for this many seconds
     reserve: [0.1, 0.4], // charge each driver keeps back (picked at random per driver) …
     attack: 45,        // … but spends it when a car is this close ahead (metres)
-    defend: 15,        // … or this close behind
+    defend: 40,        // … or this close behind
   },
   form: 0.0015,        // lap to lap its pace varies by up to this much either way (0.0015 ≈ ±0.1 s a lap at Monza)
   plan: 0.025,         // s: how often it plans the road ahead afresh (in between it drives the plan it has)
@@ -210,6 +225,13 @@ export class AIDriver {
     //  throws away the fast compiled code for update() and falls back to slow code that makes garbage)
     this.route = null; this.stopAt = null; this.hold = false; this.planRoute = null; this.planLat = null;
     this.blocked = null; this.towing = null; this.kDemand = -1; this.wasWide = false; this.startDone = false; this.defendedAt = -1;
+    // racecraft: aggression (attack, 0–1 from the difficulty) and defence, a little different for each driver;
+    // fight: racing a car right now (brakes later); stalk: seconds stuck right behind the car ahead; bu: braking it plans
+    this.attack = opts.attack ?? 0.6;
+    this.aggr = Math.min(1.2, this.attack * (0.75 + 0.5 * Math.random()));
+    this.defence = Math.min(1, this.defence * (0.85 + 0.3 * Math.random()));
+    this.fight = false; this.stalk = 0; this.bu = this.brakeUse;
+    this.scrambleTo = opts.start ? -1 : 0; // odo where the lap-1 scramble ends (worked out on its first look ahead)
   }
 
   // others: the race's cars (race.js; or just their states)
@@ -270,7 +292,10 @@ export class AIDriver {
     // ---- the plan: where it'll be across the track for the next H metres, and how fast it can go all the way along
     // it. Made afresh 40 times a second (AI_TUNE.plan), and whenever the line it wants changes; in between it drives
     // the plan it has (`off`: how many samples along it the car is now) ----
-    const { path, want, lo, hi, vk } = this, edge = T.edge, pace = this.skill * this.form;
+    const FT = this.fight ? T.fight : null; // racing someone: later braking, a touch more corner speed
+    const pace = this.skill * this.form * (FT ? 1 + FT.pace * this.aggr : 1);
+    const bu = this.bu = FT ? Math.min(FT.maxBrake, Math.max(this.brakeUse, this.brakeUse + FT.brake * this.aggr)) : this.brakeUse;
+    const { path, want, lo, hi, vk } = this, edge = T.edge;
     const lane = this.lane, route = this.route, pl = route && t.pitLane; // route: into the pits (pitstop.js), its own line
     let off = (i - this.planI + n) % n, K = this.planK, squeeze = this.squeeze;
     this.planAge += dt;
@@ -300,6 +325,7 @@ export class AIDriver {
       }
       // cars beside it (now or where its path meets them): stay on its own side of them, a car's width away
       squeeze = Infinity;
+      const boxedM = Math.max(20, v * T.boxed);
       for (const N of near) {
         const sep = N.lat - lat, side = sep >= 0 ? 1 : -1;
         // the gap to keep from this car: both cars' width across the track (more when they're turned), the clearance,
@@ -326,8 +352,8 @@ export class AIDriver {
           const nl = N.lat + towards * Math.min((k * ds) / Math.max(v, 3), 0.6);
           const hwk = t.hw ? t.hw[(i + k) % n] : HALF_WIDTH, tLo = -hwk + edge, tHi = hwk - edge;
           // (never past the far edge of the track: no room left means drop back, not off the road)
-          if (side > 0) { const b = nl - W; if (b < Math.max(lo[k], tLo) && yields && k * ds < 60) squeeze = Math.min(squeeze, N.v); hi[k] = Math.min(hi[k], Math.max(b, tLo)); }
-          else { const b = nl + W; if (b > Math.min(hi[k], tHi) && yields && k * ds < 60) squeeze = Math.min(squeeze, N.v); lo[k] = Math.max(lo[k], Math.min(b, tHi)); }
+          if (side > 0) { const b = nl - W; if (b < Math.max(lo[k], tLo) && yields && k * ds < boxedM) squeeze = Math.min(squeeze, N.v); hi[k] = Math.min(hi[k], Math.max(b, tLo)); }
+          else { const b = nl + W; if (b > Math.min(hi[k], tHi) && yields && k * ds < boxedM) squeeze = Math.min(squeeze, N.v); lo[k] = Math.max(lo[k], Math.min(b, tHi)); }
         }
       }
       // the edges of the room it has change gradually (it moves over in good time, not at the last moment)
@@ -361,7 +387,7 @@ export class AIDriver {
       if (pl) for (let k = 0; k <= K; k++) if (pl.limit[(i + k) % n]) vk[k] = Math.min(vk[k], (pl.limitKmh ?? 80) / 3.6 - 0.4); // the pit limiter
       for (let k = K - 1; k >= 0; k--) {
         const j = (i + k) % n, next = vk[k + 1];
-        const b = brakeDecel(p, next, mu, this.brakeUse, t.grade ? t.grade[j] : 0, t.vcurv ? t.vcurv[j] : 0);
+        const b = brakeDecel(p, next, mu, bu, t.grade ? t.grade[j] : 0, t.vcurv ? t.vcurv[j] : 0);
         vk[k] = Math.min(vk[k], Math.sqrt(next * next + 2 * b * ds));
       }
       this.squeeze = squeeze;
@@ -389,7 +415,7 @@ export class AIDriver {
       const vs = -b * tau + Math.sqrt(b * b * tau * tau + N.v * N.v + 2 * b * Math.max(0, gap));
       if (vs < target) { target = vs; this.blocked = N; }
     }
-    if (squeeze < Infinity) target = Math.min(target, Math.max(Math.min(squeeze, 6), squeeze - 2)); // boxed in: drop back
+    if (squeeze < Infinity) target = Math.min(target, Math.max(Math.min(squeeze, 6), squeeze - T.yieldDrop)); // boxed in: tuck in behind
 
     // ---- steering: aim at a point on its line a little way ahead (pure pursuit) ----
     let lookDist = 5 + v * 0.28;
@@ -477,7 +503,7 @@ export class AIDriver {
   decide(near, v, i, lat, info, len, Wc, dt) {
     const t = this.track, T = AI_TUNE, n = t.n, ds = t.ds, p = this.p, edge = T.edge;
     this.towing = null; // (the car whose tow it's sitting in, waiting to pull out: it follows that one closer)
-    if (this.route) { this.lane = null; return; } // heading into the pits: no racing
+    if (this.route) { this.lane = null; this.fight = false; return; } // heading into the pits: no racing
     const Wp = 2 * (p.radius ?? 1.25) + T.passRoom;
     // the narrowest the track gets over the next 100 m: the room there is to be beside someone
     let hw = Infinity;
@@ -491,13 +517,22 @@ export class AIDriver {
       dApex = ((c.i - i + n) % n) * ds; side = c.entrySide;
       const ti = ((c.turnIn - i + n) % n) * ds; dTurn = ti > dApex ? 0 : ti; // (0: turning in already)
       const vc = c.v * this.skill;
-      dBrake = dApex - Math.max(0, v * v - vc * vc) / (2 * brakeDecel(p, (v + vc) / 2, p.mu * this.grip, this.brakeUse));
+      dBrake = dApex - Math.max(0, v * v - vc * vc) / (2 * brakeDecel(p, (v + vc) / 2, p.mu * this.grip, this.bu));
     }
+    if (this.scrambleTo < 0) this.scrambleTo = Math.min(dApex, 2000) + T.scramble;
+    const scramble = this.odo < this.scrambleTo; // lap 1, before the first corner: everyone wants a slot, no queueing
     // is the road straight for the next stretch (room to move across without upsetting the car)?
     let kMax = 0;
     for (let k = 0, m = Math.max(20, Math.round((v * 1.3) / ds)); k <= m; k += 2) kMax = Math.max(kMax, t.rcurv[(i + k) % n]);
     const straight = kMax < 1 / 180;
-    const canMove = (to) => straight || Math.abs(to - lat) < 1.2;
+    // can it get across to `to` in good time? on a straight, yes; otherwise if the change of line (an S-bend at its
+    // moveGrip share of the grip) is done before it turns in
+    const aMove = T.moveGrip * p.mu * this.grip * p.g;
+    const canMove = (to) => straight || Math.abs(to - lat) < 1.2 || Math.PI * v * Math.sqrt(Math.abs(to - lat) / (2 * aMove)) < dTurn;
+    // racing someone close (not lapping or being lapped): it brakes later and pushes a little harder (update())
+    let fight = false;
+    for (const N of near) if (!N.lapping && !N.lapped && N.d < T.fight.range && N.d > -(T.fight.behind + len)) { fight = true; break; }
+    this.fight = fight;
     const lane = this.lane;
     if (lane) {
       lane.age += dt;
@@ -507,7 +542,8 @@ export class AIDriver {
         if (!R || R.d < -(len + 4) || R.d > 70 || lane.age > T.attack.giveUp) this.lane = null; // done, or it got away
         // a corner coming and not alongside yet: carry on only if it'll be alongside by the time they turn in (a move
         // under braking); otherwise back in line and try again on the next straight
-        else if (!straight && R.d - len - Math.max(0, v - R.v) * (dTurn / Math.max(v, 1)) > 1) this.lane = null;
+        // (an aggressive driver goes for it from a little further back: it makes the rest up on the brakes)
+        else if (!straight && R.d - len - Math.max(0, v - R.v) * (dTurn / Math.max(v, 1)) > 1 + T.attack.dive * this.aggr) this.lane = null;
         else {
           // a car's width (and a bit) to that side of it: moving out further if it comes over, but not following it
           // back and forth across the road (only as far as it has to)
@@ -518,7 +554,7 @@ export class AIDriver {
           else lane.lat = want;
         }
       } else if (lane.kind === 'defend') {
-        if (lane.age > 6 || ((lane.until - i + n) % n) * ds > L2(t) || !R || R.d < -(v * T.defend.range + len + 10)) this.lane = null;
+        if (lane.age > 6 || ((lane.until - i + n) % n) * ds > L2(t) || !R || R.d < -(v * 2 + len + 10)) this.lane = null; // (2 s: as far back as a threat is seen)
       } else if (lane.kind === 'yield') {
         if (!R || R.d > len || lane.age > 8) this.lane = null;
       }
@@ -538,13 +574,16 @@ export class AIDriver {
       if (N.d <= 0 || N.d > Math.min(45, Math.max(14, v * T.attack.range)) || Math.abs(N.lat - lat) > Wc + 0.8) continue;
       if (!A || N.d < A.d) A = N;
     }
+    // stuck right behind it: after a while (sooner for an aggressive driver) it has a go at the next braking zone anyway
+    this.stalk = A && !A.lapping && A.d < Math.max(len + 4, v * T.attack.pressure) ? this.stalk + dt : Math.max(0, this.stalk - dt);
     if (A) {
       const closing = v - A.v, tow = this.car.tow ?? 0;
-      const quicker = closing > T.attack.closing || A.lapped || (A.skill >= 0 && this.skill > A.skill + 0.002) || tow > 0.25;
+      const pushing = this.stalk > T.attack.patience / Math.max(this.aggr, 0.2) && dBrake < v * 3;
+      const quicker = closing > T.attack.closing || A.lapped || (A.skill >= 0 && this.skill > A.skill + 0.002) || tow > 0.25 || pushing || scramble;
       // in its tow on a straight: stay in it while there's a long way to go, or while it's still too far back to get
       // alongside (the tow pulls it up to the gearbox); then pull out, nearer the braking point
       const towing = tow > 0.1 && straight && closing < 4;
-      const slingshot = towing && (dBrake > T.attack.slingshot || (A.d > len + 8 && closing < 2));
+      const slingshot = towing && !scramble && (dBrake > T.attack.slingshot || (A.d > len + 8 && closing < 2));
       if (quicker && slingshot) this.towing = A.o;
       if (quicker && !slingshot) {
         let best = null, bestScore = -Infinity;
@@ -561,18 +600,22 @@ export class AIDriver {
           if (A.latV * s > 0.6) score -= 2.5;                      // it's moving that way: covering it
           if (score > bestScore) { bestScore = score; best = { s, at }; }
         }
-        if (best && canMove(best.at)) { this.lane = makeLane('pass', best.at, A.o, 0, best.s); return; }
+        if (best && canMove(best.at)) { this.lane = makeLane('pass', best.at, A.o, 0, best.s); this.stalk = 0; return; }
       }
       if (quicker && A.d < 25) return; // on the attack: eyes forward, it isn't looking to defend as well
     }
     // ---- a car right behind before a corner: one move to cover the inside ----
     if (this.defence > 0) {
+      // a threat: close behind already, or catching fast enough to be close by the braking point
+      const tB = dBrake / Math.max(v, 1);
       let B = null;
       for (const N of near) {
-        if (N.d >= -len || N.d < -(v * T.defend.range + len) || N.lapping || N.v < v - 0.5) continue;
+        if (N.d >= -len || N.lapping || N.v < v - 0.5) continue;
+        const gap = -N.d - len, near0 = gap < v * T.defend.range;
+        if (!near0 && !(gap < v * 2 && gap - (N.v - v) * tB < v * T.defend.range)) continue;
         if (!B || N.d > B.d) B = N;
       }
-      if (B && dBrake > T.defend.from && dBrake < T.defend.to && !(this.defendedAt === info.next[i])) {
+      if (B && dBrake > Math.max(40, v * T.defend.from) && dBrake < v * T.defend.to && !(this.defendedAt === info.next[i])) {
         // it's already up the inside, or right behind and already heading there: too late to cover (no chopping across)
         const already = (B.lat - lat) * side > Wc * 0.8 || (B.latV * side > 0.8 && B.d > -(len + 6));
         const inside = side > 0 ? hi - 0.4 : lo + 0.4, ro = t.ro[i], to = ro + (inside - ro) * this.defence;
