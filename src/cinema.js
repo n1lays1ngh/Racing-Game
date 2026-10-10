@@ -504,7 +504,7 @@ export class Cinema {
       case 'low': pos = at(4.6, 0.42, 1.3); look.addScaledVector(V.fwd, 25); fov = 58; break;
       case 'side': pos = at(-1.5, 1.0, 7 * Math.sign(Math.cos(cut.orbit))); fov = 38; break;
       case 'front': pos = at(-11, 0.75, 0.8); fov = 34; break;
-      case 'hud': this.gameCam(st, cams); return; // exactly the camera you drive with
+      case 'hud': this.gameCam(st, cams, 2); return; // the game's T-cam, exactly as you drive with it
       case 'orbit': cut.orbit += dt * 0.35; pos = at(Math.cos(cut.orbit) * 8, 2.2, Math.sin(cut.orbit) * 8); fov = 48; break;
       case 'heli': cut.orbit += dt * 0.12; pos = at(Math.cos(cut.orbit) * 30, 17, Math.sin(cut.orbit) * 30); fov = 38; break;
       case 'overhead': // straight down from a drone, the car pointing up the picture
@@ -517,9 +517,9 @@ export class Cinema {
     camera.fov = fov; camera.updateProjectionMatrix();
     camera.lookAt(look);
   }
-  // the camera you drive with (main.js camMode: Chase, Far chase, T-cam or Cockpit), placed the same way as in the game
-  gameCam(st, cams) {
-    const camera = this.camera, V = this.v, mode = this.camMode?.() ?? 0;
+  // one of the game's cameras (mode as main.js camMode: 0 Chase, 1 Far chase, 2 T-cam, 3 Cockpit), placed the same way as in the game
+  gameCam(st, cams, mode = this.camMode?.() ?? 0) {
+    const camera = this.camera, V = this.v;
     const q = (this.camQ ??= new THREE.Quaternion()).setFromEuler((this.camE ??= new THREE.Euler(0, 0, 0, 'YXZ')).set(-(st.pitch ?? 0), st.h, st.roll ?? 0));
     let pos, look;
     const on = mode >= 2 ? (mode === 2 ? cams?.tcam : cams?.cockpit) : null;
