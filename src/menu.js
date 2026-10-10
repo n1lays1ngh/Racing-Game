@@ -48,19 +48,27 @@ const STATS = [
   { key: 'stop', label: 'Braking from 200 km/h', unit: 'm', fmt: (v) => Math.round(v), high: false },
 ];
 function carNumbers(car) {
-  const p = car.physics, E = car.ers?.auto ? car.ers : null, dt = 1 / 120;
+  const p = car.physics, E = car.ers?.auto ? car.ers : null, dt = 1 / 240;
+  const lat = (u) => p.mu * (p.g + p.downforce * u * u);
   const push = (v) => { // flat out on a level road (the Hypercar's hybrid deploys by itself; ERS on a button doesn't count)
-    let a = p.accel * (1 - p.accelFade * Math.min(Math.max(v, 0) / 90, 1));
+    const u = Math.max(v, 0);
+    // the engine: a fixed power (p.power) up to p.accel, or p.accel fading toward top speed (as in physics.js)
+    let a = p.power ? Math.min(p.accel, p.power / Math.max(u, 1)) : p.accel * (1 - p.accelFade * Math.min(u / 90, 1));
+    if (p.traction) { // wheelspin: only so much goes down, traction control saves a little of the rest
+      const most = p.traction * lat(u);
+      if (a > most) a = most + (a - most) * 0.15 * (1 - (p.tc ?? 0));
+    }
     if (E && v > E.minSpeed) a += Math.min(E.maxPush, E.power / v) * (1 - Math.min(1, Math.max(0, (v - E.maxSpeed + 8) / 8)));
     return a - p.drag * v * v - p.roll;
   };
-  let v = 0, t = 0, t200 = null;
-  while (t < 90) { v += push(v) * dt; t += dt; if (t200 == null && v >= 200 / 3.6) t200 = t; }
-  const top = v * 3.6;
-  const lat = (u) => p.mu * (p.g + p.downforce * u * u);
-  let stop = 0; v = 200 / 3.6;
-  while (v > 0) { stop += v * dt; v -= (Math.min(p.brake, 1.2 * lat(v)) + p.drag * v * v + p.roll) * dt; }
-  return { top, t200: t200 ?? 99, g: lat(200 / 3.6) / p.g, stop };
+  let v = 0, t = 0;
+  while (v < 200 / 3.6 && t < 60) { v += push(v) * dt; t += dt; }
+  const t200 = v >= 200 / 3.6 ? t : 99;
+  let lo = 1, hi = 200; // top speed: where the push runs out
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (push(m) > 0) lo = m; else hi = m; }
+  let stop = 0; v = 200 / 3.6; // off the throttle and on the brakes: engine braking counts too
+  while (v > 0) { stop += v * dt; v -= (Math.min(p.brake, 1.2 * lat(v)) + p.drag * v * v + p.roll + (p.liftOff ?? 0)) * dt; }
+  return { top: lo * 3.6, t200, g: lat(200 / 3.6) / p.g, stop };
 }
 
 // ---- a circuit's outline and hills, straight from its file (the exact numbers come once it's built) ----
@@ -91,6 +99,19 @@ function duration(t) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
 }
 const andList = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+// ↑ ↓ in a grid: of els, the nearest one in the row above (d = -1) / below (d = 1) cur, by where they are on screen
+function rowStep(els, cur, d) {
+  if (!cur) return null;
+  const r = cur.getBoundingClientRect(), cx = r.left + r.width / 2;
+  let pick = null, score = Infinity;
+  for (const t of els) {
+    const q = t.getBoundingClientRect(), dy = (q.top - r.top) * d;
+    if (dy <= 4) continue;
+    const s = dy * 4 + Math.abs(q.left + q.width / 2 - cx);
+    if (s < score) { score = s; pick = t; }
+  }
+  return pick;
+}
 
 // cars: the list from src/cars/; carId: the one picked; onCar(id) / onTime(time): you picked another
 export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
@@ -113,7 +134,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
 
   // ---------- steps ----------
   const HINTS = {
-    car: '<kbd>←</kbd><kbd>→</kbd> change car',
+    car: '<kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> change car',
     track: '<kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> change circuit',
     setup: '<kbd>←</kbd><kbd>→</kbd> laps <kbd>⇧</kbd> ×10 &nbsp; <kbd>↑</kbd><kbd>↓</kbd> AI cars &nbsp; <kbd>N</kbd> time of day',
   };
@@ -178,10 +199,16 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     if (dark.length) out.push(`${andList(dark)} at night with no floodlights`);
     return out;
   }
+  // the cards: two rows once there are more than 4 cars; what the picked car comes with goes in the strip below them
+  const detail = document.createElement('div');
+  detail.id = 'car-detail'; detail.className = 'car-detail'; detail.setAttribute('aria-live', 'polite');
+  $('car-pick').after(detail);
   function drawCars() {
-    $('car-pick').style.setProperty('--cars', cars.length); // (the big letters shrink to fit more cars in the row)
-    $('car-pick').innerHTML = cars.map((c) => {
-      const nums = numbers.get(c), driven = getStats(c.id).total.laps;
+    const per = cars.length > 4 ? Math.ceil(cars.length / 2) : cars.length, rows = [];
+    for (let i = 0; i < cars.length; i += per) rows.push(cars.slice(i, i + per));
+    $('car-pick').style.setProperty('--cars', per); // (the big letters shrink to fit more cars in a row)
+    $('car-pick').innerHTML = rows.map((row) => `<div class="slat-row" role="presentation">${row.map((c) => {
+      const nums = numbers.get(c);
       const stats = STATS.map((s) => {
         const v = nums[s.key], f = s.high ? v / best[s.key] : best[s.key] / v;
         return `<span class="stat"><span class="stat-l">${s.label}</span><b>${s.fmt(v)}<small>${s.unit}</small></b><i style="--f:${f.toFixed(3)}"></i></span>`;
@@ -190,17 +217,23 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
         `<span class="slat-big" aria-hidden="true">${esc(c.short ?? c.name)}</span>` +
         `<span class="slat-head"><b>${esc(c.name)}</b><span>${esc(c.car)}</span></span>` +
         `<span class="slat-stats">${stats}</span>` +
-        `<span class="slat-specs">${(c.specs ?? []).map((s) => `<span>${esc(s)}</span>`).join('')}</span>` +
-        `<span class="slat-notes">${carNotes(c).map((n) => `<span>${esc(n)}</span>`).join('')}</span>` +
-        `<span class="slat-you">${driven ? `You've driven ${driven.toLocaleString()} ${driven === 1 ? 'lap' : 'laps'} in it` : 'Not driven yet'}</span>` +
         '</button>';
-    }).join('');
+    }).join('')}</div>`).join('');
+    showDetail();
+  }
+  function showDetail() {
+    const driven = getStats(car.id).total.laps;
+    detail.innerHTML = `<b class="cd-name">${esc(car.name)}</b>` +
+      `<span class="cd-specs">${(car.specs ?? []).map((s) => `<span>${esc(s)}</span>`).join('')}</span>` +
+      `<span class="cd-notes">${carNotes(car).map((n) => `<span>${esc(n)}</span>`).join('')}</span>` +
+      `<span class="cd-you">${driven ? `You've driven ${driven.toLocaleString()} ${driven === 1 ? 'lap' : 'laps'} in it` : 'Not driven yet'}</span>`;
   }
   function markCars() {
     for (const b of $('car-pick').querySelectorAll('.slat')) {
       const on = b.dataset.car === car.id;
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on);
     }
+    showDetail();
   }
   function pickCar(c) {
     if (!c || c === car) return;
@@ -214,6 +247,13 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   function stepCar(d) {
     pickCar(cars[(cars.indexOf(car) + d + cars.length) % cars.length]);
     if (document.activeElement?.closest?.('#car-pick')) carPick.querySelector('.slat.on')?.focus({ preventScroll: true });
+  }
+  function stepCarRow(d) { // ↑ ↓: the card above / below (one row: just the next car)
+    const slats = [...carPick.querySelectorAll('.slat')];
+    const pick = rowStep(slats, carPick.querySelector('.slat.on'), d);
+    if (!pick) { if (!carPick.querySelector('.slat-row + .slat-row')) stepCar(d); return; }
+    pickCar(cars.find((c) => c.id === pick.dataset.car));
+    if (document.activeElement?.closest?.('#car-pick')) pick.focus({ preventScroll: true });
   }
 
   // ---------- 2 · circuit ----------
@@ -253,17 +293,9 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     pickTrack(ordered[(i + d + ordered.length) % ordered.length].id);
     afterKeyPick();
   }
-  function stepTrackRow(d) { // ↑ ↓: the tile above / below, by where they are on screen
-    const tiles = [...grid.querySelectorAll('.tile')], cur = tiles.find((t) => t.dataset.track === select.value);
-    if (!cur) return;
-    const r = cur.getBoundingClientRect(), cx = r.left + r.width / 2;
-    let pick = null, score = Infinity;
-    for (const t of tiles) {
-      const q = t.getBoundingClientRect(), dy = (q.top - r.top) * d;
-      if (dy <= 4) continue;
-      const s = dy * 4 + Math.abs(q.left + q.width / 2 - cx);
-      if (s < score) { score = s; pick = t; }
-    }
+  function stepTrackRow(d) { // ↑ ↓: the tile above / below
+    const tiles = [...grid.querySelectorAll('.tile')];
+    const pick = rowStep(tiles, tiles.find((t) => t.dataset.track === select.value), d);
     if (pick) { pickTrack(pick.dataset.track); afterKeyPick(); }
   }
   function afterKeyPick() {
@@ -494,7 +526,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     const arrow = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1, PageDown: -1, PageUp: 1 }[k];
     if (!arrow) return;
     e.preventDefault();
-    if (step === 'car') stepCar(arrow);
+    if (step === 'car') (k === 'ArrowUp' || k === 'ArrowDown' ? stepCarRow(arrow) : stepCar(arrow));
     else if (step === 'track') (k === 'ArrowUp' || k === 'ArrowDown' ? stepTrackRow(arrow) : stepTrack(arrow));
     else if (step === 'setup') {
       if (k === 'ArrowUp' || k === 'ArrowDown') setAi(Number(ai.value) - arrow); // ↑ more AI cars, ↓ fewer

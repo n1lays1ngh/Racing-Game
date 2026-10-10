@@ -5,7 +5,8 @@
 // 'smooth': a low, warm, steady hum that only rises a little with the revs: no scream, no rasp, no pops.
 // The old screaming engines ('v10', 'v8', 'v6') are still here: set SOUND.engineType to use one.
 // That's the F1 car's engine. The other cars have their own (`sound` in their file in src/cars/): the
-// Hypercar's 'hypercar' (the Ferrari 499P's twin-turbo V6) and the GT3's 'gt3' (the AMG's 6.2 V8).
+// Hypercar's 'hypercar' (the Ferrari 499P's twin-turbo V6), the GT3's 'gt3' (the AMG's 6.2 V8), the 1989 car's
+// 'f1_loud' (the F1 car's, louder) and the McLaren's 'mclaren' (twin-turbo V8 and its whistle).
 //
 // Everything else (tyre squeal, kerb rumble, grass and gravel, wind, impacts, gearshift clicks, pops and
 // crackles when you lift off or brake) is off by default, so you only hear the engine. Each one has its own
@@ -53,6 +54,14 @@ export const ENGINES = {
   gt3: { cylinders: 8, rpmScale: 1, bank: 0.62, firing: [0, 1, 0, 1, 1, 0, 1, 0], pulse: 0.22, noise: 0.4, body: 0.32,
          drive: [1.2, 2.1], cutoff: [1600, 4600], rough: 0.1, jitter: 0.008, pops: false,
          res: [[100, 0.9, 0.9], [240, 1.2, 0.85], [560, 1.7, 0.5], [1350, 2.4, 0.24], [3000, 3, 0.1]], gain: 1 },
+  // ---- the McLaren: only the engine's own note differs (shifts and the rest are as on the F1 car).
+  //   turbo.spool: seconds the boost takes to build (the whistle comes in with lag, and dies fast when you lift)
+  // MC, the 720S GT3: a 4.0 twin-turbo V8 with a flat-plane crank, to 7,800. The turbos muffle the exhaust (darker and
+  // smoother than the AMG), the banks alternate evenly (no cross-plane burble), and the whistle builds with the boost.
+  mclaren: { cylinders: 8, rpmScale: 1, bank: 0.72, pulse: 0.18, noise: 0.3, body: 0.26, drive: [1.1, 1.9], cutoff: [1800, 5000],
+             rough: 0.08, jitter: 0.008, pops: false,
+             res: [[115, 0.9, 0.85], [290, 1.2, 0.8], [680, 1.6, 0.5], [1600, 2.2, 0.28], [3400, 2.8, 0.12]], gain: 1,
+             turbo: { level: 1.4, hz: [1600, 5200], revs: [3000, 7000], spool: 0.45 } },
 };
 
 export const SOUND = {
@@ -85,9 +94,13 @@ export const SOUND = {
 // Which engine a car has: its `sound` (src/cars/), or SOUND.engineType (the F1 car)
 const presetName = (car) => (car?.sound && ENGINES[car.sound] ? car.sound : SOUND.engineType);
 const presetOf = (car) => ENGINES[presetName(car)] ?? ENGINES.smooth;
-const rpmScaleOf = (P) => (P.fire ? 1 : P.rpmScale ?? 1); // 'smooth' sets its note directly from the revs
+// 'smooth' sets its note directly from the revs; revsLike: the car's redline is heard as this many revs
+const rpmScaleOf = (P, car) => (P.fire ? 1 : P.revsLike ? P.revsLike / (car?.gearbox?.rpm?.[1] ?? P.revsLike) : P.rpmScale ?? 1);
 // The turbo whistle and hybrid whine: the 'v6' has them as they always were; other engines set their own
 const V6_EXTRAS = { turbo: { level: 1, hz: [1800, 7000], revs: [5000, 13000] }, hybrid: { level: 1, hz: [160, 30], deploy: false } };
+// The 2006 and 1989 cars: the F1 car's own engine sound (the 'v6', whistle and hum included), a bit louder, with their
+// revs heard on its scale (their redline sounds like its 13,000)
+ENGINES.f1_loud = { ...ENGINES.v6, gain: 1.3, revsLike: 13000, ...V6_EXTRAS };
 const extrasOf = (car) => {
   const P = presetOf(car);
   if (P.turbo || P.hybrid) return { turbo: P.turbo ?? null, hybrid: P.hybrid ?? null };
@@ -256,6 +269,7 @@ export class EngineAudio {
     }
     this.lastGear = 'N'; this.lastHit = 0;
     this.snapUntil = 0; this.loudAt = -10; this.lastUp = -10; // gearshifts
+    this.boost = 0; this.turboT = null; // (turbos with spool)
   }
 
   voice(pan = false) {
@@ -284,7 +298,7 @@ export class EngineAudio {
   // ers: what the hybrid is doing ('deploy' | 'harvest' | '', ers.js)
   update({ rpm, throttle, slip, surface, speed, hit, gear = 'N', brake = 0, ers = '' }) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime, P = this.P ?? presetOf(this.car), r = rpm * rpmScaleOf(P);
+    const t = this.ctx.currentTime, P = this.P ?? presetOf(this.car), r = rpm * rpmScaleOf(P, this.car);
     if (this.ready) {
       const m = this.me;
       // gearshifts: the revs jump to the new gear straight away, so you hear each shift as it happens
@@ -307,10 +321,17 @@ export class EngineAudio {
     }
     this.lastGear = gear;
     const X = this.extras ?? extrasOf(this.car), T = X.turbo, H = X.hybrid;
-    const revs = smooth(...(T?.revs ?? [5000, 13000]), rpm), boost = revs * (0.3 + 0.7 * throttle);
+    const revs = smooth(...(T?.revs ?? [5000, 13000]), r);
+    let boost = revs * (0.3 + 0.7 * throttle);
+    if (T?.spool) { // a real turbo: the boost builds with lag on the throttle and dies fast off it
+      const dt = Math.min(0.1, Math.max(0, t - (this.turboT ?? t))), want = revs * throttle, was = this.boost;
+      this.turboT = t;
+      this.boost = boost = was + (want - was) * (1 - Math.exp(-dt / (want > was ? T.spool : 0.12)));
+    }
     if (this.turbo) {
-      this.turbo.frequency.setTargetAtTime(T ? T.hz[0] + boost * (T.hz[1] - T.hz[0]) : 1800, t, 0.25);
-      this.turboGain.gain.setTargetAtTime(T ? SOUND.turbo * T.level * boost : 0, t, 0.3);
+      const hz = T ? T.hz[0] + boost * (T.hz[1] - T.hz[0]) : 1800;
+      this.turbo.frequency.setTargetAtTime(hz, t, 0.25);
+      this.turboGain.gain.setTargetAtTime(T ? SOUND.turbo * T.level * boost : 0, t, T?.spool ? 0.12 : 0.3);
       this.whine.frequency.setTargetAtTime(H ? H.hz[0] + speed * H.hz[1] : 160, t, 0.05);
       // the F1 car's MGU-K hums all the time, louder under braking; the Hypercar's front motor only when it's working
       const motor = !H ? 0 : !H.deploy ? 0.4 + brake * 1.6 : ers === 'deploy' ? 1 : ers === 'harvest' ? 0.5 * brake : 0;
@@ -360,7 +381,7 @@ export class EngineAudio {
       const inv = 1 / Math.max(o.d, 0.001), ux = o.dx * inv, uz = o.dz * inv;
       const away = (s.vx - lvx) * ux + (s.vz - lvz) * uz;                 // + = moving away
       const doppler = Math.min(dHi, Math.max(dLo, 343 / (343 + away)));
-      v.rpm.setTargetAtTime(gb.rpm * rpmScaleOf(this.P), t, SOUND.glide);
+      v.rpm.setTargetAtTime(gb.rpm * rpmScaleOf(this.P, s.spec ?? this.car), t, SOUND.glide);
       v.load.setTargetAtTime(s.throttle ?? 0.8, t, 0.08);
       v.pitch.setTargetAtTime(doppler, t, 0.1);
       v.g.gain.setTargetAtTime(SOUND.traffic * (this.P.gain ?? 1) / (1 + (o.d / 14) ** 2), t, 0.1);

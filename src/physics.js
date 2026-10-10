@@ -37,6 +37,7 @@ export function createCarState(x, z, heading, spec = F1) {
     //  browser's fast compiled code for the physics and the AI is thrown away; see ai.js)
     absActive: false, tcActive: false, pitLimiter: false, inPitLane: false, lightsOn: false, autopilot: false,
     tow: 0, ers: 1, ersMode: '', tyres: null, tyreGrip: 1, tyresFitted: 0, damage: null,
+    longA: 0, spin: 0, // braking / driving grip in use last step (m/s²), and how hard the rear wheels are spinning (0–1)
   };
 }
 
@@ -95,6 +96,9 @@ export function stepCar(car, input, track, dt) {
   const tow = car.tow ?? 0, dirty = 1 - SLIPSTREAM.dirtyAir * tow;
   // … and worn tyres (tyres.js) have less grip, fresh softs more
   const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty * (car.tyreGrip ?? 1) * (dfx?.grip ?? 1), vcurv, p, dfx?.aero ?? 1) + bankGrip, 2);
+  // Combined grip (p.combined, a friction circle): braking or driving hard leaves less grip for turning, and turning
+  // hard leaves less for braking and driving (below). The tyres take a little more lengthways than sideways (1.2×).
+  const latAvail = p.combined ? latMax * Math.max(0.45, Math.sqrt(Math.max(0, 1 - (car.longA / (1.2 * latMax)) ** 2))) : latMax;
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   // (a car with ABS, p.abs, never locks: the HUD shows ABS working where it would have)
@@ -114,7 +118,8 @@ export function stepCar(car, input, track, dt) {
   let yawTarget = vf * Math.tan(car.steer) / (p.steerBase ?? p.wheelbase); // where you're steering (steerBase: see src/cars/)
   yawTarget *= 1 + p.trailBrake * brk + p.powerRotation * drive * slow * (1 - 0.5 * (p.tc ?? 0)); // (TC tames power oversteer)
   if (car.lockF) yawTarget *= p.lockSteer;
-  const yawMax = p.slideAllowance * latMax / Math.max(Math.abs(vf), 3);
+  if (car.spin > 0) yawTarget *= 1 + (p.spinRotation ?? 0) * car.spin; // wheelspin out of a corner: the rear steps out
+  const yawMax = p.slideAllowance * latAvail / Math.max(Math.abs(vf), 3);
   yawTarget = clamp(yawTarget, -yawMax, yawMax);
   // Slides straighten themselves out: turn the nose toward where the car is travelling.
   const slipAngle = Math.atan2(vl, Math.max(Math.abs(vf), 1));
@@ -130,15 +135,32 @@ export function stepCar(car, input, track, dt) {
   vl = car.vx * lx + car.vz * lz;
 
   // --- Throttle / brake ---------------------------------------------------
+  const turning = Math.min(latUse, 1);
+  const share = p.combined ? Math.max(0.45, Math.sqrt(Math.max(0, 1 - turning * turning))) : 1; // grip left for braking / driving
+  car.longA = 0; car.spin = 0;
   if (thr > 0) {
-    if (vf >= -0.5) vf += drive * (dfx?.power ?? 1) * p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)) * dt;
-    else vf = Math.min(0, vf + thr * 10 * dt); // throttle while reversing = stop
+    if (vf >= -0.5) {
+      // the engine: a fixed power (p.power, W/kg: the push falls as speed rises, as in a real car) up to p.accel; or,
+      // without p.power, p.accel fading in a straight line toward top speed (p.accelFade)
+      let push = drive * (dfx?.power ?? 1) * (p.power ? Math.min(p.accel, p.power / Math.max(vf, 1))
+        : p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)));
+      if (p.traction) { // the driven wheels put down only so much (less while cornering): the rest is wheelspin
+        const most = p.traction * latMax * share;
+        if (push > most) {
+          const tc = p.tc ?? 0, over = push - most;
+          car.spin = Math.min(1, over / push) * (1 - tc);   // traction control catches most of it
+          if (tc && over > 0.5) car.tcActive = true;
+          push = most + over * 0.15 * (1 - tc);            // spinning wheels still push a little
+        }
+      }
+      vf += push * dt; car.longA = push;
+    } else vf = Math.min(0, vf + thr * 10 * dt); // throttle while reversing = stop
   }
   if (brk > 0) {
     if (vf > 0.3) {
-      let decel = Math.min(p.brake, 1.2 * latMax) * brk;
+      let decel = Math.min(p.brake, 1.2 * latMax * share) * brk; // (share: less braking while turning hard, p.combined)
       if (car.lockF) decel *= p.lockBrake;
-      vf = Math.max(0, vf - decel * dt);
+      vf = Math.max(0, vf - decel * dt); car.longA = Math.max(car.longA, decel);
     } else {
       vf = Math.max(-p.reverseMax, vf - brk * 7 * dt); // reverse
     }
@@ -159,7 +181,7 @@ export function stepCar(car, input, track, dt) {
 
   // --- Tyres pull the slide back in, up to the grip limit ----------------
   car.slip = car.lockF ? Math.max(Math.abs(vl), vf * 0.3) : Math.abs(vl);
-  const corr = latMax * dt;
+  const corr = latAvail * dt;
   vl = Math.abs(vl) <= corr ? 0 : vl - Math.sign(vl) * corr;
 
   car.vx = fx * vf + lx * vl;

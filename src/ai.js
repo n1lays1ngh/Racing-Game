@@ -87,6 +87,13 @@ function cornerSpeed(k, p, mu, vc, bank) {
   if (need > 1e-6) v = Math.min(v, Math.max(p.steerFade * ((p.maxSteer * AI_TUNE.lockBonus) / need - 1), 5));
   return v;
 }
+// Combined grip (p.combined, physics.js): braking on a curve of curvature k at speed v leaves only part of the braking
+// (a friction circle, at least half), so on a car with it the AI brakes earlier where it's still turning
+export function brakeShare(p, v, mu, k) {
+  if (!p.combined || !(k > 0)) return 1;
+  const f = Math.min((v * v * k) / Math.max(mu * (p.g + p.downforce * v * v), 1e-3), 1);
+  return Math.max(0.5, Math.sqrt(1 - f * f));
+}
 // How hard it can slow down at speed v: the brakes (as much as the tyres allow) plus the air, the rolling resistance
 // and the engine braking you get off the throttle, and the hill (grade + = uphill, helps). brakeUse: how much of it
 // the driver plans to use (1 = all of it: the latest braking there is).
@@ -110,7 +117,7 @@ export function buildSpeedProfile(track, grip = 1, gripSafety = 0.97, brakeUse =
   for (let loop = 0; loop < 2; loop++) {
     for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n];
-      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brakeDecel(p, next, mu, brakeUse, grade(i), vc(i)) * ds));
+      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * brakeDecel(p, next, mu, brakeUse, grade(i), vc(i)) * brakeShare(p, next, mu, track.rcurv[i]) * ds));
     }
   }
   return v;
@@ -217,7 +224,7 @@ export class AIDriver {
     this.launch = opts.start ? l0 + Math.random() * (l1 - l0) : 0; // its reaction when the lights go out
     this.gridLat = car.lateral;
     this.path = new Float32Array(MAXK + 1); this.want = new Float32Array(MAXK + 1);
-    this.lo = new Float32Array(MAXK + 1); this.hi = new Float32Array(MAXK + 1); this.vk = new Float32Array(MAXK + 1);
+    this.lo = new Float32Array(MAXK + 1); this.hi = new Float32Array(MAXK + 1); this.vk = new Float32Array(MAXK + 1); this.kk = new Float32Array(MAXK + 1);
     this.near = []; this.pool = [];
     this.planI = -1; this.planAge = 0; this.planK = 0; this.planLane = null; this.planLat = null; this.squeeze = Infinity;
     this.form = 1; this.lastS = car.s;  // lap to lap a driver is never quite the same (AI_TUNE.form)
@@ -295,7 +302,7 @@ export class AIDriver {
     const FT = this.fight ? T.fight : null; // racing someone: later braking, a touch more corner speed
     const pace = this.skill * this.form * (FT ? 1 + FT.pace * this.aggr : 1);
     const bu = this.bu = FT ? Math.min(FT.maxBrake, Math.max(this.brakeUse, this.brakeUse + FT.brake * this.aggr)) : this.brakeUse;
-    const { path, want, lo, hi, vk } = this, edge = T.edge;
+    const { path, want, lo, hi, vk, kk } = this, edge = T.edge;
     const lane = this.lane, route = this.route, pl = route && t.pitLane; // route: into the pits (pitstop.js), its own line
     let off = (i - this.planI + n) % n, K = this.planK, squeeze = this.squeeze;
     this.planAge += dt;
@@ -378,16 +385,17 @@ export class AIDriver {
         // never faster than the racing line itself there (the fastest way round: a line rejoining it from wide
         // looks straighter than it can really be driven)
         vk[k] = Math.min(cornerSpeed(kap, p, mu, vc, bank), cornerSpeed(t.rcurv[b], p, mu, vc, bank)) * pace;
+        kk[k] = kap; // (how much it's turning there: braking while turning, brakeShare)
       }
       // the first and last few metres (no points 10 m either side on the plan): the racing line's corner speed there
       const lineV = (k) => { const b = (i + k) % n; return cornerSpeed(t.rcurv[b], p, mu, t.vcurv ? t.vcurv[b] : 0, t.bank ? t.bank[b] : 0) * pace; };
-      for (let k = 0; k < 5; k++) vk[k] = Math.min(vk[5], lineV(k));
-      for (let k = K - 4; k <= K; k++) vk[k] = Math.min(vk[K - 5], lineV(k));
+      for (let k = 0; k < 5; k++) { vk[k] = Math.min(vk[5], lineV(k)); kk[k] = t.rcurv[(i + k) % n]; }
+      for (let k = K - 4; k <= K; k++) { vk[k] = Math.min(vk[K - 5], lineV(k)); kk[k] = t.rcurv[(i + k) % n]; }
       vk[K] = Math.min(vk[K], this.profile[(i + K) % n] * pace); // and beyond the plan: the racing line's own speed
       if (pl) for (let k = 0; k <= K; k++) if (pl.limit[(i + k) % n]) vk[k] = Math.min(vk[k], (pl.limitKmh ?? 80) / 3.6 - 0.4); // the pit limiter
       for (let k = K - 1; k >= 0; k--) {
         const j = (i + k) % n, next = vk[k + 1];
-        const b = brakeDecel(p, next, mu, bu, t.grade ? t.grade[j] : 0, t.vcurv ? t.vcurv[j] : 0);
+        const b = brakeDecel(p, next, mu, bu, t.grade ? t.grade[j] : 0, t.vcurv ? t.vcurv[j] : 0) * brakeShare(p, next, mu, kk[k]);
         vk[k] = Math.min(vk[k], Math.sqrt(next * next + 2 * b * ds));
       }
       this.squeeze = squeeze;

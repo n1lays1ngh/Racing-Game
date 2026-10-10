@@ -21,7 +21,7 @@ export const CAREER = {
   series: {
     f1: { name: 'Open-Wheel World Championship', short: 'OW', cars: ['f1'], calendar: null },  // null: every circuit with a round, in order
     hypercar: { name: 'Hypercar Endurance Championship', short: 'Hypercar', cars: ['hypercar'], calendar: SPORTS },
-    gt3: { name: 'GT3 Championship', short: 'GT3', cars: ['gt3', 'porsche'], calendar: SPORTS },
+    gt3: { name: 'GT3 Championship', short: 'GT3', cars: ['gt3', 'porsche', 'mclaren'], calendar: SPORTS },
   },
   points: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
   lengths: [[0.1, '10%'], [0.25, '25%'], [0.5, '50%'], [1, 'Full']], // share of a Grand Prix's 305 km

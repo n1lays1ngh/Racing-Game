@@ -1007,10 +1007,11 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 
 /* ---- 1 · car ---- */
 .mn-car { flex-direction: column; justify-content: flex-end; gap: clamp(12px, 2.2vh, 24px); }
-.car-slats { display: flex; min-height: 0; max-height: 780px; flex: 0 1 auto; height: 100%; }
+.car-slats { display: flex; flex-direction: column; gap: clamp(8px, 1.4vh, 14px); min-height: 0; max-height: 820px; flex: 0 1 auto; height: 100%; }
+.slat-row { display: flex; flex: 1 1 0; min-height: 0; }
 #menu .slat {
-  position: relative; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: stretch; gap: clamp(10px, 1.6vh, 16px);
-  margin-left: calc(var(--slant) * -2 + 10px); padding: clamp(18px, 3vh, 30px) calc(var(--slant) * 2 + 8px) clamp(16px, 2.4vh, 24px);
+  position: relative; flex: 1 1 0; min-width: 0; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: clamp(8px, 1.3vh, 14px);
+  margin-left: calc(var(--slant) * -2 + 10px); padding: clamp(14px, 2.2vh, 24px) calc(var(--slant) * 2 + 8px) clamp(14px, 2vh, 20px);
   text-align: left; border: 0; overflow: hidden; background: var(--sheet); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   clip-path: polygon(calc(var(--slant) * 2) 0, 100% 0, calc(100% - var(--slant) * 2) 100%, 0 100%);
   transition: flex-grow 0.45s cubic-bezier(.2,.8,.2,1), background 0.2s;
@@ -1024,28 +1025,36 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 #menu .slat:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
 #menu .slat.on:focus-visible { box-shadow: inset 0 5px 0 var(--red), inset 0 0 0 2px #fff; }
 .slat-big {
-  display: block; margin: 0 0 2px -0.04em; font-size: clamp(64px, min(calc(30vw / var(--cars, 3)), 16vh), 210px); font-weight: 900; font-style: italic;
+  display: block; margin: 0 0 auto -0.04em; font-size: clamp(44px, min(calc(24vw / var(--cars, 3)), 10vh), 150px); font-weight: 900; font-style: italic;
   line-height: 0.8; letter-spacing: -0.03em; white-space: nowrap; color: transparent; -webkit-text-stroke: 2px rgba(255, 255, 255, 0.45);
   transition: color 0.3s, -webkit-text-stroke-color 0.3s;
 }
 .slat.on .slat-big { color: var(--ink); -webkit-text-stroke-color: transparent; text-shadow: 0 10px 50px rgba(225, 6, 0, 0.45); }
 .slat-head { display: flex; flex-direction: column; gap: 2px; }
-.slat-head b { font-size: clamp(22px, 1.9vw, 30px); font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1; }
-.slat-head span { font-size: 15px; font-weight: 600; color: var(--muted); }
-.slat-stats { display: grid; gap: clamp(8px, 1.3vh, 12px); }
-.stat { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; row-gap: 5px; }
-.stat-l { font-size: 14px; font-weight: 600; color: #cfd4db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stat b { font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.stat b small { margin-left: 3px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.slat-head b { font-size: clamp(18px, 1.5vw, 26px); font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slat-head span { font-size: 14px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the four numbers, two by two: name, figure, bar */
+.slat-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(8px, 1.2vh, 12px) clamp(12px, 1.2vw, 20px); }
+.stat { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 3px; }
+.stat-l { font-size: 12px; font-weight: 600; color: #cfd4db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat b { font-size: 19px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat b small { margin-left: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .stat i { grid-column: 1 / -1; position: relative; height: 4px; background: rgba(255, 255, 255, 0.08); }
 .stat i::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--f) * 100%); background: rgba(255, 255, 255, 0.6); transition: background 0.3s; }
 .slat.on .stat i::after { background: var(--red); }
-.slat-specs { display: flex; flex-wrap: wrap; gap: 6px; }
-.slat-specs span { padding: 3px 9px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); font-size: 13px; font-weight: 700; color: #dfe3e8; }
-.slat-notes { display: flex; flex-direction: column; gap: 5px; font-size: 14px; font-weight: 600; color: #cfd4db; line-height: 1.3; }
-.slat-notes span { position: relative; padding-left: 16px; }
-.slat-notes span::before { content: ''; position: absolute; left: 2px; top: 0.5em; width: 6px; height: 6px; background: var(--red); transform: skewX(-14deg); }
-.slat-you { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 13px; font-weight: 600; color: var(--muted); }
+/* the strip under the cards: what the picked car comes with */
+.car-detail {
+  display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-height: 52px;
+  padding: 10px calc(var(--slant) * 1.2 + 14px); background: var(--sheet); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  clip-path: polygon(calc(var(--slant) * 0.8) 0, 100% 0, calc(100% - var(--slant) * 0.8) 100%, 0 100%);
+}
+.cd-name { font-size: 18px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+.cd-specs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cd-specs span { padding: 3px 9px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); font-size: 13px; font-weight: 700; color: #dfe3e8; }
+.cd-notes { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 14px; font-weight: 600; color: #cfd4db; line-height: 1.3; }
+.cd-notes span { position: relative; padding-left: 14px; }
+.cd-notes span::before { content: ''; position: absolute; left: 1px; top: 0.5em; width: 6px; height: 6px; background: var(--red); transform: skewX(-14deg); }
+.cd-you { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 
 /* ---- 2 · circuit ---- */
 .mn-track { gap: clamp(20px, 3vw, 56px); align-items: stretch; }
@@ -1230,11 +1239,11 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 
 /* ---- smaller screens: everything stacks and scrolls ---- */
 @media (max-height: 800px) and (min-width: 1101px) {
-  .slat-notes span:nth-child(n + 4) { display: none; }
-  .slat-specs { display: none; }
+  .cd-notes span:nth-child(n + 3) { display: none; }
+  .slat-head span { display: none; }
 }
 @media (max-height: 680px) and (min-width: 1101px) {
-  .slat-notes { display: none; }
+  .cd-notes { display: none; }
   .c-profile { display: none; }
 }
 @media (max-width: 1100px) {
@@ -1244,10 +1253,13 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
   .home-doors { grid-template-columns: 1fr 1fr; }
   .door-race { grid-column: 1 / -1; }
   .mn-car, .mn-setup { justify-content: flex-start; }
-  .car-slats { flex-direction: column; gap: 10px; max-height: none; height: auto; }
+  .car-slats { gap: 10px; max-height: none; height: auto; }
+  .slat-row { flex: none; flex-direction: column; gap: 10px; }
   #menu .slat { flex: none; margin-left: 0; clip-path: none; padding: 18px 20px; }
   #menu .slat.on { flex-grow: 0; }
-  .slat-big { font-size: 72px; }
+  .slat-big { font-size: 72px; margin-bottom: 0; }
+  .car-detail { clip-path: none; padding: 12px 20px; }
+  .cd-you { margin-left: 0; }
   .mn-track { flex-direction: column; }
   .trk-detail { flex: none; }
   .c-map-wrap { flex: none; height: 240px; }
