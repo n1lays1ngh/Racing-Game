@@ -147,6 +147,7 @@ export class Cinema {
     Object.assign(this, hooks);
     this.active = false; this.mode = null; this.res = '1080'; this.take = 1; this.line = false; this.sound = true;
     this.cams = new Set(['director']); this.parts = 1; this.partSel = new Set([0]); this.clipId = null; this.focusPick = 'you';
+    this.cc = null; this.edits = new Map(); // one edit (which shot when) per angle for the whole clip: watching and every part agree
     this.v = { p: new THREE.Vector3(), q: new THREE.Vector3(), l: new THREE.Vector3(), fwd: new THREE.Vector3(), left: new THREE.Vector3() };
     $('cin-watch').addEventListener('click', () => this.run(false));
     $('cin-rec').addEventListener('click', () => this.run(true));
@@ -336,7 +337,7 @@ export class Cinema {
       try { dir = await window.showDirectoryPicker({ id: 'apex-cinema', mode: 'readwrite' }); }
       catch (err) { if (err?.name === 'AbortError') return; dir = null; } // (picked nothing: don't record; not allowed: download instead)
     }
-    this.mode = record ? 'record' : 'watch'; this.stop = false;
+    this.mode = record ? 'record' : 'watch'; this.stop = false; this.edits.clear();
     $('cinema').classList.add('playing');
     const { renderer, camera, scene } = this, fov = camera.fov, size = renderer.getSize(new THREE.Vector2()), ratio = renderer.getPixelRatio();
     let restore = null, saved = 0;
@@ -358,9 +359,11 @@ export class Cinema {
           if (out && !this.stop) { if (out.blob) this.download(out); saved++; }
         }
       } else {
-        // watch: the parts picked, back to back, with the first angle picked
-        const a = parts[0].a, b = parts[parts.length - 1].b;
-        await this.film({ k: 0, a, b }, cams[0], { record: false });
+        // watch: the parts picked, back to back, with the first angle picked, framed as the video will be (black bars)
+        const a = parts[0].a, b = parts[parts.length - 1].b, [W, H] = SIZES[this.res], A = W / H;
+        const w = Math.min(size.x, size.y * A), h = w / A;
+        camera.aspect = A; camera.updateProjectionMatrix();
+        await this.film({ k: 0, a, b }, cams[0], { record: false, box: [(size.x - w) / 2, (size.y - h) / 2, w, h] });
       }
     } catch (err) {
       console.warn('Cinematic replay:', err);
@@ -368,10 +371,9 @@ export class Cinema {
     } finally {
       this.removeModels();
       if (line) { scene.remove(line); disposeRacingLine(line); }
-      if (record) {
-        renderer.setPixelRatio(ratio); renderer.setSize(size.x, size.y, false);
-        camera.aspect = size.x / size.y; restore?.();
-      }
+      if (record) { renderer.setPixelRatio(ratio); renderer.setSize(size.x, size.y, false); restore?.(); }
+      renderer.setScissorTest(false); renderer.setViewport(0, 0, size.x, size.y);
+      camera.aspect = size.x / size.y;
       camera.fov = fov; camera.up.set(0, 1, 0); camera.updateProjectionMatrix();
       $('cin-progress').textContent = '';
       $('cinema').classList.remove('playing');
@@ -390,8 +392,13 @@ export class Cinema {
   // One part, with one angle (or the director): watched live, or rendered frame by frame into a video
   async film(part, cam, opts) {
     const { renderer, camera, scene } = this, fps = CINEMA.fps, src = this.src;
-    const seed = hash(`${this.take}|${cam}|${part.k}|${this.focusPick}|${this.clipId}`);
-    const edit = this.buildEdit(part.a, part.b, cam, seed);
+    // the edit for the whole clip (not just this part), so a part shows the same shots as watching it does
+    if (!this.edits.has(cam)) {
+      const c = this.clip();
+      // (seeded only by what's filmed: the same take of the same clip, angle and car is always the same edit)
+      this.edits.set(cam, this.buildEdit(c.a, c.b, cam, hash(`${this.take}|${cam}|${this.focusPick}|${c.id}`)));
+    }
+    const edit = this.edits.get(cam);
     let enc = null, rec = null, out = null;
     if (opts.record) {
       $('cin-progress').textContent = `Preparing ${opts.label}…`;
@@ -414,6 +421,12 @@ export class Cinema {
         const cut = edit[k], snap = k !== current; current = k;
         this.frame(tt, dt, cut, snap);
         if (!opts.record && this.sound) this.live?.update(this.noise(tt, edit));
+        if (opts.box) { // watching: black bars round the video's frame
+          renderer.setScissorTest(false); renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+          const cc = renderer.getClearColor(this.cc ??= new THREE.Color()), ca = renderer.getClearAlpha();
+          renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.setClearColor(cc, ca);
+          renderer.setViewport(...opts.box); renderer.setScissor(...opts.box); renderer.setScissorTest(true);
+        }
         renderer.render(scene, camera);
         if (enc) {
           await enc.add(i);
