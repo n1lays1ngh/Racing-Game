@@ -525,6 +525,7 @@ setupSupport(); // "Support me" on every menu (support.js)
 let cinemaModel = null;
 const cinema = new Cinema({
   renderer, scene, camera,
+  camMode: () => camMode, // the Gameplay + HUD angle uses the camera you drive with (C to change it)
   highGraphics: () => { // recording: the High preset, then back to yours
     const was = GRAPHICS.preset;
     if (setGraphicsPreset(PRESET_ORDER.at(-1))) applyGraphics();

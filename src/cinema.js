@@ -115,7 +115,7 @@ class RaceSource {
     this.cars = this.meta.cars.map((c) => ({ team: { name: c.name, color: c.color, accent: c.accent, number: c.number }, isPlayer: c.isPlayer }));
     this.states = this.cars.map(newState);
     this.player = Math.max(0, this.cars.findIndex((c) => c.isPlayer));
-    this.starts = []; // per car: the race time each of its laps began (lapStarts, for the HUD)
+    this.marks = []; // per car: the race times it passed each third of a lap (thirds: the HUD's laps and sectors)
     // clips: the whole race, then each lap as the leader drove it
     const L = this.meta.length, S = this.S;
     this.clips = [{ id: 'race', name: 'Whole race', a: 0, b: this.duration }];
@@ -138,13 +138,13 @@ class RaceSource {
       const acc = (S[b + 6] - S[a + 6]) / dt; st.throttle = acc > 0.4 ? 1 : 0.2; st.brake = acc < -6 ? 1 : 0;
     }
   }
-  lapStarts(c) {
-    if (!this.starts[c]) {
-      const S = this.S, R = this.stride, L = this.meta.length, out = [0]; let lap = 1;
-      for (let k = 0; k < this.n; k++) { const p = S[k * R + 1 + c * RF + 8]; while (p >= lap * L) { out.push(S[k * R]); lap++; } }
-      this.starts[c] = out;
+  thirds(c) {
+    if (!this.marks[c]) {
+      const S = this.S, R = this.stride, L3 = this.meta.length / 3, out = []; let j = 1;
+      for (let k = 0; k < this.n; k++) { const p = S[k * R + 1 + c * RF + 8]; while (p >= j * L3) { out.push(S[k * R]); j++; } }
+      this.marks[c] = out;
     }
-    return this.starts[c];
+    return this.marks[c];
   }
   speedOf(car, t) {
     const S = this.S, R = this.stride, lo = sampleIndex(S, this.n, R, t), hi = Math.min(lo + 1, this.n - 1);
@@ -504,7 +504,7 @@ export class Cinema {
       case 'low': pos = at(4.6, 0.42, 1.3); look.addScaledVector(V.fwd, 25); fov = 58; break;
       case 'side': pos = at(-1.5, 1.0, 7 * Math.sign(Math.cos(cut.orbit))); fov = 38; break;
       case 'front': pos = at(-11, 0.75, 0.8); fov = 34; break;
-      case 'hud': pos = at(6.4, 1.85, 0); look.addScaledVector(V.fwd, 12); fov = 60; break; // as you drive it
+      case 'hud': this.gameCam(st, cams); return; // exactly the camera you drive with
       case 'orbit': cut.orbit += dt * 0.35; pos = at(Math.cos(cut.orbit) * 8, 2.2, Math.sin(cut.orbit) * 8); fov = 48; break;
       case 'heli': cut.orbit += dt * 0.12; pos = at(Math.cos(cut.orbit) * 30, 17, Math.sin(cut.orbit) * 30); fov = 38; break;
       case 'overhead': // straight down from a drone, the car pointing up the picture
@@ -516,6 +516,20 @@ export class Cinema {
     if (PLACED.has(shot) || snap) camera.position.copy(pos); else camera.position.lerp(pos, k);
     camera.fov = fov; camera.updateProjectionMatrix();
     camera.lookAt(look);
+  }
+  // the camera you drive with (main.js camMode: Chase, Far chase, T-cam or Cockpit), placed the same way as in the game
+  gameCam(st, cams) {
+    const camera = this.camera, V = this.v, mode = this.camMode?.() ?? 0;
+    const q = (this.camQ ??= new THREE.Quaternion()).setFromEuler((this.camE ??= new THREE.Euler(0, 0, 0, 'YXZ')).set(-(st.pitch ?? 0), st.h, st.roll ?? 0));
+    let pos, look;
+    const on = mode >= 2 ? (mode === 2 ? cams?.tcam : cams?.cockpit) : null;
+    if (on) { const tilt = Math.tan(THREE.MathUtils.degToRad(on.tilt ?? 0)) * 20; pos = [on.x ?? 0, on.y, on.z]; look = [on.x ?? 0, on.y + tilt, 20]; }
+    else { const rig = this.car.cameras ?? { chase: { pos: [0, 2.9, -8.5], look: [0, 0.9, 6] }, far: { pos: [0, 5, -14], look: [0, 0.6, 8] } }; ({ pos, look } = mode === 1 ? rig.far : rig.chase); }
+    camera.position.set(...pos).applyQuaternion(q).add(V.q.set(st.x, st.y ?? 0, st.z));
+    V.l.set(...look).applyQuaternion(q).add(V.q);
+    camera.up.set(0, 1, 0).applyQuaternion(q);
+    camera.fov = 62 + Math.min(Math.abs(st.vf), 95) * 0.14; camera.updateProjectionMatrix(); // (the view widens with speed, as in the game)
+    camera.lookAt(V.l);
   }
   // cameras fixed to the car: they move with it exactly (no smoothing)
   mounted(shot, cut, model, cams) {
@@ -546,64 +560,155 @@ export class Cinema {
     const [bx, by, bw, bh] = box ?? [0, 0, innerWidth, innerHeight];
     this.drawHud(g, bx * d, by * d, bw * d, bh * d, t, cut);
   }
-  // the HUD in a w × h picture at x, y (laid out for 1080 pixels high, scaled): timing tower (races), lap timing, dash
+  // lap, sectors, last and best lap of car c at time t (races: from when it passed each third of the lap)
+  lapTiming(c, t) {
+    const src = this.src;
+    if (src.kind !== 'race') {
+      const t1 = src.clips[1].b, t2 = src.clips[2].b, secs = [];
+      if (t >= t1) secs.push(t1); if (t >= t2) secs.push(t2 - t1);
+      return { lap: 1, laps: 1, lapT: Math.min(t, src.duration), secs, last: null, best: src.duration };
+    }
+    const marks = src.thirds(c), laps = src.meta.laps; let m = 0; while (m < marks.length && marks[m] <= t) m++;
+    const done = Math.floor(m / 3), startOf = (k) => (k ? marks[k * 3 - 1] : 0), start = startOf(done);
+    let best = null; for (let k = 1; k <= done; k++) { const lt = startOf(k) - startOf(k - 1); if (best == null || lt < best) best = lt; }
+    const secs = []; for (let j = done * 3; j < m; j++) secs.push(marks[j] - (j % 3 ? marks[j - 1] : start));
+    return { lap: Math.min(done + 1, laps), laps, lapT: t - start, secs, last: done ? startOf(done) - startOf(done - 1) : null, best };
+  }
+  // The game's HUD, drawn into a w × h picture at x, y (laid out for 1080 pixels high, scaled): the timing tower,
+  // lap timing with sectors and the cars ahead and behind, the circuit map, the dash (as hud.js / style.css draw them)
   drawHud(g, x, y, w, h, t, cut) {
-    const s = h / 1080, W = w / s, src = this.src, race = src.kind === 'race', st = src.states[cut.focus];
-    const box = (px, py, pw, ph, fill = 'rgba(14,16,22,0.84)') => { g.fillStyle = fill; g.beginPath(); g.roundRect(x + px * s, y + py * s, pw * s, ph * s, 7 * s); g.fill(); };
+    const s = h / 1080, W = w / s, src = this.src, race = src.kind === 'race', c0 = cut.focus, S = src.states, st = S[c0];
+    const RED = '#e10600', OK = '#2fd27a', BAD = '#ff3b30', BLUE = '#2b9bff', MUTED = 'rgba(255,255,255,0.55)', DARK = '#0c0d12';
+    const PANEL = 'rgba(9,10,14,0.86)', HI = 'rgba(30,32,40,0.95)', LINE = 'rgba(255,255,255,0.10)';
+    const X = (u) => x + u * s, Y = (u) => y + u * s;
+    const rect = (px, py, pw, ph, fill) => { g.fillStyle = fill; g.fillRect(X(px), Y(py), pw * s, ph * s); };
     const text = (str, px, py, size, color = '#fff', align = 'left', weight = 700) => {
-      g.font = `${weight} ${Math.round(size * s)}px 'Titillium Web', system-ui, sans-serif`;
-      g.fillStyle = color; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(str, x + px * s, y + py * s);
+      g.font = `${weight} ${size * s}px 'Titillium Web', system-ui, sans-serif`;
+      g.fillStyle = color; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(str, X(px), Y(py));
+      return g.measureText(str).width / s;
     };
-    const dim = 'rgba(255,255,255,0.6)';
+    const tri = (px, py, up, color) => {
+      g.fillStyle = color; g.beginPath(); const d = up ? 1 : -1;
+      g.moveTo(X(px), Y(py - 3.5 * d)); g.lineTo(X(px + 4), Y(py + 3 * d)); g.lineTo(X(px - 4), Y(py + 3 * d)); g.fill();
+    };
+    const name = (c) => { const n = String(src.cars[c].team.name ?? ''); return (src.cars[c].isPlayer ? n.slice(0, 10) : n.slice(0, 3)).toUpperCase(); };
+    const order = race ? S.map((q, i) => i).sort((a, b) => ((S[a].flags & 1) - (S[b].flags & 1)) || S[b].progress - S[a].progress) : [0];
+    const pos = order.indexOf(c0), N = order.length;
+    const gap = (a, b) => (S[a].progress - S[b].progress) / Math.max(S[b].vf, 10); // seconds car b is behind car a (roughly)
+    const tm = this.lapTiming(c0, t);
     g.save();
-    // ---- lap timing, top right ----
-    let lap = 1, lapT = t, other = null, otherLabel = 'BEST';
-    if (race) {
-      const starts = src.lapStarts(cut.focus); let k = 0; while (k + 1 < starts.length && starts[k + 1] <= t) k++;
-      lap = Math.min(k + 1, src.meta.laps); lapT = t - starts[k]; other = k > 0 ? starts[k] - starts[k - 1] : null; otherLabel = 'LAST';
-    } else other = src.duration;
-    const tx = W - 32 - 330;
-    box(tx, 32, 330, 128);
-    text(race ? `LAP ${lap}/${src.meta.laps}` : 'LAP', tx + 20, 58, 20, dim, 'left', 600);
-    text(lapClock(lapT), tx + 20, 98, 46);
-    text(`${otherLabel}  ${lapClock(other)}`, tx + 20, 138, 19, dim, 'left', 600);
+
     // ---- timing tower, top left (races) ----
     if (race) {
-      const order = src.states.map((q, i) => i).sort((a, b) => ((src.states[a].flags & 1) - (src.states[b].flags & 1)) || src.states[b].progress - src.states[a].progress);
-      const max = 10, at = order.indexOf(cut.focus), rows = order.slice(0, max);
-      if (at >= max) rows[max - 1] = cut.focus;
-      const RH = 34, top = 32;
-      box(32, top, 290, 44 + rows.length * RH);
-      text(`LAP ${Math.min(Math.floor(Math.max(src.states[order[0]].progress, 0) / src.meta.length) + 1, src.meta.laps)}/${src.meta.laps}`, 50, top + 24, 18, dim, 'left', 600);
-      rows.forEach((c, r) => {
-        const q = src.states[c], pos = order.indexOf(c), yy = top + 44 + r * RH + RH / 2, me = c === cut.focus;
-        if (me) box(36, yy - RH / 2 + 2, 282, RH - 4, 'rgba(255,255,255,0.92)');
-        const ink = me ? '#11131a' : '#fff';
-        text(String(pos + 1), 62, yy, 19, ink, 'center');
-        g.fillStyle = hex(src.cars[c].team.color); g.fillRect(x + 82 * s, y + (yy - 10) * s, 4 * s, 20 * s);
-        text(String(src.cars[c].team.name ?? '').slice(0, 3).toUpperCase(), 96, yy, 19, ink);
-        let gap = '';
-        if (q.flags & 1) gap = 'OUT';
-        else if (q.flags & 4) gap = 'PIT';
-        else if (pos === 0) gap = 'LEADER';
-        else { const A = src.states[order[pos - 1]]; gap = `+${((A.progress - q.progress) / Math.max(q.vf, 10)).toFixed(3)}`; }
-        text(gap, 304, yy, 17, me ? '#11131a' : dim, 'right', 600);
+      const tx = 38, ty = 78, tw = 264, head = 52, RH = 23.4, rows = Math.min(N, 20), th = 3 + head + rows * RH + 30;
+      rect(tx, ty, tw, th, PANEL); rect(tx, ty, tw, 3, RED);
+      text('Lap', tx + 14, ty + 34, 12, MUTED, 'left', 600);
+      let wd = text(String(tm.lap), tx + 40, ty + 30, 26); text(`/${tm.laps}`, tx + 42 + wd, ty + 33, 15, MUTED, 'left', 600);
+      rect(tx + 132, ty + 14, 1, 34, LINE);
+      text('Pos', tx + 146, ty + 34, 12, MUTED, 'left', 600);
+      wd = text(String(pos + 1), tx + 172, ty + 30, 26); text(`/${N}`, tx + 174 + wd, ty + 33, 15, MUTED, 'left', 600);
+      rect(tx, ty + 3 + head, tw, 1, LINE);
+      for (let r = 0; r < rows; r++) {
+        const c = order[r], q = S[c], yy = ty + 3 + head + r * RH + RH / 2, me = c === c0, ink = me ? DARK : '#fff';
+        if (me) rect(tx, yy - RH / 2, tw, RH, 'rgba(255,255,255,0.94)');
+        text(String(r + 1), tx + 30, yy, 14, ink, 'right');
+        rect(tx + 38, yy - 7, 3, 14, hex(src.cars[c].team.color));
+        text(name(c), tx + 48, yy, 14, ink);
+        const moved = c - r; // places gained since the start (the grid is in race order: replay.js)
+        if (moved) { tri(tx + 178, yy, moved > 0, moved > 0 ? OK : BAD); text(String(Math.abs(moved)), tx + 186, yy, 11, moved > 0 ? OK : BAD, 'left', 600); }
+        const iv = q.flags & 1 ? 'OUT' : q.flags & 4 ? 'PIT' : r === 0 ? 'Interval' : `+${gap(order[r - 1], c).toFixed(3)}`;
+        text(iv, tx + tw - 14, yy, r === 0 ? 11 : 13, r === 0 ? (me ? DARK : MUTED) : ink, 'right', 600);
+      }
+      rect(tx, ty + th - 30, tw, 1, LINE);
+      text('Interval', tx + 14, ty + th - 15, 12, MUTED, 'left', 600);
+      g.strokeStyle = MUTED; g.lineWidth = 1 * s; g.strokeRect(X(tx + tw - 27), Y(ty + th - 22), 13 * s, 13 * s);
+      text('T', tx + tw - 20.5, ty + th - 15, 9, MUTED, 'center', 700);
+    }
+
+    // ---- lap timing, top right ----
+    const px = W - 39 - 280, py = 79, pw = 280, ph = race ? 208 : 150;
+    rect(px, py, pw, ph, PANEL);
+    text(`Lap ${tm.lap}`, px + 14, py + 22, 14, '#fff', 'left', 600);
+    text(lapClock(tm.lapT), px + 14, py + 58, 34);
+    const bw = (pw - 28 - 8) / 3;
+    for (let k = 0; k < 3; k++) {
+      const bx = px + 14 + k * (bw + 4); rect(bx, py + 82, bw, 28, HI);
+      const v = tm.secs[k]; text(v != null ? v.toFixed(3) : `S${k + 1}`, bx + bw / 2, py + 96, 13, v != null ? '#fff' : MUTED, 'center', 700);
+    }
+    text('Best', px + 14, py + 130, 12, MUTED, 'left', 600); text(lapClock(tm.best), px + 132, py + 130, 13, '#fff', 'right');
+    text('Last', px + 150, py + 130, 12, MUTED, 'left', 600); text(lapClock(tm.last), px + pw - 14, py + 130, 13, '#fff', 'right');
+    if (race) {
+      rect(px, py + 146, pw, 1, LINE);
+      [['Ahead', order[pos - 1], py + 166], ['Behind', order[pos + 1], py + 192]].forEach(([label, c, yy]) => {
+        text(label, px + 14, yy, 12, MUTED, 'left', 600);
+        if (c == null) { text('-', px + 86, yy, 13); return; }
+        rect(px + 76, yy - 7, 3, 14, hex(src.cars[c].team.color));
+        text(`P${order.indexOf(c) + 1} ${name(c)}`, px + 86, yy, 13);
+        text((label === 'Ahead' ? gap(c, c0) : gap(c0, c)).toFixed(3), px + pw - 14, yy, 14, OK, 'right');
       });
     }
-    // ---- dash, bottom right: shift lights, rev bar, gear, speed ----
-    const v = Math.abs(st.vf), gb = gearbox(v, this.car.gearbox), [r0, r1] = this.car.gearbox?.rpm ?? [4000, 12000];
-    const f = clamp((gb.rpm - r0) / Math.max(r1 - r0, 1), 0, 1), dx = W - 32 - 330, dy = 1080 - 32 - 186;
-    box(dx, dy, 330, 186);
-    const lit = Math.round(clamp((f - 0.5) / 0.46, 0, 1) * 15);
-    for (let k = 0; k < 15; k++) {
-      g.fillStyle = k >= lit ? 'rgba(255,255,255,0.13)' : k < 5 ? '#22d36b' : k < 10 ? '#ff3b3b' : '#3b8bff';
-      g.beginPath(); g.arc(x + (dx + 25 + k * 20) * s, y + (dy + 24) * s, 6.5 * s, 0, Math.PI * 2); g.fill();
+
+    // ---- the circuit, under the timing ----
+    const my = py + ph + 8, mh = 276, tr = this.track;
+    rect(px, my, pw, mh, PANEL);
+    text(tr.name ?? '', px + 14, my + 18, 15);
+    rect(px, my + 34, pw, 1, LINE);
+    if (this.mapFor !== tr) { // the circuit's size, worked out once
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (let i = 0; i < tr.n; i++) { a = Math.min(a, tr.cx[i]); b = Math.max(b, tr.cx[i]); c = Math.min(c, tr.cz[i]); d = Math.max(d, tr.cz[i]); }
+      this.mapFor = tr; this.mapBox = [a, b, c, d];
     }
-    g.fillStyle = 'rgba(255,255,255,0.13)'; g.fillRect(x + (dx + 20) * s, y + (dy + 44) * s, 290 * s, 5 * s);
-    g.fillStyle = f > 0.92 ? '#ff3b3b' : '#fff'; g.fillRect(x + (dx + 20) * s, y + (dy + 44) * s, 290 * f * s, 5 * s);
-    text(gb.gear, dx + 90, dy + 118, 108, '#fff', 'center', 800);
-    text(String(Math.round(v * 3.6)), dx + 245, dy + 104, 58, '#fff', 'center', 800);
-    text('km/h', dx + 245, dy + 146, 20, dim, 'center', 600);
+    const [minX, maxX, minZ, maxZ] = this.mapBox, aw = 240, ah = 222, ax = px + 20, ay = my + 44;
+    const sc = Math.min(aw / (maxX - minX), ah / (maxZ - minZ)), ox = (aw - (maxX - minX) * sc) / 2, oz = (ah - (maxZ - minZ) * sc) / 2;
+    const mp = (xw, zw) => [X(ax + aw - (ox + (xw - minX) * sc)), Y(ay + oz + (maxZ - zw) * sc)]; // x mirrored: north up, as in the game
+    g.beginPath();
+    for (let i = 0; i <= tr.n; i += 2) { const k = i % tr.n, [u, v] = mp(tr.cx[k], tr.cz[k]); i ? g.lineTo(u, v) : g.moveTo(u, v); }
+    g.closePath(); g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 7 * s; g.stroke();
+    g.strokeStyle = '#fff'; g.lineWidth = 3.2 * s; g.stroke();
+    { const [u0, v0] = mp(tr.cx[0] + tr.nx[0] * 30, tr.cz[0] + tr.nz[0] * 30), [u1, v1] = mp(tr.cx[0] - tr.nx[0] * 30, tr.cz[0] - tr.nz[0] * 30);
+      g.strokeStyle = RED; g.lineWidth = 3 * s; g.beginPath(); g.moveTo(u0, v0); g.lineTo(u1, v1); g.stroke(); }
+    for (const c of [...order].reverse()) {
+      if (c === c0 || (S[c].flags & 1)) continue;
+      const [u, v] = mp(S[c].x, S[c].z); g.fillStyle = hex(src.cars[c].team.color); g.strokeStyle = DARK; g.lineWidth = 1.5 * s;
+      g.beginPath(); g.arc(u, v, 4.3 * s, 0, Math.PI * 2); g.fill(); g.stroke();
+    }
+    { const [u, v] = mp(st.x, st.z); g.fillStyle = '#fff'; g.strokeStyle = RED; g.lineWidth = 2 * s;
+      g.beginPath(); g.arc(u, v, 9 * s, 0, Math.PI * 2); g.fill(); g.stroke();
+      if (race) { g.font = `800 ${10 * s}px 'Titillium Web', system-ui, sans-serif`; g.fillStyle = RED; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(pos + 1), u, v + 0.5 * s); } }
+
+    // ---- the dash, bottom right: shift lights, pedals, rev counter, gear, speed, revs ----
+    const box = this.car.gearbox, v = Math.abs(st.vf), gb = gearbox(v, box);
+    const lo = Math.floor((box?.neutral ?? 4000) / 1000) * 1000, hi = Math.ceil((box?.rpm?.[1] ?? 13000) / 1000) * 1000, flash = box?.flash ?? hi;
+    const r0 = box?.rpm?.[0] ?? 6000, r1 = box?.rpm?.[1] ?? 13000, rpm = gb.rpm;
+    const dw = 297, dh = 289, dx = W - 39 - dw, dy = 1080 - 14 - dh;
+    rect(dx, dy, dw, dh, PANEL);
+    const leds = Math.round(clamp((rpm - r0) / (r1 - r0), 0, 1) * 15);
+    for (let k = 0; k < 15; k++) {
+      g.fillStyle = k < leds ? (k < 5 ? OK : k < 10 ? BAD : BLUE) : 'rgba(255,255,255,0.10)';
+      g.beginPath(); g.arc(X(dx + 46 + k * 15), Y(dy + 19), 5.2 * s, 0, Math.PI * 2); g.fill();
+    }
+    rect(dx + 13, dy + 57, 5, 129, 'rgba(255,255,255,0.08)'); rect(dx + 22, dy + 57, 5, 129, 'rgba(255,255,255,0.08)');
+    const thr = st.throttle >= 1 ? 1 : st.brake ? 0 : 0.2, brk = st.brake ? 1 : 0;
+    rect(dx + 13, dy + 57 + 129 * (1 - thr), 5, 129 * thr, OK); if (brk) rect(dx + 22, dy + 57, 5, 129, BAD);
+    const cx = dx + 157, cy = dy + 128, R = 92, sweep = (125 * Math.PI) / 180;
+    const ang = (r) => -sweep + ((r - lo) / (hi - lo)) * sweep * 2; // from straight up, clockwise
+    const at = (rad, a) => [X(cx + rad * Math.sin(a)), Y(cy - rad * Math.cos(a))];
+    for (let k = 0; k < 44; k++) { // the segments: lit up to the revs, the shift zone in red
+      const a0 = -sweep + (k * sweep * 2) / 44, a1 = a0 + (sweep * 2) / 44 - 0.026, mid = lo + ((k + 0.5) / 44) * (hi - lo), red = mid >= flash, lit = mid <= rpm;
+      g.strokeStyle = lit ? (red ? BAD : '#fff') : red ? 'rgba(255,59,48,0.25)' : 'rgba(255,255,255,0.12)'; g.lineWidth = 10 * s;
+      g.beginPath(); g.arc(X(cx), Y(cy), R * s, a0 - Math.PI / 2, a1 - Math.PI / 2); g.stroke();
+    }
+    for (let r = lo; r <= hi; r += 1000) {
+      const a = ang(r), [u0, v0] = at(R * 0.8, a), [u1, v1] = at(R * 0.87, a), [tu, tv] = at(R * 0.69, a);
+      g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 1.5 * s; g.beginPath(); g.moveTo(u0, v0); g.lineTo(u1, v1); g.stroke();
+      g.font = `700 ${12 * s}px 'Titillium Web', system-ui, sans-serif`; g.fillStyle = r >= flash ? BAD : '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(r / 1000), tu, tv);
+    }
+    text(st.vf < -0.5 ? 'R' : gb.gear, cx, cy - 4, 66, '#fff', 'center', 800);
+    const sw = text(String(Math.round(v * 3.6)), cx + 12, cy + 54, 30, '#fff', 'right', 800); void sw;
+    text('km/h', cx + 16, cy + 57, 12, MUTED, 'left', 600);
+    text(String(Math.round(rpm / 100) * 100), cx + 14, dy + 228, 17, '#fff', 'right', 800);
+    text('rpm', cx + 18, dy + 230, 11, MUTED, 'left', 600);
     g.restore();
   }
 
