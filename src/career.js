@@ -19,7 +19,7 @@ const REPLAYS = '<section class="cr-panel cr-replays hidden"><h3>Race replays</h
 const SPORTS = ['lemans', 'daytona', 'nurburgring', 'bahrain', 'portimao', 'silverstone', 'monza', 'cota', 'interlagos', 'qatar'];
 export const CAREER = {
   series: {
-    f1: { name: 'Formula 1 World Championship', short: 'F1', cars: ['f1'], calendar: null },  // null: every circuit with a round, in order
+    f1: { name: 'Open-Wheel World Championship', short: 'OW', cars: ['f1'], calendar: null },  // null: every circuit with a round, in order
     hypercar: { name: 'Hypercar Endurance Championship', short: 'Hypercar', cars: ['hypercar'], calendar: SPORTS },
     gt3: { name: 'GT3 Championship', short: 'GT3', cars: ['gt3', 'porsche'], calendar: SPORTS },
   },

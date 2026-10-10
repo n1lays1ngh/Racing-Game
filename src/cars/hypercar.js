@@ -10,7 +10,7 @@ export default {
   id: 'hypercar',
   name: 'Hypercar',
   short: 'HYP',
-  car: 'Ferrari 499P',
+  car: 'Apex HY-1',
   specs: ['3.0 V6 twin-turbo hybrid', '1,030 kg', 'Hybrid all-wheel drive'],
 
   // ---- When it races ----

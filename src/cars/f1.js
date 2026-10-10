@@ -9,9 +9,9 @@
 // ers.js ERS, carModel.js CAR_MODEL and the chase cameras in main.js), so the F1 car drives as it always has.
 export default {
   id: 'f1',                  // unique, used in code, saved stats and the sim command
-  name: 'Formula 1',         // shown in the menu
-  short: 'F1',
-  car: 'Red Bull RB19',      // the car you drive in this class
+  name: 'Open-Wheel',        // shown in the menu
+  short: 'OW',
+  car: 'Apex OW-26',         // the car you drive in this class
   specs: ['1.6 V6 turbo hybrid', '798 kg', '8 gears'],  // shown in the menu
 
   // ---- When it races: the menu's Day / Night choice ----

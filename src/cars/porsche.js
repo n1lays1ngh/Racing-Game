@@ -9,9 +9,9 @@
 // no hybrid.   npm run sim -- 1 hard lemans porsche
 export default {
   id: 'porsche',
-  name: '911 GT3 R',
-  short: '911',
-  car: 'Porsche 911 GT3 R (992)',
+  name: 'RS-GT',
+  short: 'RS',
+  car: 'Apex RS-GT (rear-engined)',
   specs: ['4.2 flat-six', '1,250 kg', 'ABS · traction control'],
 
   // ---- When it races, and track limits (see hypercar.js) ----

@@ -5,7 +5,7 @@
 // Every field is explained in _template.js. Distances are metres along the lap from points[0].
 export default {
   id: 'redbullring',
-  name: "Red Bull Ring",
+  name: "Spielberg",
   country: "Austria",
   round: 10,
   type: 'permanent',

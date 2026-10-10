@@ -9,7 +9,7 @@ export default {
   id: 'gt3',
   name: 'GT3',
   short: 'GT3',
-  car: 'Mercedes-AMG GT3',
+  car: 'Apex GT3',
   specs: ['6.2 V8', '1,285 kg', 'ABS · traction control'],
 
   // ---- When it races, and track limits (see hypercar.js) ----
