@@ -40,6 +40,7 @@ export const ANGLES = [
   { id: 'trackside', name: 'Telephoto', kind: 'side' }, { id: 'kerb', name: 'Kerb cam', kind: 'side' }, { id: 'pan', name: 'Trackside pan', kind: 'side' },
   { id: 'chase', name: 'Chase', kind: 'follow' }, { id: 'low', name: 'Low chase', kind: 'follow' }, { id: 'side', name: 'Side tracking', kind: 'follow' },
   { id: 'front', name: 'Front-on', kind: 'follow' }, { id: 'orbit', name: 'Orbit', kind: 'follow' },
+  { id: 'hud', name: 'Gameplay + HUD', kind: 'follow' }, // the chase camera with the race HUD drawn on (drawHud)
   { id: 'tcam', name: 'T-cam', kind: 'car' }, { id: 'driver', name: "Driver's eye", kind: 'car' }, { id: 'wing', name: 'Front wing', kind: 'car' },
   { id: 'rear', name: 'Rear-facing', kind: 'car' }, { id: 'wheel', name: 'Wheel cam', kind: 'car' },
 ];
@@ -56,6 +57,8 @@ const angDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const nameOf = (id) => (id === 'director' ? 'director' : id);
+const lapClock = (s) => (s == null || !Number.isFinite(s) ? '-:--.---' : `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padStart(6, '0')}`);
+const hex = (c) => `#${((c ?? 0xffffff) >>> 0).toString(16).padStart(6, '0')}`;
 function seeded(seed) {
   let s = seed >>> 0;
   return () => { s = (s + 0x6d2b79f5) >>> 0; let x = s; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
@@ -112,6 +115,7 @@ class RaceSource {
     this.cars = this.meta.cars.map((c) => ({ team: { name: c.name, color: c.color, accent: c.accent, number: c.number }, isPlayer: c.isPlayer }));
     this.states = this.cars.map(newState);
     this.player = Math.max(0, this.cars.findIndex((c) => c.isPlayer));
+    this.starts = []; // per car: the race time each of its laps began (lapStarts, for the HUD)
     // clips: the whole race, then each lap as the leader drove it
     const L = this.meta.length, S = this.S;
     this.clips = [{ id: 'race', name: 'Whole race', a: 0, b: this.duration }];
@@ -134,6 +138,14 @@ class RaceSource {
       const acc = (S[b + 6] - S[a + 6]) / dt; st.throttle = acc > 0.4 ? 1 : 0.2; st.brake = acc < -6 ? 1 : 0;
     }
   }
+  lapStarts(c) {
+    if (!this.starts[c]) {
+      const S = this.S, R = this.stride, L = this.meta.length, out = [0]; let lap = 1;
+      for (let k = 0; k < this.n; k++) { const p = S[k * R + 1 + c * RF + 8]; while (p >= lap * L) { out.push(S[k * R]); lap++; } }
+      this.starts[c] = out;
+    }
+    return this.starts[c];
+  }
   speedOf(car, t) {
     const S = this.S, R = this.stride, lo = sampleIndex(S, this.n, R, t), hi = Math.min(lo + 1, this.n - 1);
     const f = clamp((t - S[lo * R]) / Math.max(S[hi * R] - S[lo * R], 1e-6), 0, 1), k = 1 + car * RF + 6;
@@ -147,7 +159,7 @@ export class Cinema {
     Object.assign(this, hooks);
     this.active = false; this.mode = null; this.res = '1080'; this.take = 1; this.line = false; this.sound = true;
     this.cams = new Set(['director']); this.parts = 1; this.partSel = new Set([0]); this.clipId = null; this.focusPick = 'you';
-    this.cc = null; this.edits = new Map(); // one edit (which shot when) per angle for the whole clip: watching and every part agree
+    this.cc = null; this.comp = null; this.overlay = null; this.edits = new Map(); // one edit (which shot when) per angle for the whole clip: watching and every part agree
     this.v = { p: new THREE.Vector3(), q: new THREE.Vector3(), l: new THREE.Vector3(), fwd: new THREE.Vector3(), left: new THREE.Vector3() };
     $('cin-watch').addEventListener('click', () => this.run(false));
     $('cin-rec').addEventListener('click', () => this.run(true));
@@ -376,6 +388,7 @@ export class Cinema {
       camera.aspect = size.x / size.y;
       camera.fov = fov; camera.up.set(0, 1, 0); camera.updateProjectionMatrix();
       $('cin-progress').textContent = '';
+      if (this.overlay) this.overlay.style.display = 'none';
       $('cinema').classList.remove('playing');
       this.mode = null;
       if (record && saved) $('cin-status').textContent = `Saved ${saved} ${saved === 1 ? 'video' : 'videos'}${dir ? ` in “${dir.name}”` : ''}.`;
@@ -402,8 +415,13 @@ export class Cinema {
     let enc = null, rec = null, out = null;
     if (opts.record) {
       $('cin-progress').textContent = `Preparing ${opts.label}…`;
-      if (window.VideoEncoder) enc = await this.encoder(renderer.domElement.width, renderer.domElement.height, fps, part, edit, opts);
-      else rec = this.recorder();
+      if (cam === 'hud') { // the HUD is drawn over each frame on a canvas of its own, and that's what gets recorded
+        this.comp ??= document.createElement('canvas');
+        this.comp.width = renderer.domElement.width; this.comp.height = renderer.domElement.height;
+      }
+      const canvas = cam === 'hud' ? this.comp : renderer.domElement;
+      if (window.VideoEncoder) enc = await this.encoder(canvas.width, canvas.height, fps, part, edit, opts, canvas);
+      else rec = this.recorder(canvas);
     }
     if (!opts.record && this.sound) this.live?.start(this.car);
     const frames = Math.max(1, Math.round((part.b - part.a) * fps));
@@ -428,6 +446,10 @@ export class Cinema {
           renderer.setViewport(...opts.box); renderer.setScissor(...opts.box); renderer.setScissorTest(true);
         }
         renderer.render(scene, camera);
+        if (cam === 'hud') {
+          if (opts.record) { const g = this.comp.getContext('2d'); g.drawImage(renderer.domElement, 0, 0); this.drawHud(g, 0, 0, this.comp.width, this.comp.height, tt, cut); }
+          else this.overlayHud(opts.box, tt, cut);
+        }
         if (enc) {
           await enc.add(i);
           $('cin-progress').textContent = `Recording ${opts.label}  ·  ${opts.n} of ${opts.total}  ·  ${Math.round((i / frames) * 100)}%  ·  Esc stops`;
@@ -482,6 +504,7 @@ export class Cinema {
       case 'low': pos = at(4.6, 0.42, 1.3); look.addScaledVector(V.fwd, 25); fov = 58; break;
       case 'side': pos = at(-1.5, 1.0, 7 * Math.sign(Math.cos(cut.orbit))); fov = 38; break;
       case 'front': pos = at(-11, 0.75, 0.8); fov = 34; break;
+      case 'hud': pos = at(6.4, 1.85, 0); look.addScaledVector(V.fwd, 12); fov = 60; break; // as you drive it
       case 'orbit': cut.orbit += dt * 0.35; pos = at(Math.cos(cut.orbit) * 8, 2.2, Math.sin(cut.orbit) * 8); fov = 48; break;
       case 'heli': cut.orbit += dt * 0.12; pos = at(Math.cos(cut.orbit) * 30, 17, Math.sin(cut.orbit) * 30); fov = 38; break;
       case 'overhead': // straight down from a drone, the car pointing up the picture
@@ -508,6 +531,82 @@ export class Cinema {
     camera.lookAt(model.localToWorld(V.l.set(l[0], l[1], l[2])));
   }
 
+  // ---------- the HUD angle: the race as you'd see it driving, drawn onto the picture ----------
+  // watching: on a canvas over the view (box: where the picture is, in CSS pixels)
+  overlayHud(box, t, cut) {
+    if (!this.overlay) {
+      this.overlay = document.createElement('canvas');
+      this.overlay.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:0';
+      $('cinema').prepend(this.overlay);
+    }
+    const o = this.overlay, d = window.devicePixelRatio || 1, W = Math.round(innerWidth * d), H = Math.round(innerHeight * d);
+    if (o.width !== W || o.height !== H) { o.width = W; o.height = H; }
+    o.style.display = 'block';
+    const g = o.getContext('2d'); g.clearRect(0, 0, W, H);
+    const [bx, by, bw, bh] = box ?? [0, 0, innerWidth, innerHeight];
+    this.drawHud(g, bx * d, by * d, bw * d, bh * d, t, cut);
+  }
+  // the HUD in a w × h picture at x, y (laid out for 1080 pixels high, scaled): timing tower (races), lap timing, dash
+  drawHud(g, x, y, w, h, t, cut) {
+    const s = h / 1080, W = w / s, src = this.src, race = src.kind === 'race', st = src.states[cut.focus];
+    const box = (px, py, pw, ph, fill = 'rgba(14,16,22,0.84)') => { g.fillStyle = fill; g.beginPath(); g.roundRect(x + px * s, y + py * s, pw * s, ph * s, 7 * s); g.fill(); };
+    const text = (str, px, py, size, color = '#fff', align = 'left', weight = 700) => {
+      g.font = `${weight} ${Math.round(size * s)}px 'Titillium Web', system-ui, sans-serif`;
+      g.fillStyle = color; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(str, x + px * s, y + py * s);
+    };
+    const dim = 'rgba(255,255,255,0.6)';
+    g.save();
+    // ---- lap timing, top right ----
+    let lap = 1, lapT = t, other = null, otherLabel = 'BEST';
+    if (race) {
+      const starts = src.lapStarts(cut.focus); let k = 0; while (k + 1 < starts.length && starts[k + 1] <= t) k++;
+      lap = Math.min(k + 1, src.meta.laps); lapT = t - starts[k]; other = k > 0 ? starts[k] - starts[k - 1] : null; otherLabel = 'LAST';
+    } else other = src.duration;
+    const tx = W - 32 - 330;
+    box(tx, 32, 330, 128);
+    text(race ? `LAP ${lap}/${src.meta.laps}` : 'LAP', tx + 20, 58, 20, dim, 'left', 600);
+    text(lapClock(lapT), tx + 20, 98, 46);
+    text(`${otherLabel}  ${lapClock(other)}`, tx + 20, 138, 19, dim, 'left', 600);
+    // ---- timing tower, top left (races) ----
+    if (race) {
+      const order = src.states.map((q, i) => i).sort((a, b) => ((src.states[a].flags & 1) - (src.states[b].flags & 1)) || src.states[b].progress - src.states[a].progress);
+      const max = 10, at = order.indexOf(cut.focus), rows = order.slice(0, max);
+      if (at >= max) rows[max - 1] = cut.focus;
+      const RH = 34, top = 32;
+      box(32, top, 290, 44 + rows.length * RH);
+      text(`LAP ${Math.min(Math.floor(Math.max(src.states[order[0]].progress, 0) / src.meta.length) + 1, src.meta.laps)}/${src.meta.laps}`, 50, top + 24, 18, dim, 'left', 600);
+      rows.forEach((c, r) => {
+        const q = src.states[c], pos = order.indexOf(c), yy = top + 44 + r * RH + RH / 2, me = c === cut.focus;
+        if (me) box(36, yy - RH / 2 + 2, 282, RH - 4, 'rgba(255,255,255,0.92)');
+        const ink = me ? '#11131a' : '#fff';
+        text(String(pos + 1), 62, yy, 19, ink, 'center');
+        g.fillStyle = hex(src.cars[c].team.color); g.fillRect(x + 82 * s, y + (yy - 10) * s, 4 * s, 20 * s);
+        text(String(src.cars[c].team.name ?? '').slice(0, 3).toUpperCase(), 96, yy, 19, ink);
+        let gap = '';
+        if (q.flags & 1) gap = 'OUT';
+        else if (q.flags & 4) gap = 'PIT';
+        else if (pos === 0) gap = 'LEADER';
+        else { const A = src.states[order[pos - 1]]; gap = `+${((A.progress - q.progress) / Math.max(q.vf, 10)).toFixed(3)}`; }
+        text(gap, 304, yy, 17, me ? '#11131a' : dim, 'right', 600);
+      });
+    }
+    // ---- dash, bottom right: shift lights, rev bar, gear, speed ----
+    const v = Math.abs(st.vf), gb = gearbox(v, this.car.gearbox), [r0, r1] = this.car.gearbox?.rpm ?? [4000, 12000];
+    const f = clamp((gb.rpm - r0) / Math.max(r1 - r0, 1), 0, 1), dx = W - 32 - 330, dy = 1080 - 32 - 186;
+    box(dx, dy, 330, 186);
+    const lit = Math.round(clamp((f - 0.5) / 0.46, 0, 1) * 15);
+    for (let k = 0; k < 15; k++) {
+      g.fillStyle = k >= lit ? 'rgba(255,255,255,0.13)' : k < 5 ? '#22d36b' : k < 10 ? '#ff3b3b' : '#3b8bff';
+      g.beginPath(); g.arc(x + (dx + 25 + k * 20) * s, y + (dy + 24) * s, 6.5 * s, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = 'rgba(255,255,255,0.13)'; g.fillRect(x + (dx + 20) * s, y + (dy + 44) * s, 290 * s, 5 * s);
+    g.fillStyle = f > 0.92 ? '#ff3b3b' : '#fff'; g.fillRect(x + (dx + 20) * s, y + (dy + 44) * s, 290 * f * s, 5 * s);
+    text(gb.gear, dx + 90, dy + 118, 108, '#fff', 'center', 800);
+    text(String(Math.round(v * 3.6)), dx + 245, dy + 104, 58, '#fff', 'center', 800);
+    text('km/h', dx + 245, dy + 146, 20, dim, 'center', 600);
+    g.restore();
+  }
+
   // ---------- sound: the engine of the car on camera ----------
   noise(t, edit) {
     const k = this.cutAt(edit, t), car = edit[k]?.focus ?? 0, v = this.src.speedOf(car, t), a = (this.src.speedOf(car, t + 0.15) - v) / 0.15;
@@ -526,7 +625,7 @@ export class Cinema {
   // ---------- saving ----------
   // WebCodecs → .mp4 (H.264) or .webm (VP9), frame-exact whatever speed it renders at; written into the folder you
   // picked as it goes, or kept in memory until it's downloaded
-  async encoder(W, H, fps, part, edit, opts) {
+  async encoder(W, H, fps, part, edit, opts, canvas = this.renderer.domElement) {
     const bitrate = Math.round(W * H * fps * CINEMA.bitrate);
     let codec = 'avc', mp4 = true;
     if (!(await canEncodeVideo('avc', { width: W, height: H, bitrate }))) {
@@ -540,7 +639,7 @@ export class Cinema {
       target = new StreamTarget(await handle.createWritable(), { chunked: true, chunkSize: 8 * 2 ** 20 });
     } else target = new BufferTarget();
     const output = new Output({ format: mp4 ? new Mp4OutputFormat({ fastStart: opts.dir ? false : 'in-memory' }) : new WebMOutputFormat(), target });
-    const source = new CanvasSource(this.renderer.domElement, { codec, bitrate, keyFrameInterval: 2 });
+    const source = new CanvasSource(canvas, { codec, bitrate, keyFrameInterval: 2 });
     output.addVideoTrack(source, { frameRate: fps });
     const acodec = !this.sound ? null : mp4 && (await canEncodeAudio('aac')) ? 'aac' : (await canEncodeAudio('opus')) ? 'opus' : null;
     const audio = acodec ? new AudioBufferSource({ codec: acodec, bitrate: QUALITY_HIGH }) : null;
@@ -557,9 +656,9 @@ export class Cinema {
     };
   }
   // no WebCodecs: record the canvas live (.webm), one part at a time
-  recorder() {
+  recorder(canvas = this.renderer.domElement) {
     const type = ['video/webm;codecs=vp9', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
-    const r = new MediaRecorder(this.renderer.domElement.captureStream(CINEMA.fps), { mimeType: type, videoBitsPerSecond: 25e6 });
+    const r = new MediaRecorder(canvas.captureStream(CINEMA.fps), { mimeType: type, videoBitsPerSecond: 25e6 });
     const parts = []; r.ondataavailable = (e) => parts.push(e.data); r.start(1000);
     return { finish: (name) => new Promise((done) => { r.onstop = () => done({ blob: new Blob(parts, { type: 'video/webm' }), file: `${name}.webm` }); r.stop(); }) };
   }
