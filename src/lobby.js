@@ -4,7 +4,7 @@
 // The networking is in net/session.js; this file is only the screen.
 import { Session, cleanName, MAX_CARS } from './net/session.js';
 import { NET } from './net/peer.js';
-import { CARS, getCar, timesFor, raceSetup, TIME_LABELS } from './cars/index.js';
+import { CARS, MAIN_CARS, DEV_CARS, getCar, timesFor, raceSetup, TIME_LABELS } from './cars/index.js';
 
 const $ = (id) => document.getElementById(id);
 const hex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -207,7 +207,11 @@ export class Lobby {
     $('lb-track').textContent = def.name;
     $('lb-track-sub').textContent = [def.country, setup.lighting === 'pits' ? 'Night race, no floodlights' : setup.time === 'night' ? 'Night race'
       : setup.time === 'dusk' ? 'Twilight' : null].filter(Boolean).join(' · ');
-    this.seg('lb-car', CARS.map((c) => [c.id, c.name]), car.id, (v) => this.set({ car: v }));
+    // the proven cars, then the ones still in development on their own row (everyone else only sees that row when the
+    // host has picked one of them)
+    this.seg('lb-car', MAIN_CARS.map((c) => [c.id, c.name]), car.id, (v) => this.set({ car: v }));
+    $('lb-car-dev-row').classList.toggle('hidden', !DEV_CARS.length || (!host && !car.dev));
+    this.seg('lb-car-dev', DEV_CARS.map((c) => [c.id, c.name]), car.id, (v) => this.set({ car: v }));
     $('lb-time-row').classList.toggle('hidden', times.length < 2);
     this.seg('lb-time', times.map((t) => [t, TIME_LABELS[t] ?? t]), setup.choice, (v) => this.set({ time: v }));
     const laps = $('lb-laps');

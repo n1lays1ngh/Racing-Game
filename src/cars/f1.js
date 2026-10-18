@@ -13,6 +13,9 @@ export default {
   short: 'RB19',
   car: 'F1 RB-19',         // the car you drive in this class
   specs: ['1.6 V6 turbo hybrid', '798 kg', '8 gears'],  // shown in the menu
+  // dev: true = a car still being tuned. The menu, the lobby and Your stats keep it apart from the proven cars,
+  // in an "In development" section you open if you want it (cars/index.js DEV_CARS). Leave it out for a finished car.
+  dev: false,
 
   // ---- When it races: the menu's Day / Night choice ----
   // Every car can race every circuit by day or by night under its floodlights (and at twilight where that's the

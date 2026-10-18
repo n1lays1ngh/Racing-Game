@@ -7,6 +7,7 @@
 // control, no ABS, no power steering. A 1989 lap is ~10–15% slower than a 2023 one.
 export default {
   id: 'mp45',
+  dev: true,                 // in development: shown apart from the proven cars in the menu (see f1.js)
   name: 'Open-Wheel 1989',
   short: 'OW89',
   car: 'Apex V10-89',

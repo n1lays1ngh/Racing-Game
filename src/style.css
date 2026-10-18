@@ -428,6 +428,13 @@ button.primary:hover { filter: brightness(1.1); }
 .seg-row.off { opacity: 0.35; pointer-events: none; }            /* AI skill when there are no AI cars */
 
 .lb-seg.lb-cars button { font-size: 13px; }
+/* the lobby's cars still in development (src/cars/, dev: true): their own row, in amber */
+.lb-dev-row { margin-top: 8px; }
+.lb-dev-row > span { color: #ffb020; }
+.lb-seg.lb-dev { border-style: dashed; border-color: rgba(255, 176, 32, 0.35); }
+.lb-seg.lb-dev button.on { background: #ffb020; color: #17130a; box-shadow: 0 4px 14px rgba(255, 176, 32, 0.35); }
+.lb-seg .dev-tag, .st-car .dev-tag { margin-left: 6px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 176, 32, 0.18); color: #ffb020; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; vertical-align: 1px; }
+.lb-seg button.on .dev-tag { background: rgba(0, 0, 0, 0.25); color: #fff; }
 .ai-count { flex: 1; display: flex; align-items: center; gap: 12px; }
 .ai-count input { flex: 1; accent-color: var(--red); height: 4px; cursor: pointer; }
 .ai-count b { min-width: 74px; text-align: center; padding: 5px 8px; border-radius: 7px; background: rgba(255, 255, 255, 0.07); font-size: 14px; }
@@ -1055,6 +1062,56 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 .cd-notes span { position: relative; padding-left: 14px; }
 .cd-notes span::before { content: ''; position: absolute; left: 1px; top: 0.5em; width: 6px; height: 6px; background: var(--red); transform: skewX(-14deg); }
 .cd-you { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.cd-dev, .dev-chip {
+  flex: none; padding: 3px 9px; border: 1px solid rgba(255, 176, 32, 0.5); border-radius: 3px; background: rgba(255, 176, 32, 0.12);
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dev); white-space: nowrap;
+}
+/* the cars still in development (src/cars/, dev: true): a bar under the proven cars that opens a row of small cards */
+#menu { --dev: #ffb020; }
+.car-dev { display: flex; flex: none; flex-direction: column; gap: clamp(6px, 1vh, 10px); }
+.car-dev[hidden] { display: none; }
+#menu .dev-toggle {
+  display: flex; align-items: center; gap: 8px 16px; width: 100%; min-height: 46px; margin: 0;
+  padding: 8px calc(var(--slant) * 1.2 + 14px); border: 0; text-align: left; color: var(--ink);
+  background: var(--sheet); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  clip-path: polygon(calc(var(--slant) * 0.8) 0, 100% 0, calc(100% - var(--slant) * 0.8) 100%, 0 100%);
+  transition: background 0.2s;
+}
+#menu .dev-toggle:hover { background: var(--sheet-hi); }
+#menu .dev-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
+.dev-toggle b { font-size: 15px; font-weight: 900; font-style: italic; text-transform: uppercase; white-space: nowrap; }
+.dev-sub { min-width: 0; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-act { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dev); }
+.dev-act kbd {
+  min-width: 22px; padding: 2px 6px; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 4px;
+  font: 700 11px/1.3 inherit; text-align: center; color: #dfe3e8; background: rgba(255, 255, 255, 0.06);
+}
+.dev-act::after { content: ''; width: 7px; height: 7px; margin-left: 2px; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); transition: transform 0.25s; }
+.car-dev.open .dev-act::after { transform: translateY(2px) rotate(-135deg); }
+.dev-list { display: flex; gap: 10px; animation: rise 0.35s cubic-bezier(.2,.8,.2,1) both; }
+.dev-list[hidden] { display: none; }
+#menu .dev-card {
+  position: relative; display: flex; flex: 1 1 0; align-items: center; gap: 14px; min-width: 0; margin: 0;
+  padding: 12px calc(var(--slant) * 1.2 + 10px); border: 0; text-align: left; color: var(--ink); overflow: hidden;
+  background: var(--sheet); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  clip-path: polygon(calc(var(--slant) * 0.8) 0, 100% 0, calc(100% - var(--slant) * 0.8) 100%, 0 100%);
+  transition: background 0.2s;
+}
+#menu .dev-card > * { opacity: 0.62; transition: opacity 0.2s; }
+#menu .dev-card:hover { background: var(--sheet-hi); }
+#menu .dev-card:hover > * { opacity: 0.85; }
+#menu .dev-card.on { background: var(--sheet-hi); box-shadow: inset 0 4px 0 var(--dev); }
+#menu .dev-card.on > * { opacity: 1; }
+#menu .dev-card:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
+#menu .dev-card.on:focus-visible { box-shadow: inset 0 4px 0 var(--dev), inset 0 0 0 2px #fff; }
+.dev-short {
+  flex: none; font-size: 34px; font-weight: 900; font-style: italic; line-height: 0.9; letter-spacing: -0.03em; white-space: nowrap;
+  color: transparent; -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.45); transition: color 0.3s, -webkit-text-stroke-color 0.3s;
+}
+.dev-card.on .dev-short { color: var(--ink); -webkit-text-stroke-color: transparent; }
+.dev-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dev-head b { font-size: 15px; font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-head span { font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- 2 · circuit ---- */
 .mn-track { gap: clamp(20px, 3vw, 56px); align-items: stretch; }
@@ -1253,13 +1310,18 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
   .home-doors { grid-template-columns: 1fr 1fr; }
   .door-race { grid-column: 1 / -1; }
   .mn-car, .mn-setup { justify-content: flex-start; }
-  .car-slats { gap: 10px; max-height: none; height: auto; }
+  .car-slats { flex: none; gap: 10px; max-height: none; height: auto; } /* (full height, the page scrolls: it used to shrink under the strips below) */
   .slat-row { flex: none; flex-direction: column; gap: 10px; }
   #menu .slat { flex: none; margin-left: 0; clip-path: none; padding: 18px 20px; }
   #menu .slat.on { flex-grow: 0; }
   .slat-big { font-size: 72px; margin-bottom: 0; }
   .car-detail { clip-path: none; padding: 12px 20px; }
   .cd-you { margin-left: 0; }
+  #menu .dev-toggle, #menu .dev-card { clip-path: none; padding-left: 20px; padding-right: 20px; }
+  .dev-toggle { flex-wrap: wrap; }
+  .dev-sub { flex-basis: 100%; order: 3; white-space: normal; }
+  .dev-list { flex-direction: column; }
+  #menu .dev-card { flex: none; }
   .mn-track { flex-direction: column; }
   .trk-detail { flex: none; }
   .c-map-wrap { flex: none; height: 240px; }
@@ -1362,7 +1424,7 @@ button.set-row:hover { background: rgba(26, 29, 38, 0.95); }
 body.pad-nav :is(button, input, [tabindex]):focus { outline: 3px solid #fff !important; outline-offset: 2px; }
 body.pad-nav #menu :is(.door, .door-quick):focus { outline: none !important; }
 body.pad-nav #menu :is(.door, .door-quick):focus::before { box-shadow: inset 0 0 0 3px #fff; }
-body.pad-nav #menu :is(.slat, .mn-next, .start):focus { outline: none !important; box-shadow: inset 0 0 0 3px #fff; }
+body.pad-nav #menu :is(.slat, .dev-card, .dev-toggle, .mn-next, .start):focus { outline: none !important; box-shadow: inset 0 0 0 3px #fff; }
 body.pad-nav #menu input[type="range"]:focus { outline: none !important; }
 body.pad-nav #menu input[type="range"]:focus::-webkit-slider-thumb { outline: 3px solid var(--red); outline-offset: 2px; }
 body.pad-nav #menu input[type="range"]:focus::-moz-range-thumb { outline: 3px solid var(--red); outline-offset: 2px; }

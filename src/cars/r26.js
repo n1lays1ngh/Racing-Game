@@ -8,6 +8,7 @@
 // grip in slow corners, as much in fast ones; it brakes later and turns in sharper. A 2006 lap is ~1–2% slower.
 export default {
   id: 'r26',
+  dev: true,                 // in development: shown apart from the proven cars in the menu (see f1.js)
   name: 'Open-Wheel 2006',
   short: 'OW06',
   car: 'Apex V8-06',

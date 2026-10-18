@@ -12,6 +12,7 @@
 //   Race:     X reset · Y camera · B pause · R3 mirror · Menu map (whole circuit / road ahead) · View mute
 //             D-pad left headlights · D-pad up tower gaps
 //   Menus:    D-pad or left stick move · A choose · B back · LB / RB a slider by 10 · X time of day (race setup)
+//             · Y cars in development (car step)
 //             start screen: Y multiplayer, X your stats
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
 // Switch Pro and most others in Chrome, Edge, Firefox and Safari).
@@ -117,7 +118,7 @@ export const LOOK_BACK = { key: 'KeyQ', on: 0.55, off: 0.35 }; // right stick do
 //   buttons: other buttons. Actions are a key code, or 'click:<button id>'.
 const SCREENS = {
   home:     { root: 'menu', a: 'Enter', buttons: { [BTN.MENU]: 'Enter', [BTN.Y]: 'click:btn-mp', [BTN.X]: 'click:btn-stats' } },
-  steps:    { arrows: true, a: 'Enter', b: 'Escape', buttons: { [BTN.MENU]: 'Enter', [BTN.X]: 'KeyN', [BTN.LB]: 'PageDown', [BTN.RB]: 'PageUp' } },
+  steps:    { arrows: true, a: 'Enter', b: 'Escape', buttons: { [BTN.MENU]: 'Enter', [BTN.X]: 'KeyN', [BTN.Y]: 'KeyD', [BTN.LB]: 'PageDown', [BTN.RB]: 'PageUp' } }, // (Y: the cars in development, car step)
   setup:    { root: 'menu', a: 'Enter', b: 'Escape', buttons: { [BTN.MENU]: 'Enter', [BTN.X]: 'KeyN' } },
   pause:    { root: 'pause', b: 'Escape', buttons: { [BTN.MENU]: 'Escape' } },
   results:  { root: 'results', b: 'click:btn-menu', buttons: { [BTN.MENU]: 'click:btn-again' } },

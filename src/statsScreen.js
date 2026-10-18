@@ -186,10 +186,13 @@ export class StatsScreen {
   // Which car's records: each car has its own (a GT3 lap never competes with an F1 lap)
   cars() {
     const all = getStats();
-    return `<div class="st-cars" role="tablist" aria-label="Car">${CARS.map((c) => {
-      const laps = all.cars?.[c.id]?.total?.laps ?? 0;
-      return `<button type="button" class="st-car${c.id === this.car ? ' on' : ''}" data-act="car" data-v="${esc(c.id)}">` +
-        `<b>${esc(c.name)}</b><span>${laps ? plural(laps, 'lap') : 'No laps yet'}</span></button>`;
+    // the proven cars always; the ones still in development (dev: true) only once you've driven them (or it's this one)
+    const laps = (c) => all.cars?.[c.id]?.total?.laps ?? 0;
+    const list = CARS.filter((c) => !c.dev || laps(c) || c.id === this.car);
+    return `<div class="st-cars" role="tablist" aria-label="Car">${list.map((c) => {
+      const n = laps(c);
+      return `<button type="button" class="st-car${c.id === this.car ? ' on' : ''}${c.dev ? ' dev' : ''}" data-act="car" data-v="${esc(c.id)}">` +
+        `<b>${esc(c.name)}${c.dev ? '<small class="dev-tag">Dev</small>' : ''}</b><span>${n ? plural(n, 'lap') : 'No laps yet'}</span></button>`;
     }).join('')}</div>`;
   }
 

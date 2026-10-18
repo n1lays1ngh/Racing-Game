@@ -13,6 +13,7 @@
 //                               (time: 'day' | 'dusk' | 'night'; lighting: 'circuit' = floodlights all round,
 //                               'pits' = only the pit straight). No choice yet (null): the circuit's own time.
 //   TIME_LABELS               → what the buttons say
+//   MAIN_CARS / DEV_CARS      → the proven cars / the ones still in development (`dev: true`); isDev(car)
 import f1 from './f1.js';
 import hypercar from './hypercar.js';
 import gt3 from './gt3.js';
@@ -21,16 +22,22 @@ import r26 from './r26.js';
 import mp45 from './mp45.js';
 import mclaren from './mclaren.js';
 
+// The proven cars first, then the ones still in development (`dev: true` in their file). The menu shows the proven
+// cars up front and the others in an "In development" section you open if you want them (menu.js).
 export const CARS = [
   f1,
-  r26,
-  mp45,
   hypercar,
   gt3,
   porsche,
+  // ---- in development ----
+  r26,
+  mp45,
   mclaren,
 ];
 export const DEFAULT_CAR = 'f1';
+export const isDev = (car) => !!car?.dev;
+export const MAIN_CARS = CARS.filter((c) => !isDev(c)); // tried and tested
+export const DEV_CARS = CARS.filter(isDev);              // still being tuned
 
 export function getCar(id) {
   return CARS.find((c) => c.id === id) ?? CARS.find((c) => c.id === DEFAULT_CAR) ?? CARS[0];

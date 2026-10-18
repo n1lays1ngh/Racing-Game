@@ -162,7 +162,7 @@ export class Career {
         `<button type="button" class="cr-card${id === p.series ? ' on' : ''}" data-series="${id}"><b>${esc(x.short)}</b><span>${esc(x.name)}</span>` +
         `<small>${this.calendar(id).length} rounds</small></button>`).join('');
       body.innerHTML = `<div class="cr-setup"><div class="cr-cards">${cards}</div>` +
-        (S.cars.length > 1 ? `<div class="seg-row"><span>Car</span><div class="lb-seg">${seg('car', S.cars.map((c) => [c, getCar(c).car]), p.car)}</div></div>` : '') +
+        (S.cars.length > 1 ? `<div class="seg-row"><span>Car</span><div class="lb-seg">${seg('car', S.cars.map((c) => [c, esc(getCar(c).car) + (getCar(c).dev ? '<small class="dev-tag">Dev</small>' : '')]), p.car)}</div></div>` : '') +
         `<div class="seg-row"><span>Race length</span><div class="lb-seg">${seg('length', CAREER.lengths, p.length)}</div></div>` +
         `<div class="seg-row"><span>AI skill</span><div class="lb-seg">${seg('diff', CAREER.difficulty, p.difficulty)}</div></div>` +
         `<div class="seg-row"><span>Damage</span><div class="lb-seg">${seg('dmg', CAREER.damage, p.damage)}</div></div>` +

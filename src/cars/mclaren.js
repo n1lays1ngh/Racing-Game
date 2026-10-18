@@ -6,6 +6,7 @@
 // corners, ~2.3 g in fast ones, ~2 g on the brakes, ~280 km/h flat out. A GT3 lap is ~25–30% slower than an F1 car's.
 export default {
   id: 'mclaren',
+  dev: true,                 // in development: shown apart from the proven cars in the menu (see f1.js)
   name: 'MC-GT',
   short: 'MC',
   car: 'Apex MC-GT (mid-engined)',
