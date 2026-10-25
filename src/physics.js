@@ -15,6 +15,7 @@ import { ersStep } from './ers.js';
 import { SLIPSTREAM } from './slipstream.js';
 import { tyreStep } from './tyres.js';
 import { hitDamage } from './damage.js';
+import { simStep } from './simPhysics.js';
 import F1 from './cars/f1.js';
 
 // The F1 car's numbers (src/cars/f1.js). Every car has its own in its file in src/cars/; each car's state
@@ -38,7 +39,18 @@ export function createCarState(x, z, heading, spec = F1) {
     absActive: false, tcActive: false, pitLimiter: false, inPitLane: false, lightsOn: false, autopilot: false,
     tow: 0, ers: 1, ersMode: '', tyres: null, tyreGrip: 1, tyresFitted: 0, damage: null,
     longA: 0, spin: 0, // braking / driving grip in use last step (m/s²), and how hard the rear wheels are spinning (0–1)
+    // the two-axle tyre model (simPhysics.js): on now / last step, the front and rear slip angles (rad), the car's
+    // acceleration lengthways (for the weight transfer, m/s²), rear wheels locked
+    simOn: false, simWas: false, slipF: 0, slipR: 0, longAx: 0, lockR: false,
   };
+}
+
+// A car's physics with its `human` block on top (the feel for the car you drive), worked out once per car
+const humanCache = new WeakMap();
+function humanPhysics(base) {
+  let h = humanCache.get(base);
+  if (!h) { h = { ...base, ...base.human }; humanCache.set(base, h); }
+  return h;
 }
 
 // Steering lock available at a given speed (the AI uses this too). p: the car's physics (state.spec.physics)
@@ -54,8 +66,13 @@ export function lateralGrip(vf, surfaceGrip = 1, vcurv = 0, p = CAR, aero = 1) {
   return p.mu * surfaceGrip * (gEff + aero * p.downforce * vf * vf);
 }
 
-export function stepCar(car, input, track, dt) {
-  const p = car.spec?.physics ?? CAR;
+// human: you're driving this car (race.js). A car whose physics has a `sim` block (src/cars/f1.js) then uses the two-axle
+// tyre model (simPhysics.js) above walking pace; the AI, and your car when the team or the AI drives it, the arcade one.
+export function stepCar(car, input, track, dt, human = false) {
+  const base = car.spec?.physics ?? CAR;
+  // the car you drive: its physics with the car file's `human` block on top (how it feels to drive: src/cars/f1.js);
+  // the AI keeps the plain numbers (its speed plans and racecraft are tuned to them)
+  const p = human && base.human ? humanPhysics(base) : base;
 
   // --- Where are we on the circuit? -------------------------------------
   const proj = projectOnTrack(track, car.x, car.z, car.trackIndex);
@@ -86,6 +103,21 @@ export function stepCar(car, input, track, dt) {
   // damage (damage.js, career): less grip and downforce, less drive, a bent car pulls to one side
   const dfx = car.damage?.fx;
 
+  // --- The two-axle tyre model (simPhysics.js), for your car if its file has one: above walking pace only (it hands
+  // back to the model below when crawling or reversing, with a gap so it doesn't flicker between them) ---------------
+  const S = human && p.sim && p.sim.enabled !== false ? p.sim : null;
+  car.simOn = !!S && (car.simOn ? vf > (S.exitSpeed ?? 3) : vf > (S.enterSpeed ?? 5));
+  if (car.simOn) {
+    // its total cornering grip, exactly as below (surface, AI bonus, dirty air, tyres, damage, banking): it splits it
+    const bankG = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
+    const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * (1 - SLIPSTREAM.dirtyAir * (car.tow ?? 0)) * (car.tyreGrip ?? 1) * (dfx?.grip ?? 1),
+      vcurv, p, dfx?.aero ?? 1) + bankG, 2);
+    simStep(car, input, track, dt, { p, latMax, grip, extraDrag, grade, vcurv, thr, brk, dfx });
+    finishStep(car, track, proj, grade, dt);
+    return;
+  }
+  car.simWas = false; car.lockR = false;
+
   // --- Steering ---------------------------------------------------------
   const target = clamp(input.steer + (dfx?.pull ?? 0), -1, 1) * steerLimit(vf, p) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
   car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
@@ -98,7 +130,7 @@ export function stepCar(car, input, track, dt) {
   const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty * (car.tyreGrip ?? 1) * (dfx?.grip ?? 1), vcurv, p, dfx?.aero ?? 1) + bankGrip, 2);
   // Combined grip (p.combined, a friction circle): braking or driving hard leaves less grip for turning, and turning
   // hard leaves less for braking and driving (below). The tyres take a little more lengthways than sideways (1.2×).
-  const latAvail = p.combined ? latMax * Math.max(0.45, Math.sqrt(Math.max(0, 1 - (car.longA / (1.2 * latMax)) ** 2))) : latMax;
+  const latAvail = p.combined ? latMax * Math.max(p.combinedMin ?? 0.45, Math.sqrt(Math.max(0, 1 - (car.longA / (1.2 * latMax)) ** 2))) : latMax;
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   // (a car with ABS, p.abs, never locks: the HUD shows ABS working where it would have)
@@ -136,7 +168,7 @@ export function stepCar(car, input, track, dt) {
 
   // --- Throttle / brake ---------------------------------------------------
   const turning = Math.min(latUse, 1);
-  const share = p.combined ? Math.max(0.45, Math.sqrt(Math.max(0, 1 - turning * turning))) : 1; // grip left for braking / driving
+  const share = p.combined ? Math.max(p.combinedMin ?? 0.45, Math.sqrt(Math.max(0, 1 - turning * turning))) : 1; // grip left for braking / driving
   car.longA = 0; car.spin = 0;
   if (thr > 0) {
     if (vf >= -0.5) {
@@ -190,8 +222,13 @@ export function stepCar(car, input, track, dt) {
   car.z += car.vz * dt;
   if (car.tyres) tyreStep(car, dt, { lat: Math.min(1.2, latUse), brake: brk, throttle: drive, slip: car.slip, lock: car.lockF, dist: Math.abs(vf) * dt, length: track.length }); // tyre wear (tyres.js)
   car.vf = vf;
+  finishStep(car, track, proj, grade, dt);
+}
+
+// After either model has moved the car: speed, wheels, height and tilt on the road, and the barriers
+function finishStep(car, track, proj, grade, dt) {
   car.speed = Math.hypot(car.vx, car.vz);
-  car.wheelSpin += vf * dt / 0.36;
+  car.wheelSpin += car.vf * dt / 0.36;
   car.y = (track.h ? heightAtS(track, car.s) : 0) + bankLift(track, proj.i, car.lateral);
   car.roll = bankRoll(track, proj.i, car.lateral);
   car.pitch = Math.atan(grade);

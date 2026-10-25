@@ -46,9 +46,9 @@ export default {
     liftOff: 4,           // m/s² extra slowing off the throttle (engine braking and the hybrid harvesting; the air does the rest)
     brake: 50,            // m/s² max braking (still limited by grip): with the drag, ~6 g from 300 km/h, ~3 g from 100
     // --- grip ---
-    mu: 1.7,              // tyre grip (mechanical: what's left at low speed)
+    mu: 1.65,              // tyre grip (mechanical: what's left at low speed)
     g: 9.81,
-    downforce: 0.0035,    // extra grip per v²: downforce ≈ 1.6 × the car's weight at 240 km/h (lift area ~4.7 m²)
+    downforce: 0.0030,    // extra grip per v²: downforce ≈ 1.6 × the car's weight at 240 km/h (lift area ~4.7 m²)
     // --- steering & handling feel ---
     wheelbase: 3.6,       // metres between the axles; the steering works from this (or steerBase, if a car has one)
     maxSteer: 0.36,       // steering lock at low speed
@@ -56,7 +56,7 @@ export default {
     steerRate: 2.3,       // how fast the front wheels turn
     yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
     slideAllowance: 1.10, // how far the car can rotate past grip → small controllable slide
-    trailBrake: 0.15,     // extra rotation while braking into a corner
+    trailBrake: 0.35,     // extra rotation while braking into a corner
     powerRotation: 0.20,  // extra rotation on throttle in slow corners
     stability: 2,         // how strongly slides straighten out (higher = safer, lower = driftier)
     // --- lock-ups ---
@@ -67,6 +67,45 @@ export default {
     // --- size, for car-to-car contact (race.js): two circles, one front and one rear ---
     radius: 1.25,         // radius of each circle (m)
     contactOffset: 1.4,   // metres from the car's centre to each circle
+    // --- the realistic model: two axles with their own tyres (simPhysics.js), for your car (the AI drives the
+    // arcade model above, with the same total grip). Delete this block, or enabled: false, for the arcade feel.
+    // Anything left out comes from SIM_DEFAULTS in simPhysics.js.
+    sim: {
+      enabled: false,
+      weightFront: 0.45,    // RB19-like: ~45% of the weight on the front axle …
+      aeroFront: 0.41,      // … and ~41% of the downforce (the aero balance): a touch of understeer in fast corners
+      cgHeight: 0.28,       // m: low, so modest weight transfer
+      yawInertia: 1.0,      // yaw inertia ÷ (mass × a × b)
+      peakSlip: [0.105, 0.09], // rad: front / rear slip angle at peak grip (the rear peaks earlier and lets go sooner)
+      falloff: 0.14,        // grip lost sliding past the peak: higher = snappier oversteer
+      loadExp: 0.8,         // tyre load sensitivity: an axle's grip grows as load^0.8 (a light rear grips more per kilo)
+      understeer: 0.05,     // the wider rear tyres: the rear can corner 5% harder than it needs to at refSpeed, so the car
+      refSpeed: 45,         // understeers a touch there (m/s). 0 = neutral, below 0 = oversteer; raise it if it's too loose
+      brakeBias: 0.56,      // share of the braking on the fronts
+      brakeAssist: true,    // brake-by-wire help: braking shared by grip, never past brakeMargin, no lock-ups. false = the
+                            // fixed brakeBias, and brake too hard for the grip and the wheels lock (a real F1 car has no ABS)
+      brakeMargin: 0.88,
+      slideAssist: 0.25,    // 0–1: help catching a slide once the rear's gone past its peak (0 = none)
+      stability: 5,         // 1/s: damps the car starting to rotate away from its path (0 = none: unstable under hard
+                            // braking, as a real car is; you'd need to catch it every braking zone)
+      maxSteer: 0.42,       // its own steering rack: lock at low speed (rad) …
+      steerFade: 55,        // … shrinking with speed (m/s): ~9° left at 300 km/h
+    },
+    // --- how it feels when YOU drive it (the AI keeps the numbers above: its pace and racecraft are tuned to them) ---
+    // Anything here replaces the same setting above for your car only. Aim: an arcade car every level of player enjoys,
+    // with a bit of weight to it: it turns in when you ask, doesn't push wide, and doesn't twitch.
+    human: {
+      // weight: the wheels turn a little slower and the car takes longer to build up (and settle) its rotation
+      steerRate: 1.7,       // (2.3) how fast the front wheels turn: lower = heavier steering, less twitchy on a keyboard
+      yawResponse: 5.5,     // (9) how quickly the car follows the steering: lower = heavier, more planted
+      // less understeer
+      stability: 1.3,       // (2) the pull that straightens a slide also turns the nose out of the corner: less of it
+      slideAllowance: 1.18, // (1.10) the car can rotate a bit further past the grip: it tucks into the apex
+      trailBrake: 0.28,     // (0.15) braking into a corner helps the car turn in (instead of pushing on)
+      combinedMin: 0.62,    // (0.45 in physics.js) braking hard still leaves this much grip for turning
+      lockThreshold: 1.6,   // (1.25) brake + steering needed to lock the fronts: full brake while turning no longer
+                            // locks them straight away (a locked front keeps only lockSteer of its steering)
+    },
     // Optional (see hypercar.js and gt3.js): steerBase (the steering works from this instead of the wheelbase),
     // trackWidth (between the left and right wheels, for the tyre marks), abs: true (can't lock the wheels),
     // tc: 0–1 (traction control: trims the power when the rear steps out).

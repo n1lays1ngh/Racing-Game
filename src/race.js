@@ -235,7 +235,7 @@ export class Race {
         car.retireT = (car.retireT ?? 0) + dt;
         if (car.state.speed < 1 || car.retireT > 6) { this.retire(car); continue; }
       }
-      stepCar(car.state, input, this.track, dt);
+      stepCar(car.state, input, this.track, dt, !driver && car.isHuman); // (you driving: your car's tyre model, physics.js)
       if (car.state.damage?.changed) this.damageNews(car);
       this.updateLap(car);
       this.checkLimits(car);
