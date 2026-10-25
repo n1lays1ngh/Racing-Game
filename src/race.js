@@ -111,14 +111,19 @@ export class Race {
   //   humans: [{ id, name, color }] – everyone in the room, in grid order (they start behind the AI)
   //   localId: which of them is you. collisions: false = cars drive through each other.
   // car: which car everyone races (an id from src/cars/, or the car itself); one kind of car per race.
+  // strategy: tyre wear and pit stops (pitstop.js, tyres.js); damage: null (off) or a damage.js mode ('low' | 'medium' |
+  //   'real'). A career race always has strategy; a quick race has them if you switch them on in the menu (race setup
+  //   → Race rules). Offline only: online races have neither (other people's cars aren't driven here).
   constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName,
-    humans = null, localId = null, collisions = true, car = DEFAULT_CAR, tyres = null, career = false, round = null, playerGrid = null, damage = null } = {}) {
+    humans = null, localId = null, collisions = true, car = DEFAULT_CAR, tyres = null, career = false, round = null, playerGrid = null, damage = null,
+    strategy = false } = {}) {
     this.track = track;
     this.carDef = typeof car === 'string' || car == null ? getCar(car) : car;
     this.laps = laps;
     this.collisions = collisions;
     this.difficulty = difficulty;
-    this.career = !!career; this.round = round; // career (career.js): pit stops and tyres are only in career races
+    this.career = !!career; this.round = round; // career (career.js)
+    this.strategy = !humans && (this.career || !!strategy); // tyre wear and pit stops: career races, or a quick race with them on
     this.countdownClock = null;   // online: a shared clock runs the start lights (else they count up here)
     this.state = 'countdown';     // countdown → racing → finished
     this.time = 0;                // race clock, starts at lights out
@@ -175,17 +180,17 @@ export class Race {
       this.cars.push(car);
     });
     this.player = this.cars.find(c => c.isPlayer);
-    this.pits = this.career ? new PitStops(this) : null; // career: boxes, the AI's stops, the stops themselves (pitstop.js)
+    this.pits = this.strategy ? new PitStops(this) : null; // boxes, the AI's stops, the stops themselves (pitstop.js)
     // Tyres (tyres.js): you start on your pick (TYRES.start, or 1 / 2 / 3 on the grid), the AI on a mix, and a pit stop
     // fits the set you chose on the pit page (car.nextTyres), or the softest one that lasts the rest of the race
-    if (this.career) for (const c of this.cars) {
+    if (this.strategy) for (const c of this.cars) {
       const pick = c.isHuman ? (c.isPlayer ? tyres : null) ?? TYRES.start
         : this.laps < TYRES.twoCompounds ? chooseCompound(this, this.laps)
         : Math.random() < 0.35 ? 'soft' : Math.random() < 0.8 ? 'medium' : 'hard';
       fitTyres(c.state, pick, this);
     }
-    // Damage (damage.js): career only, Low / Medium / Real (the career's setting); repaired at a pit stop
-    this.damage = this.career && damage ? damage : null;
+    // Damage (damage.js): Low / Medium / Real (the career's setting, or the quick race's), repaired at a pit stop
+    this.damage = !humans && damage && damage !== 'off' ? damage : null;
     if (this.damage) for (const c of this.cars) fitDamage(c.state, this.damage, this.carDef);
     if (this.pits) this.pits.onService = (c) => {
       fitTyres(c.state, c.nextTyres ?? chooseCompound(this, this.laps - c.lapsDone, c.state.tyres?.used), this); c.nextTyres = null;
@@ -442,7 +447,7 @@ export class Race {
             }
           }
         }
-        if (hit > 0 && this.damage) { // career: both cars take it, each where it was hit
+        if (hit > 0 && this.damage) { // damage on: both cars take it, each where it was hit
           if (A.damage && !ca.remote) hitDamage(A, hx, hz, hit, 'car');
           if (B.damage && !cb.remote) hitDamage(B, -hx, -hz, hit, 'car');
           if (A.damage?.changed) this.damageNews(ca);

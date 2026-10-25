@@ -55,12 +55,19 @@ A live AI race plays behind the menu, filmed like TV. The start screen has **Rac
 setup, straight away), **Multiplayer** and **Your stats**, plus the graphics preset. Race takes you through three steps,
 shown in the bar at the top (click one to go back to it):
 
-1. **Car**: Formula 1, Hypercar, GT3 or 911 GT3 R, with top speed, 0 to 200 km/h, cornering grip and braking worked out from
-   each car's physics, its driver aids and track-limits rule.
+1. **Car**: the four proven cars up front: Formula 1, Hypercar, GT3 or 911 GT3 R, with top speed, 0 to 200 km/h, cornering
+   grip and braking worked out from each car's physics, its driver aids and track-limits rule. The cars still in
+   development (Open-Wheel 2006, Open-Wheel 1989, MC-GT) are in a section underneath, shut until you open it (**D**, or
+   **Y** on a controller); see *Cars in development* below.
 2. **Circuit**: every circuit as a tile; the one you pick shows its outline, the hills along the lap, its length and
    climb, and your best lap there in that car.
 3. **Race**: time of day, laps (a slider from 1 to 100, with the Grand Prix distance of 305 km marked), AI cars
    and their skill, your name and colour. With a lap of that circuit in your stats it shows how long the race will take.
+   **Race rules** switch on what Career races always have: **Tyres & pits** (tyres wear and lose grip as you race, the
+   AI pits when theirs are worn; pick your starting set with 1 2 3 on the grid, B to box) and **Damage** (Off, Low:
+   knocks never put you out, Medium, Real: one big hit ends your race; repaired at a pit stop, so with pit stops off
+   it stays for the rest of the race). Both are off by default, remembered with the rest of your setup, and Quick race
+   uses them too. Online races don't have them. In code: `strategy` and `damage` in the `Race` options (`src/race.js`).
 
 Your choices are remembered in the browser. The menu is `index.html` (`#menu`), `src/menu.js` and the
 "Main menu" section at the end of `src/style.css`.
@@ -157,6 +164,7 @@ quicker still.
 | Menu: Enter / Esc    | Next step (or Start race) / back a step |
 | Menu: ← → ↑ ↓        | Car step: change car. Circuit step: change circuit (↑ ↓ a row of tiles). Race step: ← → laps (Shift: ×10), ↑ ↓ AI cars |
 | Menu: N              | Time of day (day, night, or night without floodlights) |
+| Menu: D              | Car step: show or hide the cars in development |
 
 Controller (Xbox names, PlayStation in brackets):
 
@@ -390,6 +398,13 @@ the track is one strike, and only the 5th in a lap invalidates it (`trackLimits`
 in `src/race.js`). Pressing R still invalidates the lap straight away.
 
 Your stats keep separate records for each car: a lap in one car never competes with a lap in another.
+
+**Cars in development.** A car with `dev: true` in its file (the Open-Wheel 2006 `r26.js`, Open-Wheel 1989 `mp45.js`
+and MC-GT `mclaren.js`) is still being tuned. It races like any other car, but the menu keeps it apart from the four
+proven ones: in an "In development" section under them that opens when you want it (and opens by itself if one of
+them is the car you picked last). In the multiplayer lobby they're on their own row (the other drivers only see that
+row when the host picks one), and Your stats only lists them once you've driven them. When a car is finished, take
+`dev: true` out of its file and move it up the list in `src/cars/index.js` (`MAIN_CARS` / `DEV_CARS` come from that).
 
 The original model files are in `assets-src/cars/` (not served to the browser: they're too big; the game uses
 the rigged, compressed copies in `public/models/` that `tools/prepare-car.mjs` made from them).

@@ -1251,6 +1251,12 @@ button.st-link.danger:hover { background: rgba(255, 77, 77, 0.12); }
 .ai-skill { display: flex; align-items: center; gap: 14px; margin-top: 12px; transition: opacity 0.2s; }
 .ai-skill > span { flex: none; width: 64px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .ai-skill.off { opacity: 0.35; pointer-events: none; }
+/* race rules (tyre wear and pit stops, damage): the same buttons as the AI skill, with a wider label */
+.ai-skill.rule-row { margin-top: 0; }
+.ai-skill.rule-row + .ai-skill.rule-row { margin-top: 10px; }
+.ai-skill.rule-row > span { width: 96px; }
+#rules-note:empty { display: none; }
+.sh-rules { margin-top: auto; padding-top: clamp(14px, 2.2vh, 22px); border-top: 1px solid var(--hair); } /* (the foot of the laps panel) */
 #menu .seg { flex: 1; display: flex; gap: 3px; padding: 3px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--hair); }
 #menu .seg button { flex: 1; justify-content: center; padding: 8px 0; border: 0; border-radius: 3px; background: transparent; font-size: 14px; font-weight: 700; color: #cfd4db; }
 #menu .seg button:hover { background: rgba(255, 255, 255, 0.08); }

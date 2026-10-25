@@ -378,6 +378,8 @@ function soloConfig() {
     track: trackSelect.value, laps: Number($('opt-laps').value), difficulty: $('opt-diff').value,
     aiCount: Number($('opt-ai').value), playerName: $('opt-name').value.trim() || 'You', playerColor,
     car: myCar.id, time: myTime,
+    // Race rules (race setup): tyre wear and pit stops, and damage ('off' | 'low' | 'medium' | 'real'); race.js
+    strategy: $('opt-pits').value === 'on', damage: $('opt-damage').value === 'off' ? null : $('opt-damage').value,
   };
 }
 
@@ -403,8 +405,8 @@ function newRace(cfg = soloConfig()) {
   });
   syncModels(models, race.cars, camera);
   prewarm(); // shaders and textures ready before the lights go out (no hitch the first time something comes into view)
-  pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // career: the crews in front of the garages (pitcrew.js)
-  hud.setMode(race.career); // career: the pit and tyre pages
+  pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // pit stops on: the crews in front of the garages (pitcrew.js)
+  hud.setMode({ pits: !!race.pits, damage: !!race.damage }); // the pit and tyre pages, the damage page
   headlights.attach(models[race.cars.indexOf(race.player)], race.carDef, autoOn(timeOf(track))); // on at night
   cams = carCams(models[race.cars.indexOf(race.player)]);
   hud.setCamera(camLabel(camMode));
@@ -573,7 +575,8 @@ window.addEventListener('pagehide', () => statsRun?.end());                     
 document.addEventListener('visibilitychange', () => { if (document.hidden) statsRun?.flush(); }); // save what's driven so far
 
 // Your stats (main menu → Your stats; statsScreen.js)
-// Career (career.js): a championship, round by round; pit stops and tyres are only in career races
+// Career (career.js): a championship, round by round, always with pit stops and tyres (a quick race has them if you
+// switch them on: race setup → Race rules)
 let lastCfg = null; // the race you're in, to restart it
 const career = new Career({ tracks: TRACKS, onRace: (cfg) => startGame(cfg), onClose: () => menu.classList.remove('hidden') });
 career.color = () => playerColor;
@@ -876,7 +879,7 @@ function tick(timestamp) {
   if (wasPressed('KeyB')) setBox(!boxCall); // box, box: the line into the pits
 
   const input = readInput(dt);
-  if (race.career) tyreKeys(input); // career: your tyres: start set, next set, the choice in the pit lane
+  if (race.pits) tyreKeys(input); // tyre wear and pit stops on: your tyres: start set, next set, the choice in the pit lane
   const session = lobby.session;
   if (!paused || session) { // online the race doesn't stop for the pause menu: your car coasts
     // Variable number of fixed-ish substeps keeps physics stable at any FPS.
@@ -904,8 +907,8 @@ function tick(timestamp) {
       }
       if (e.type === 'pitIn') { msg = 'Pit lane: choose your tyres  ← →'; hud.mfdShow('pit'); }
       if (e.type === 'pitStop' && e.car.isPlayer) { msg = `Pit stop  ${e.time.toFixed(2)} s`; secs = 2.6; }
-      // damage (career: damage.js): a part getting bad, someone out, or you
-      if (e.type === 'damage') { msg = `${DAMAGE.names[e.part]} ${e.level > 1 ? 'badly damaged: box for repairs' : 'damage'}`; secs = 2.6; hud.mfdShow('damage'); }
+      // damage (damage.js, when it's on): a part getting bad, someone out, or you
+      if (e.type === 'damage') { msg = `${DAMAGE.names[e.part]} ${e.level > 1 ? (race.pits ? 'badly damaged: box for repairs' : 'badly damaged') : 'damage'}`; secs = 2.6; hud.mfdShow('damage'); }
       if (e.type === 'out') msg ??= `${e.car.team.name} retires: ${DAMAGE.names[e.part].toLowerCase()}`;
       if (e.type === 'retired') {
         msg = `Retired: ${DAMAGE.names[e.part].toLowerCase()} damage`; secs = 3; hud.mfdShow('damage');

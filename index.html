@@ -281,6 +281,20 @@
             <div><b id="laps-time">–</b><span>race time</span></div>
           </div>
           <p id="laps-note" class="laps-note"></p>
+
+          <!-- Race rules: tyre wear and pit stops, damage (race.js `strategy` / `damage`; career races always have them) -->
+          <div class="sh-rules" id="rules-row">
+            <div class="sh-label"><span>Race rules</span></div>
+            <div class="ai-skill rule-row"><span>Tyres &amp; pits</span><div class="seg" data-for="opt-pits" data-save="pits"></div></div>
+            <div class="ai-skill rule-row"><span>Damage</span><div class="seg" data-for="opt-damage" data-save="damage"></div></div>
+            <p id="rules-note" class="sh-fine"></p>
+            <select id="opt-pits" class="sr-only" aria-label="Tyre wear and pit stops" tabindex="-1">
+              <option value="off" selected>Off</option><option value="on">On</option>
+            </select>
+            <select id="opt-damage" class="sr-only" aria-label="Damage" tabindex="-1">
+              <option value="off" selected>Off</option><option value="low">Low</option><option value="medium">Medium</option><option value="real">Real</option>
+            </select>
+          </div>
         </div>
 
         <div class="sh-side">
@@ -301,6 +315,7 @@
               <option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option><option value="expert">Expert</option>
             </select>
           </div>
+
 
           <div class="sh-block">
             <div class="sh-label"><label for="opt-name">Driver</label></div>

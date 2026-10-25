@@ -76,12 +76,14 @@ export class HUD {
   }
 
   // ---------- the multi-function display: which page ----------
-  // Career races have the pit and tyre pages (pit stops and tyres are career only); other races just the map
-  setMode(career) {
-    this.pages = career ? MFD_PAGES : ['map'];
+  // The map always; the pit and tyre pages when the race has tyre wear and pit stops, the damage page when it has
+  // damage (career races, or a quick race with them switched on). mode: { pits, damage } (true = both, as before)
+  setMode(mode) {
+    const m = typeof mode === 'object' && mode ? mode : { pits: !!mode, damage: !!mode };
+    this.pages = MFD_PAGES.filter((p) => p === 'map' || (m.pits && (p === 'pit' || p === 'tyres')) || (m.damage && p === 'damage'));
     for (const b of $('mfd-tabs').children) b.style.display = this.pages.includes(b.dataset.tab) ? '' : 'none';
     $('mfd-tabs').classList.toggle('single', this.pages.length === 1);
-    $('ty-mini').style.display = career ? '' : 'none';
+    $('ty-mini').style.display = m.pits ? '' : 'none';
     $('aid-dmg').style.display = 'none'; this.dmgSeen = null;
     this.mfd = 0; this.mfdStep(0);
   }
@@ -150,10 +152,10 @@ export class HUD {
       const bar = row.querySelector('u'); bar.style.width = `${Math.min(100, v * 100)}%`; bar.style.background = colour(v);
     }
     const fix = repairTime(car.state), st = $('dmg-status');
-    st.textContent = car.retired ? 'Retired' : d.out ? 'Retiring' : worst >= DAMAGE.warn[1] ? 'Box for repairs'
+    st.textContent = car.retired ? 'Retired' : d.out ? 'Retiring' : worst >= DAMAGE.warn[1] ? (race.pits ? 'Box for repairs' : 'Badly damaged')
       : worst >= DAMAGE.warn[0] ? 'Damaged' : worst >= DAMAGE.fixFrom ? 'Minor damage' : 'No damage';
     st.className = car.retired || d.out || worst >= DAMAGE.warn[1] ? 'bad' : worst >= DAMAGE.warn[0] ? 'hurt' : '';
-    $('dmg-repair').textContent = fix > 0.05 && !d.out ? `+${fix.toFixed(1)} s` : '–';
+    $('dmg-repair').textContent = !race.pits ? 'No pit stops' : fix > 0.05 && !d.out ? `+${fix.toFixed(1)} s` : '–'; // (no pit stops: no repairs)
   }
 
   // The pit page: how far to the pit entry, the speed limit, the lane

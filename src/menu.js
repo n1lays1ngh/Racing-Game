@@ -6,7 +6,8 @@
 //   2 track the circuit you've picked (outline with a car running round it, the hills along the lap, your best
 //           lap there in this car) and every circuit as a tile
 //   3 setup time of day (Day / Night, Twilight where that's the circuit's own time, Night without floodlights where the
-//           car has it), laps (1–100), AI cars and their skill, your name and colour → Start race
+//           car has it), laps (1–100), AI cars and their skill, race rules (tyre wear and pit stops, damage), your name
+//           and colour → Start race
 //
 // The top bar shows the steps and what you picked in each (click one to go back to it); the bottom bar has
 // Back (Esc) and Next (Enter). Keys: ← → ↑ ↓ change the car / circuit / laps and AI cars, N the time of day.
@@ -176,10 +177,14 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   // What you've picked, in the top bar and on the Quick race button
   function summary() {
     const def = current(), n = clampLaps(laps.value), choice = raceSetup(car, def, time).choice;
+    // race rules on, in a word: "pit stops", "damage" (the Quick race button's tooltip: it replays them)
+    const rules = [$('opt-pits').value === 'on' ? 'pit stops' : '', $('opt-damage').value !== 'off' ? 'damage' : ''].filter(Boolean);
     $('sum-car').textContent = car.name;
     $('sum-track').textContent = def.name;
-    $('sum-setup').textContent = `${lapsText(n)} ${TOD[choice].short}`;
-    $('quick-sub').textContent = `${car.name} at ${def.name}, ${lapsText(n)}${choice === 'day' ? '' : ' ' + TOD[choice].short}`;
+    $('sum-setup').textContent = `${lapsText(n)} ${TOD[choice].short}`; // (the race rules don't fit up here)
+    const quick = `${car.name} at ${def.name}, ${lapsText(n)}${choice === 'day' ? '' : ' ' + TOD[choice].short}`;
+    $('quick-sub').textContent = quick; // (no room for more on the button: the race rules are in its tooltip)
+    $('btn-quick').title = `Quick race: ${quick}${rules.length ? ', with ' + rules.join(' and ') : ''}`;
   }
 
   // ---------- 1 · car ----------
@@ -537,7 +542,24 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   // the sliders move with the arrow keys themselves; Enter (start) and Esc (back) still reach the menu
   for (const r of [laps, ai]) r.addEventListener('keydown', (e) => { if (/^(Arrow|Page|Home|End)/.test(e.code)) e.stopPropagation(); });
 
-  // segmented buttons for the AI skill (the select stays the source of truth)
+  // Race rules: tyre wear and pit stops (off / on), damage (off / low / medium / real). main.js soloConfig reads the selects
+  const pitsSel = $('opt-pits'), dmgSel = $('opt-damage');
+  if (saved.pits && [...pitsSel.options].some((o) => o.value === saved.pits)) pitsSel.value = saved.pits;
+  if (saved.damage && [...dmgSel.options].some((o) => o.value === saved.damage)) dmgSel.value = saved.damage;
+  const RULE_NOTES = {
+    pits: { on: 'Tyres wear as you race and the AI pits when theirs are worn. Pick your starting set with 1 2 3 on the grid; B to box.',
+      off: 'One set of tyres all race, no wear and no pit stops.' },
+    damage: { off: '', low: 'Damage: knocks cost you grip and downforce, never your race.',
+      medium: 'Damage: a big hit can put you out.', real: 'Damage: one big hit ends your race.' },
+  };
+  function showRules() {
+    const pits = pitsSel.value, dmg = dmgSel.value;
+    const fix = pits === 'off' && dmg !== 'off' ? ' No pit stops, so no repairs.' : pits === 'on' && dmg !== 'off' ? ' Repairs at your pit stop.' : '';
+    $('rules-note').textContent = [RULE_NOTES.pits[pits], RULE_NOTES.damage[dmg] + fix].filter((x) => x.trim()).join(' ');
+  }
+  showRules();
+
+  // segmented buttons for the AI skill and the race rules (the selects stay the source of truth)
   for (const seg of document.querySelectorAll('#menu .seg[data-for]')) {
     const sel = $(seg.dataset.for);
     const draw = () => {
@@ -546,7 +568,8 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     };
     seg.addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
-      sel.value = b.dataset.v; draw(); save({ diff: sel.value });
+      sel.value = b.dataset.v; draw(); save({ [seg.dataset.save ?? 'diff']: sel.value });
+      showRules(); summary();
     });
     draw();
   }

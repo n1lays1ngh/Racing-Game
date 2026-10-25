@@ -1,8 +1,8 @@
-// Damage (career only, race.js): where a car is hit and how hard, what that does to how it drives, when it's out of
+// Damage (career races, and quick races with it on: race.js): where a car is hit and how hard, what that does to how it drives, when it's out of
 // the race, and the repair at a pit stop. No rendering here (it runs in the headless sim too). The HUD's damage page:
 // hud.js. How tough each car is: `damage` in its file in src/cars/ (the F1 car breaks the easiest).
 //
-//   fitDamage(state, mode, carDef)          race.js, career races: state.damage
+//   fitDamage(state, mode, carDef)          race.js, when the race has damage: state.damage
 //   hitDamage(state, dx, dz, speed, kind)   physics.js (barriers) and race.js (cars): (dx, dz) points from the car to
 //                                           what it hit, speed: how fast into it (m/s), kind: 'wall' | 'car'
 //   state.damage = { parts: { front, rear, left, right } (0 fine … 1 broken), fx, total, out, changed }
