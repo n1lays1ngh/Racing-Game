@@ -55,6 +55,11 @@ window.addEventListener('blur', () => keys.clear());
 
 let steerSmooth = 0;
 
+// Another source of driving input (the phone's touch controls, src/mobile/touch.js): fn(dt) → { throttle, brake, steer,
+// boost }. None on a computer.
+let extraInput = null;
+export function setExtraInput(fn) { extraInput = fn; }
+
 function activePad() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (const p of pads) if (p && p.connected) return p;
@@ -86,6 +91,12 @@ export function readInput(dt) {
     throttle = Math.max(throttle, rt);
     brake = Math.max(brake, lt);
     if (pad.buttons[4]?.pressed) boost = true;                                    // LB / L1: ERS boost
+  }
+  if (extraInput) { // touch controls (phones): the pedals add to the others, touch steering wins while it's steering
+    const t = extraInput(dt);
+    throttle = Math.max(throttle, t.throttle); brake = Math.max(brake, t.brake);
+    if (t.steer !== 0) steer = t.steer;
+    if (t.boost) boost = true;
   }
   return { throttle, brake, steer, boost };
 }

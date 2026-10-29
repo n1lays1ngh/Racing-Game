@@ -1,0 +1,146 @@
+/* The phone and tablet version (src/mobile/). Only loaded on a phone or tablet, and everything is under body.mobile,
+   so none of it can touch the desktop game. */
+body.mobile {
+  --m-l: max(14px, env(safe-area-inset-left)); --m-r: max(14px, env(safe-area-inset-right));
+  --m-b: max(12px, env(safe-area-inset-bottom)); --m-t: max(8px, env(safe-area-inset-top));
+  --m-amber: #ffb020;
+  position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* no double-tap zoom */
+}
+body.mobile canvas { touch-action: none; }
+body.mobile input[type="text"] { -webkit-user-select: text; user-select: text; font-size: 16px; } /* (16 px: iPhone doesn't zoom in on it) */
+body.mobile [hidden] { display: none !important; }
+/* keyboard hints mean nothing on a phone */
+body.mobile kbd, body.mobile .sh-keys, body.mobile #mn-hint, body.mobile .tw-foot kbd { display: none !important; }
+
+/* ---------- start screen: one tap unlocks full screen, landscape, sound and the tilt sensor ---------- */
+#m-start {
+  position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center;
+  padding: var(--m-t) var(--m-r) var(--m-b) var(--m-l); overflow-y: auto;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(225, 6, 0, 0.28), rgba(0, 0, 0, 0.94) 60%), #050507;
+  color: #f4f5f7; font-family: 'Titillium Web', system-ui, sans-serif; transition: opacity 0.35s;
+}
+#m-start.gone { opacity: 0; pointer-events: none; }
+.ms-box { width: min(640px, 100%); text-align: center; }
+.ms-logo { font-size: clamp(34px, 8vh, 56px); font-weight: 700; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; }
+.ms-logo b { font-weight: 900; color: #e10600; }
+.ms-logo .slash { display: inline-block; width: 0.18em; height: 0.8em; margin-right: 0.25em; background: #e10600; transform: skewX(-18deg); vertical-align: -0.05em; }
+.ms-sub { margin: clamp(8px, 3vh, 20px) 0 10px; font-size: 15px; font-weight: 600; color: #a9b0ba; }
+.ms-steer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ms-steer button {
+  display: flex; flex-direction: column; gap: 3px; padding: 12px 10px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05); color: inherit; font: inherit; text-align: center;
+}
+.ms-steer button b { font-size: 18px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+.ms-steer button span { font-size: 12px; font-weight: 600; color: #a9b0ba; line-height: 1.25; }
+.ms-steer button.on { border-color: #e10600; background: rgba(225, 6, 0, 0.18); box-shadow: inset 0 3px 0 #e10600; }
+.ms-go {
+  margin: clamp(12px, 4vh, 26px) auto 0; padding: 14px 44px; border: 0; border-radius: 6px; background: #e10600; color: #fff;
+  font: italic 900 20px 'Titillium Web', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.04em;
+  box-shadow: 0 10px 30px rgba(225, 6, 0, 0.45); animation: ms-pulse 1.8s ease-in-out infinite;
+}
+@keyframes ms-pulse { 50% { box-shadow: 0 10px 44px rgba(225, 6, 0, 0.75); } }
+.ms-ios { margin: 14px auto 0; max-width: 460px; padding: 10px 14px; border-radius: 8px; background: rgba(255, 176, 32, 0.12); border: 1px solid rgba(255, 176, 32, 0.35); font-size: 13px; font-weight: 600; color: #ffe2a8; line-height: 1.4; }
+.ms-share { display: inline-block; width: 12px; height: 15px; border: 2px solid currentColor; border-top: 0; border-radius: 2px; vertical-align: -2px; position: relative; }
+.ms-share::before { content: ''; position: absolute; left: 50%; top: -6px; width: 2px; height: 11px; margin-left: -1px; background: currentColor; }
+.ms-fine { margin: 10px 0 0; font-size: 12px; font-weight: 600; color: #7d848e; }
+
+/* ---------- portrait: turn sideways ---------- */
+#m-rotate { display: none; }
+@media (orientation: portrait) {
+  body.mobile #m-rotate {
+    position: fixed; inset: 0; z-index: 3100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    background: #050507; color: #f4f5f7; font-family: 'Titillium Web', system-ui, sans-serif; text-align: center; padding: 24px;
+  }
+  body.mobile #m-rotate b { font-size: 22px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+  body.mobile #m-rotate span { font-size: 14px; font-weight: 600; color: #a9b0ba; }
+}
+.mr-phone { width: 46px; height: 80px; margin-bottom: 18px; border: 3px solid #f4f5f7; border-radius: 9px; position: relative; animation: mr-turn 2.4s ease-in-out infinite; }
+.mr-phone::after { content: ''; position: absolute; left: 50%; bottom: 5px; width: 12px; height: 3px; margin-left: -6px; border-radius: 2px; background: #f4f5f7; }
+@keyframes mr-turn { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+
+/* ---------- touch controls (touch.js) ---------- */
+#touch { position: fixed; inset: 0; z-index: 60; display: none; pointer-events: none; touch-action: none; font-family: 'Titillium Web', system-ui, sans-serif; }
+#touch.on { display: block; }
+#touch > *, #touch .t-mini { pointer-events: auto; touch-action: none; }
+#touch .t-top { position: absolute; top: var(--m-t); left: 50%; transform: translateX(-50%); display: flex; gap: 6px; pointer-events: none; }
+#touch .t-mini {
+  min-width: 46px; height: 34px; padding: 0 10px; display: flex; align-items: center; justify-content: center; border-radius: 8px;
+  background: rgba(8, 9, 14, 0.55); border: 1px solid rgba(255, 255, 255, 0.16); color: #e8eaee;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+#touch .t-mini.t-pause { font-size: 11px; letter-spacing: 0; }
+#touch .t-mini.down { background: rgba(255, 255, 255, 0.28); }
+#touch .t-box { display: none; color: #7cc4ff; border-color: rgba(43, 155, 255, 0.5); }
+#touch.has-box .t-box { display: flex; }
+
+/* slide: the left of the screen, under the buttons along the top; a ring where your thumb went down and a dot that follows it */
+#touch .t-steer { display: none; position: absolute; left: 0; top: 56px; bottom: 0; width: 44%; }
+#touch[data-mode="slide"] .t-steer { display: block; }
+#touch .t-base, #touch .t-knob { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; pointer-events: none; }
+#touch .t-base { width: 128px; height: 128px; border: 2px solid rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.06); }
+#touch .t-knob { width: 54px; height: 54px; background: rgba(255, 255, 255, 0.55); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4); }
+#touch .t-base.on, #touch .t-knob.on { display: block; }
+/* buttons: two arrows, bottom left */
+#touch .t-arrow { display: none; position: absolute; bottom: var(--m-b); width: 92px; height: 92px; border-radius: 18px; background: rgba(8, 9, 14, 0.45); border: 1px solid rgba(255, 255, 255, 0.18); }
+#touch[data-mode="buttons"] .t-arrow { display: block; }
+#touch .t-left { left: var(--m-l); }
+#touch .t-right { left: calc(var(--m-l) + 104px); }
+#touch .t-arrow i { position: absolute; left: 50%; top: 50%; width: 0; height: 0; border: 18px solid transparent; }
+#touch .t-left i { border-right: 26px solid rgba(255, 255, 255, 0.8); border-left: 0; transform: translate(-60%, -50%); }
+#touch .t-right i { border-left: 26px solid rgba(255, 255, 255, 0.8); border-right: 0; transform: translate(-40%, -50%); }
+#touch .t-arrow.down { background: rgba(255, 255, 255, 0.24); }
+/* pedals: throttle bottom right, brake beside it (tilt: the brake goes to the left thumb) */
+#touch .t-pedal {
+  position: absolute; bottom: var(--m-b); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px;
+  border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.85);
+  font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#touch .t-gas { right: var(--m-r); width: 92px; height: 142px; background: linear-gradient(180deg, rgba(31, 214, 95, 0.18), rgba(31, 214, 95, 0.4)); border-color: rgba(31, 214, 95, 0.55); }
+#touch .t-brake { right: calc(var(--m-r) + 104px); width: 92px; height: 108px; background: linear-gradient(180deg, rgba(225, 6, 0, 0.16), rgba(225, 6, 0, 0.4)); border-color: rgba(255, 60, 50, 0.55); }
+#touch[data-mode="tilt"] .t-brake { right: auto; left: var(--m-l); width: 120px; height: 120px; }
+#touch[data-mode="tilt"] .t-gas { width: 120px; height: 150px; }
+#touch .t-gas.down { background: linear-gradient(180deg, rgba(31, 214, 95, 0.45), rgba(31, 214, 95, 0.75)); }
+#touch .t-brake.down { background: linear-gradient(180deg, rgba(225, 6, 0, 0.45), rgba(225, 6, 0, 0.8)); }
+#touch .t-boost {
+  display: none; position: absolute; right: var(--m-r); bottom: calc(var(--m-b) + 154px); width: 92px; height: 44px; border-radius: 12px;
+  align-items: center; justify-content: center; background: rgba(255, 210, 31, 0.2); border: 1px solid rgba(255, 210, 31, 0.6);
+  color: #ffe58a; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+}
+#touch.has-boost .t-boost { display: flex; }
+#touch[data-mode="tilt"] .t-boost { width: 120px; bottom: calc(var(--m-b) + 162px); }
+#touch .t-boost.down { background: rgba(255, 210, 31, 0.5); }
+
+/* the pause menu's phone settings */
+body.mobile .m-settings .lb-seg button.on { background: var(--red, #e10600); color: #fff; }
+
+/* ---------- the HUD on a phone: smaller, and out of the thumbs' way ----------
+   tower top left (the top five and you), lap timing and map top right, the dash at the bottom in the middle (between the
+   steering on the left and the pedals on the right), no camera chip */
+body.mobile #hud { --hud-scale: 0.5; }
+@media (min-height: 500px) { body.mobile #hud { --hud-scale: 0.62; } } /* (tablets, big phones) */
+body.mobile #tower { top: var(--m-t); left: var(--m-l); }
+body.mobile #standings li:nth-child(n + 6):not(.me) { display: none; }
+body.mobile #right-top { top: var(--m-t); right: var(--m-r); }
+body.mobile #speedo { right: auto; left: 50%; bottom: var(--m-b); transform: translateX(-50%) scale(var(--hud-scale)); transform-origin: bottom center; }
+body.mobile #cam-chip { display: none; }
+/* a phone held sideways is short: the map would run into the pedals, so only the lap timing stays top right (tablets keep it) */
+@media (max-height: 500px) { body.mobile #map-panel { display: none; } }
+
+/* ---------- the start menu on a phone held sideways: the title smaller, all the doors in one row on screen ---------- */
+@media (max-height: 500px) {
+  body.mobile .mn-home { justify-content: flex-end; gap: 10px; }
+  body.mobile .home-title { margin-top: 0; }
+  body.mobile .home-title .title { margin: 0; font-size: clamp(34px, 11vh, 54px); }
+  body.mobile .home-title .pitch { display: none; }
+  body.mobile .home-doors { grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(0, 1fr)); gap: 8px; }
+  body.mobile .door-race { grid-column: auto; }
+  body.mobile #menu .door { min-height: 64px; gap: 8px; padding: 10px 12px; }
+  body.mobile #menu .door small { display: none; }
+  body.mobile #menu .door > span:not(.door-txt) { display: none; } /* (the icons) */
+  body.mobile #menu .door b { font-size: clamp(15px, 2.3vw, 20px); line-height: 1.05; }
+  body.mobile #menu .door.primary b { font-size: clamp(22px, 4vw, 30px); }
+  body.mobile #btn-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
+  body.mobile #menu .door-quick { padding: 7px 12px; }
+}

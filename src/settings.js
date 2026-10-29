@@ -19,7 +19,20 @@
 //   detailDistance metres: AI cars further away than this skip their small parts (wheel marks, helmet, numbers)
 // Per circuit, scenery.trees / scenery.buildings in its file still set the base numbers.
 
+import { IS_MOBILE } from './mobile/detect.js';
+
 export const PRESETS = {
+  // Phones and tablets only (src/mobile/): never offered on a computer. Rendered at the screen's own size (a phone's
+  // screen has 3× as many pixels: drawing them all is what heats it up), shadows from the cars only, no mirror, a
+  // fraction of the scenery and a shorter view. The phone version also caps the frame rate (src/mobile/index.js).
+  mobile: {
+    pixelRatio: 1, antialias: true,
+    shadows: true, shadowMapSize: 512, shadowCasters: 'cars',
+    trees: 0.25, forest: 0.1, buildings: 0.35,
+    viewDistance: 1800,
+    mirror: false, mirrorScale: 0.4, mirrorSamples: 0,
+    detailedCars: 1, blur: false, detailDistance: 25, towerModel: false,
+  },
   low: {
     pixelRatio: 0.8, antialias: false,
     shadows: true, shadowMapSize: 512, shadowCasters: 'cars',
@@ -53,9 +66,9 @@ export const PRESETS = {
     detailedCars: 6, blur: true, detailDistance: 250, towerModel: true,
   },
 };
-export const PRESET_ORDER = ['low', 'medium', 'high', 'ultra'];
-export const PRESET_NAMES = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' };
-export const DEFAULT_PRESET = 'medium'; // first visit
+export const PRESET_ORDER = IS_MOBILE ? ['mobile', 'low', 'medium'] : ['low', 'medium', 'high', 'ultra']; // (a phone: Mobile, or Low / Medium)
+export const PRESET_NAMES = { mobile: 'Mobile', low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' };
+export const DEFAULT_PRESET = IS_MOBILE ? 'mobile' : 'medium'; // first visit
 
 // The same in every preset
 const COMMON = {
@@ -64,7 +77,7 @@ const COMMON = {
 
 const KEY = 'apex-circuit:graphics';
 function savedPreset() {
-  try { const v = localStorage.getItem(KEY); return PRESETS[v] ? v : null; } catch { return null; } // (not in Node / private mode)
+  try { const v = localStorage.getItem(KEY); return PRESETS[v] && PRESET_ORDER.includes(v) ? v : null; } catch { return null; } // (not in Node / private mode)
 }
 
 // The live settings. Other files read these when they build things, so this object is updated in
@@ -73,7 +86,7 @@ const start = savedPreset() ?? DEFAULT_PRESET;
 export const GRAPHICS = { preset: start, ...COMMON, ...PRESETS[start] };
 
 export function setGraphicsPreset(name) {
-  if (!PRESETS[name]) return false;
+  if (!PRESETS[name] || !PRESET_ORDER.includes(name)) return false;
   Object.assign(GRAPHICS, COMMON, PRESETS[name], { preset: name });
   try { localStorage.setItem(KEY, name); } catch { /* private mode: just not remembered */ }
   return true;

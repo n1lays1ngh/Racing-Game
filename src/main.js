@@ -35,6 +35,7 @@ import { ReplaysScreen } from './replays.js';
 import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './ghost.js';
 import { setupSupport, raceFinished, askOnResults } from './support.js';
 import { Cinema } from './cinema.js';
+import { IS_MOBILE } from './mobile/detect.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -291,7 +292,7 @@ PERF.cur = { sim: 0, hud: 0, draw: 0 };
 // Dynamic resolution: when frames keep missing the screen's refresh, the 3D view is drawn a step smaller (down to
 // DRS.min of the preset's resolution; the HUD is separate and stays sharp), and a step bigger again after a while
 // running smoothly. Only below ~54 fps: a 120 Hz screen running at 90 is left alone.
-const DRS = { min: 0.7, step: 0.05, check: 0.75, up: 10 }; // shares of the resolution; seconds between checks / before trying higher
+const DRS = { min: 0.7, step: 0.05, check: 0.75, up: 10, slow: 18.5, fast: 17.5 }; // shares of the resolution; seconds between checks / before trying higher; ms a frame: above slow → smaller, below fast → bigger (a phone's frame cap moves them: src/mobile/)
 const drs = { scale: 1, t: 0, sum: 0, n: 0, calm: 0 };
 function dynamicResolution(gap) {
   if (!(gap > 0 && gap < 100)) return;
@@ -299,8 +300,8 @@ function dynamicResolution(gap) {
   if (drs.t < DRS.check || drs.n < 10) return;
   const avg = drs.sum / drs.n; drs.t = drs.sum = drs.n = 0;
   let next = drs.scale;
-  if (avg > 18.5) { next = Math.max(DRS.min, drs.scale - DRS.step); drs.calm = 0; }          // under ~54 fps: smaller
-  else if (avg < 17.5) { if ((drs.calm += DRS.check) >= DRS.up) { next = Math.min(1, drs.scale + DRS.step); drs.calm = 0; } } // smooth a while: bigger
+  if (avg > DRS.slow) { next = Math.max(DRS.min, drs.scale - DRS.step); drs.calm = 0; }      // under ~54 fps: smaller
+  else if (avg < DRS.fast) { if ((drs.calm += DRS.check) >= DRS.up) { next = Math.min(1, drs.scale + DRS.step); drs.calm = 0; } } // smooth a while: bigger
   else drs.calm = 0;
   if (next !== drs.scale) { drs.scale = next; renderer.setPixelRatio(Math.min(window.devicePixelRatio, GRAPHICS.pixelRatio) * next); }
 }
@@ -835,8 +836,10 @@ const IDLE = { throttle: 0, brake: 0, steer: 0 };
 const SHAKE = new THREE.Vector3(), LIVE = []; // (reused every frame: no garbage)
 let lastTime = null;
 let shadowSweep = 0;
+let frameGate = null; // phones (src/mobile/): its frame cap says whether to draw this animation frame. None on a computer.
 function frame(timestamp) {
   requestAnimationFrame(frame);
+  if (frameGate && !frameGate(timestamp)) return;
   tick(timestamp);
 }
 // One step of the game. Normally once per animation frame; online it also runs from a background
@@ -988,3 +991,13 @@ requestAnimationFrame(frame);
 
 // Handy for debugging in the browser console: window.game.race
 window.game = { get race() { return race; }, get track() { return track; }, scene, camera, loadTrack, renderer, perf: PERF };
+
+// Phones and tablets: touch controls, full screen, the frame cap and the rest (src/mobile/). Loaded only there: a
+// computer never downloads it, and nothing above changes for it.
+if (IS_MOBILE) {
+  import('./mobile/index.js').then((m) => m.setupMobile({
+    renderer, scene, camera, drs: DRS, drsState: drs, perf: PERF,
+    getRace: () => race, getHud: () => hud, isPaused: () => paused,
+    setFrameGate: (fn) => { frameGate = fn; }, toggleFps,
+  })).catch((err) => console.error('Phone controls failed to load:', err));
+}
