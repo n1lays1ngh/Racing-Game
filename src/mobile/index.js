@@ -9,11 +9,14 @@
 //   • keeping cool: the Mobile graphics preset (settings.js) from the first frame, a frame cap (60 / 45 / 30; the menus
 //     at 30), dynamic resolution aimed at the cap, and a heat guard that steps the cap down if the phone can't keep up
 //     (it's getting hot); fewer AI cars to start with, fewer engines to hear, no clearcoat on the car paint
-//   • Settings in the pause menu: steering, tilt (recenter, invert) and the frame rate
+//   • Settings in the pause menu: steering, tilt (recenter, invert), the frame rate, and Edit HUD layout: drag the
+//     pedals, buttons and HUD panels where you want them and size them (hud.js; kept for each way of steering)
+//   • the menus and screens at a size for a phone: zoomed to the screen's height (mobile.css, --m-zoom-*)
 //   • the screen stays on while you race; a short buzz when you hit something (Android)
 // ?fps at the end of the address shows the frame-rate counter (there's no F key).
 import './mobile.css';
 import { TouchControls } from './touch.js';
+import { HudLayout } from './hud.js';
 import { IS_IOS } from './detect.js';
 import { setExtraInput } from '../input.js';
 import { SOUND } from '../audio.js';
@@ -43,6 +46,16 @@ export function setupMobile(ctx) {
   const touch = new TouchControls();
   touch.setMode(prefs.steer); touch.setInvert(prefs.invert);
   setExtraInput((dt) => touch.input(dt));
+  const layout = new HudLayout(); // where the touch controls and the HUD panels go (hud.js)
+
+  // ---- the menus and screens: zoomed to fit a phone's height (mobile.css uses these) ----
+  const fit = () => {
+    const H = innerHeight, root = document.documentElement.style;
+    root.setProperty('--m-zoom-menu', String(Math.min(1, Math.max(0.5, H / 600))));
+    root.setProperty('--m-zoom-ui', String(Math.min(1, Math.max(0.6, H / 520))));
+    layout.apply(touch.mode);
+  };
+  fit(); window.addEventListener('resize', fit);
 
   // ---- a few lighter defaults ----
   SOUND.aiVoices = Math.min(SOUND.aiVoices, MOBILE.aiVoices);
@@ -117,6 +130,7 @@ export function setupMobile(ctx) {
   async function setSteer(mode) {
     if (mode === 'tilt' && !(await motionPermission())) { ctx.getHud()?.toast?.('Tilt needs motion access: allow it in your browser', 3); return; }
     prefs.steer = mode; save({ steer: mode }); touch.setMode(mode); drawSettings();
+    requestAnimationFrame(() => layout.apply(touch.mode)); // (each way of steering has its own layout)
     if (mode === 'tilt') setTimeout(() => { if (!touch.tilt.seen) ctx.getHud()?.toast?.('No tilt sensor found: try Slide', 3); }, 2500);
   }
 
@@ -130,7 +144,9 @@ export function setupMobile(ctx) {
     '<div class="set-row" id="m-tilt-row"><span class="set-txt"><b>Tilt</b><small>Level is how you hold the phone now</small></span>' +
       '<div class="lb-seg"><button type="button" id="m-recenter">Recenter</button><button type="button" id="m-invert">Invert</button></div></div>' +
     '<div class="set-row"><span class="set-txt"><b>Frame rate</b><small id="m-fps-sub">Lower runs cooler and saves battery</small></span>' +
-      `<div class="lb-seg" id="m-fps"><button type="button" data-v="auto">Auto</button>${MOBILE.caps.slice(1).map((c) => `<button type="button" data-v="${c}">${c}</button>`).join('')}</div></div>`;
+      `<div class="lb-seg" id="m-fps"><button type="button" data-v="auto">Auto</button>${MOBILE.caps.slice(1).map((c) => `<button type="button" data-v="${c}">${c}</button>`).join('')}</div></div>` +
+    '<div class="set-row"><span class="set-txt"><b>HUD layout</b><small>Move and size the pedals, buttons, speed, map and timing</small></span>' +
+      '<div class="lb-seg"><button type="button" id="m-hud-edit">Edit layout</button></div></div>';
   list?.prepend(rows);
   function drawSettings() {
     for (const b of rows.querySelectorAll('#m-steer button')) b.classList.toggle('on', b.dataset.v === prefs.steer);
@@ -144,12 +160,21 @@ export function setupMobile(ctx) {
     if (b.closest('#m-steer')) setSteer(b.dataset.v);
     else if (b.closest('#m-fps')) { prefs.fps = b.dataset.v === 'auto' ? 'auto' : Number(b.dataset.v); save({ fps: prefs.fps }); cap = prefs.fps === 'auto' ? MOBILE.caps[0] : prefs.fps; drawSettings(); }
     else if (b.id === 'm-recenter') { touch.recenter(); ctx.getHud()?.toast?.('Tilt recentred', 1.2); }
+    else if (b.id === 'm-hud-edit') editHud();
     else if (b.id === 'm-invert') { prefs.invert = !prefs.invert; save({ invert: prefs.invert }); touch.setInvert(prefs.invert); drawSettings(); }
   });
 
+  // the HUD editor: from the pause menu's Settings (the race stays paused behind it), back there when you're done
+  function editHud() {
+    const pause = $('pause');
+    pause.classList.add('hidden');
+    touch.show(true, ctx.getRace()); touch.el.classList.add('has-boost'); // (every control, to place)
+    layout.edit(touch.mode, () => { pause.classList.remove('hidden'); placed = 0; });
+  }
+
   // ---- the frame cap, dynamic resolution aimed at it, and the heat guard ----
   let cap = prefs.fps === 'auto' ? MOBILE.caps[0] : prefs.fps;
-  let next = 0, fpsNow = 0, last = 0, sum = 0, n = 0, since = 0, strikes = 0, lastRace = null, wake = null, hitWas = 0, sweep = 0;
+  let next = 0, fpsNow = 0, last = 0, sum = 0, n = 0, since = 0, strikes = 0, lastRace = null, wake = null, hitWas = 0, sweep = 0, placed = 0;
   drawSettings();
   ctx.setFrameGate((t) => {
     const race = ctx.getRace(), racing = !!race;
@@ -182,7 +207,8 @@ export function setupMobile(ctx) {
   // a light sweep for car paint with clearcoat (a second layer of reflections: costly on a phone)
   function perFrame(race, t) {
     const racing = !!race && !$('hud').classList.contains('hidden') && $('pause').classList.contains('hidden') && $('results').classList.contains('hidden');
-    touch.show(racing && !start.isConnected, race);
+    if (!document.body.classList.contains('hud-editing')) touch.show(racing && !start.isConnected, race);
+    if (racing && t - placed > 500) { placed = t; layout.apply(touch.mode); } // (your layout: items that have just appeared too)
     if (race !== lastRace) {
       lastRace = race;
       if (race) { touch.tilt.neutral = null; keepAwake(true); sweep = 0; } else keepAwake(false); // (tilt: level is how you hold it at the start)

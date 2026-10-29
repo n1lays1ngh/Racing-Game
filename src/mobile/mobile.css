@@ -115,32 +115,75 @@ body.mobile kbd, body.mobile .sh-keys, body.mobile #mn-hint, body.mobile .tw-foo
 /* the pause menu's phone settings */
 body.mobile .m-settings .lb-seg button.on { background: var(--red, #e10600); color: #fff; }
 
-/* ---------- the HUD on a phone: smaller, and out of the thumbs' way ----------
-   tower top left (the top five and you), lap timing and map top right, the dash at the bottom in the middle (between the
-   steering on the left and the pedals on the right), no camera chip */
-body.mobile #hud { --hud-scale: 0.5; }
-@media (min-height: 500px) { body.mobile #hud { --hud-scale: 0.62; } } /* (tablets, big phones) */
-body.mobile #tower { top: var(--m-t); left: var(--m-l); }
+/* ---------- the HUD on a phone ----------
+   Where each panel and control goes, and how big, is set by hud.js (your layout, or its defaults): inline, so nothing
+   here positions them. The positions tower shows the top five and you; the lap timing and the map are placed on their
+   own (their box top right is only a holder); the camera chip goes. */
 body.mobile #standings li:nth-child(n + 6):not(.me) { display: none; }
-body.mobile #right-top { top: var(--m-t); right: var(--m-r); }
-body.mobile #speedo { right: auto; left: 50%; bottom: var(--m-b); transform: translateX(-50%) scale(var(--hud-scale)); transform-origin: bottom center; }
+body.mobile #right-top { transform: none; width: auto; }
+body.mobile #timing, body.mobile #map-panel { width: 290px; } /* (their desktop width: they were 100% of that holder) */
 body.mobile #cam-chip { display: none; }
-/* a phone held sideways is short: the map would run into the pedals, so only the lap timing stays top right (tablets keep it) */
-@media (max-height: 500px) { body.mobile #map-panel { display: none; } }
+/* the start lights: smaller, under the buttons along the top */
+body.mobile #lights { top: calc(var(--m-t) + 46px); transform: translateX(-50%) scale(0.5); transform-origin: top center; }
 
-/* ---------- the start menu on a phone held sideways: the title smaller, all the doors in one row on screen ---------- */
-@media (max-height: 500px) {
-  body.mobile .mn-home { justify-content: flex-end; gap: 10px; }
-  body.mobile .home-title { margin-top: 0; }
-  body.mobile .home-title .title { margin: 0; font-size: clamp(34px, 11vh, 54px); }
-  body.mobile .home-title .pitch { display: none; }
-  body.mobile .home-doors { grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(0, 1fr)); gap: 8px; }
+/* ---------- the HUD editor (hud.js) ---------- */
+body.hud-editing #touch { display: block; }
+body.hud-editing #touch .t-boost { display: flex; }
+#hud-edit { position: fixed; inset: 0; z-index: 4000; touch-action: none; background: rgba(0, 0, 0, 0.28); font-family: 'Titillium Web', system-ui, sans-serif; }
+#hud-edit .he-item { position: fixed; border: 2px dashed rgba(255, 255, 255, 0.55); border-radius: 10px; background: rgba(255, 255, 255, 0.06); }
+#hud-edit .he-item span {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none;
+}
+#hud-edit .he-item.on { border: 2px solid #ffb020; background: rgba(255, 176, 32, 0.14); box-shadow: 0 0 0 4px rgba(255, 176, 32, 0.2); }
+#hud-edit .he-item.on span { background: #ffb020; color: #17130a; }
+#hud-edit .he-bar {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: 12px; background: rgba(8, 9, 14, 0.92); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: #f4f5f7; max-width: calc(100vw - 24px);
+}
+#hud-edit .he-name { flex: 0 0 auto; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+#hud-edit .he-bar:not(.has-sel) .he-btn, #hud-edit .he-bar:not(.has-sel) .he-size { display: none; }
+#hud-edit .he-btn { width: 38px; height: 38px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.08); color: #fff; font: 700 22px/1 system-ui, sans-serif; }
+#hud-edit .he-size { flex: 1 1 160px; width: auto; min-width: 70px; max-width: 200px; accent-color: #ffb020; }
+#hud-edit .he-txt { height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.08); color: #fff; font: 800 13px 'Titillium Web', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.04em; }
+#hud-edit .he-done { background: #e10600; border-color: #e10600; }
+#hud-edit .he-tip { position: fixed; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); margin: 0; white-space: nowrap; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.75); text-shadow: 0 1px 4px #000; pointer-events: none; }
+
+/* ---------- menus and screens on a phone: the desktop layout, zoomed to the screen's height ----------
+   (index.js sets --m-zoom-menu / --m-zoom-ui from the height). The narrow-screen rules (style.css, below 1100 px
+   wide) would stack everything in one long column; zoomed, the desktop layout fits, so those are put back here. */
+@media (max-height: 560px) {
+  body.mobile #menu { zoom: var(--m-zoom-menu, 0.6); --slant: 22px; }
+  body.mobile #pause, body.mobile #results, body.mobile #career, body.mobile #stats, body.mobile #replays,
+  body.mobile #lobby, body.mobile #controls, body.mobile #cinema { zoom: var(--m-zoom-ui, 0.7); }
+  body.mobile .mn-home { justify-content: space-between; }
+  body.mobile .home-doors { grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr)); }
   body.mobile .door-race { grid-column: auto; }
-  body.mobile #menu .door { min-height: 64px; gap: 8px; padding: 10px 12px; }
-  body.mobile #menu .door small { display: none; }
-  body.mobile #menu .door > span:not(.door-txt) { display: none; } /* (the icons) */
-  body.mobile #menu .door b { font-size: clamp(15px, 2.3vw, 20px); line-height: 1.05; }
-  body.mobile #menu .door.primary b { font-size: clamp(22px, 4vw, 30px); }
-  body.mobile #btn-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
-  body.mobile #menu .door-quick { padding: 7px 12px; }
+  body.mobile .mn-car, body.mobile .mn-setup { justify-content: flex-end; }
+  body.mobile .car-slats { flex: 0 1 auto; gap: clamp(8px, 1.4vh, 14px); max-height: 820px; height: 100%; }
+  body.mobile .slat-row { flex: 1 1 0; flex-direction: row; gap: 0; }
+  body.mobile #menu .slat { flex: 1 1 0; margin-left: calc(var(--slant) * -2 + 10px); padding: clamp(14px, 2.2vh, 24px) calc(var(--slant) * 2 + 8px) clamp(14px, 2vh, 20px);
+    clip-path: polygon(calc(var(--slant) * 2) 0, 100% 0, calc(100% - var(--slant) * 2) 100%, 0 100%); }
+  body.mobile #menu .slat:first-child { margin-left: 0; }
+  body.mobile #menu .slat.on { flex-grow: 1.4; }
+  body.mobile .slat-big { font-size: clamp(44px, min(calc(24vw / var(--cars, 3)), 10vh), 150px); margin-bottom: auto; }
+  body.mobile .car-detail { clip-path: polygon(calc(var(--slant) * 0.8) 0, 100% 0, calc(100% - var(--slant) * 0.8) 100%, 0 100%); padding: 10px calc(var(--slant) * 1.2 + 14px); }
+  body.mobile .cd-you { margin-left: auto; }
+  body.mobile #menu .dev-toggle, body.mobile #menu .dev-card { clip-path: polygon(calc(var(--slant) * 0.8) 0, 100% 0, calc(100% - var(--slant) * 0.8) 100%, 0 100%); }
+  body.mobile #menu .dev-toggle { padding: 8px calc(var(--slant) * 1.2 + 14px); flex-wrap: nowrap; }
+  body.mobile #menu .dev-card { padding: 12px calc(var(--slant) * 1.2 + 10px); flex: 1 1 0; }
+  body.mobile .dev-sub { flex-basis: auto; order: 0; white-space: nowrap; }
+  body.mobile .dev-list { flex-direction: row; }
+  body.mobile .mn-track { flex-direction: row; }
+  body.mobile .trk-detail { flex: 0 0 min(40%, 640px); }
+  body.mobile .c-map-wrap { flex: 1 1 auto; height: auto; }
+  body.mobile .trk-list { flex: 1; }
+  body.mobile .trk-grid { overflow-y: auto; }
+  body.mobile .sheet { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); overflow: auto; }
+  body.mobile .sh-laps { border-right: 1px solid var(--hair); border-bottom: 0; }
+  body.mobile .mn-steps em { display: inline; }
+  body.mobile #menu .mn-steps button { padding: 0 22px; }
+  body.mobile .mn-steps button::after { left: 22px; right: 22px; }
+  body.mobile #btn-controls, body.mobile #btn-pause-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
 }
