@@ -34,6 +34,15 @@ function load() { try { return JSON.parse(localStorage.getItem(KEY)) ?? {}; } ca
 function save(v) { try { localStorage.setItem(KEY, JSON.stringify({ ...load(), ...v })); } catch { /* private mode */ } }
 const $ = (id) => document.getElementById(id);
 const standalone = () => !!(navigator.standalone || matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches);
+// How to add it to the Home Screen in the browser it's open in (Chrome and Edge on iPhone have Share in the address bar)
+const IOS_STEPS = () => {
+  const ua = navigator.userAgent;
+  const where = /CriOS/.test(ua) ? 'Chrome: tap <b>Share</b> <span class="ms-share" aria-hidden="true"></span> in the address bar'
+    : /EdgiOS/.test(ua) ? 'Edge: tap <b>⋯</b>, then <b>Share</b> <span class="ms-share" aria-hidden="true"></span>'
+    : /FxiOS/.test(ua) ? 'Firefox: tap <b>☰</b>, then <b>Share</b> <span class="ms-share" aria-hidden="true"></span>'
+    : 'Safari: tap <b>Share</b> <span class="ms-share" aria-hidden="true"></span>';
+  return `For full screen with no bars, in ${where}, then <b>Add to Home Screen</b>, and open it from the new icon.`;
+};
 const canFullscreen = () => !!(document.documentElement.requestFullscreen && document.fullscreenEnabled !== false);
 
 export function setupMobile(ctx) {
@@ -79,7 +88,7 @@ export function setupMobile(ctx) {
       '<button type="button" data-steer="tilt"><b>Tilt</b><span>Tilt the phone like a wheel</span></button>' +
     '</div>' +
     '<button type="button" class="ms-go" id="ms-go">Tap to start</button>' +
-    '<p class="ms-ios" id="ms-ios">For full screen with no bars: tap <b>Share</b> <span class="ms-share" aria-hidden="true"></span>, then <b>Add to Home Screen</b>, and open it from there.</p>' +
+    `<p class="ms-ios" id="ms-ios">${IOS_STEPS()}</p>` +
     '<p class="ms-fine">You can change the steering any time: pause → Settings.</p></div>';
   document.body.appendChild(start);
   const rotate = document.createElement('div');
@@ -87,6 +96,19 @@ export function setupMobile(ctx) {
   rotate.innerHTML = '<div class="mr-phone" aria-hidden="true"></div><b>Turn your phone sideways</b><span>Apex Circuit plays in landscape</span>';
   document.body.appendChild(rotate);
   $('ms-ios').hidden = !(IS_IOS && !standalone());
+  // iPhone in a browser: no web page can go full screen there (Apple allows it only for videos), so the menus keep a
+  // small Full screen button that shows how to add the game to the Home Screen (opened from there it has no bars)
+  if (IS_IOS && !standalone()) {
+    const fs = document.createElement('button');
+    fs.type = 'button'; fs.id = 'm-fs'; fs.innerHTML = '<i aria-hidden="true"></i>Full screen';
+    const sheet = document.createElement('div');
+    sheet.id = 'm-fs-sheet'; sheet.hidden = true;
+    sheet.innerHTML = `<div class="mf-box"><b>Full screen on iPhone</b><p>Apple doesn't let any browser show a web page full screen on an iPhone. Add Apex Circuit to your Home Screen instead: opened from there it has no bars at all.</p>` +
+      `<p class="mf-steps">${IOS_STEPS()}</p><button type="button" class="mf-ok">Got it</button></div>`;
+    document.body.append(fs, sheet);
+    fs.addEventListener('click', () => { sheet.hidden = false; });
+    sheet.addEventListener('click', (e) => { if (e.target === sheet || e.target.closest('.mf-ok')) sheet.hidden = true; });
+  }
   const markSteer = () => { for (const b of start.querySelectorAll('[data-steer]')) b.classList.toggle('on', b.dataset.steer === prefs.steer); };
   markSteer();
   start.addEventListener('click', async (e) => {

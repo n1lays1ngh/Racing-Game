@@ -187,3 +187,20 @@ body.hud-editing #touch .t-boost { display: flex; }
   body.mobile .mn-steps button::after { left: 22px; right: 22px; }
   body.mobile #btn-controls, body.mobile #btn-pause-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
 }
+
+/* ---------- iPhone in a browser: the Full screen button and how-to (index.js) ---------- */
+#m-fs {
+  position: fixed; z-index: 2900; left: var(--m-l); top: var(--m-t); display: none; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
+  border-radius: 8px; border: 1px solid rgba(255, 176, 32, 0.5); background: rgba(8, 9, 14, 0.75); color: #ffd27a;
+  font: 800 12px 'Titillium Web', system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+}
+#m-fs i { width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 2px; }
+body.mobile:has(#menu:not(.hidden)) #m-fs, body.mobile:has(#lobby:not(.hidden)) #m-fs { display: flex; } /* (on the menus, not in a race) */
+body.mobile:has(#menu[data-step]:not([data-step="home"])) #m-fs { display: none; } /* (the race steps have the top bar there) */
+#m-fs-sheet { position: fixed; inset: 0; z-index: 3200; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.6); font-family: 'Titillium Web', system-ui, sans-serif; }
+#m-fs-sheet[hidden] { display: none; }
+.mf-box { max-width: 460px; padding: 18px 20px; border-radius: 12px; background: #0e0f15; border: 1px solid rgba(255, 255, 255, 0.14); color: #f4f5f7; text-align: center; }
+.mf-box > b { font-size: 18px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+.mf-box p { margin: 8px 0 0; font-size: 14px; font-weight: 600; color: #cfd4db; line-height: 1.4; }
+.mf-box .mf-steps { color: #ffe2a8; }
+.mf-ok { margin-top: 14px; padding: 9px 28px; border: 0; border-radius: 6px; background: #e10600; color: #fff; font: italic 900 15px 'Titillium Web', system-ui, sans-serif; text-transform: uppercase; }
