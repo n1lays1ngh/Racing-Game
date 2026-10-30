@@ -2,7 +2,9 @@
 //
 // Three ways to steer (the setting is remembered, and is on the start screen and in the pause menu's Settings):
 //   slide    put your left thumb anywhere on the left of the screen and slide it sideways: analogue steering, the
-//            further from where you put it down, the more lock (the default: smooth, and the physics likes it)
+//            further from where you put it down, the more lock (the default: smooth, and the physics likes it).
+//            A HUD button under your thumb there (the map / pit / tyres / damage tabs, say) still works: a quick tap
+//            that hardly moves presses it (TOUCH.tap); touch and slide and it steers, as anywhere else
 //   buttons  two buttons, left and right: digital, eased in and out like the keyboard
 //   tilt     tilt the phone like a steering wheel (its motion sensor). Level is wherever you hold it when the lights
 //            come on (or press Recenter in Settings); the brake moves to the left thumb
@@ -23,6 +25,7 @@ export const TOUCH = {
   tiltSmooth: 0.08,     // … seconds of smoothing (the sensor is jittery)
   buttonRate: [2.4, 6], // buttons: how fast the steering comes in / goes back to the middle (as the keyboard's)
   release: 9,           // slide and tilt: how fast the steering goes back to the middle when you let go
+  tap: { ms: 280, px: 12 }, // slide: on a HUD button, lifted within this long and moved less than this → pressed
 };
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const KEYS = [ // the small buttons along the top: [label, key, held?, extra class]
@@ -32,6 +35,15 @@ const KEYS = [ // the small buttons along the top: [label, key, held?, extra cla
   ['Reset', 'KeyR', false, '', 'Back onto the track'],
   ['Box', 'KeyB', false, 't-box', 'Box: pit this lap'],
 ];
+// A button of the HUD (the map panel's tabs and its pages' buttons) at this point of the screen, if it's showing
+function hudButtonAt(x, y) {
+  for (const b of document.querySelectorAll('#hud button')) {
+    if (!b.offsetParent || b.disabled) continue;
+    const r = b.getBoundingClientRect();
+    if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b;
+  }
+  return null;
+}
 function key(type, code) { window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true })); }
 const buzz = (ms) => { try { navigator.vibrate?.(ms); } catch { /* no vibration (iPhone) */ } };
 
@@ -102,7 +114,9 @@ export class TouchControls {
       return;
     }
     const act = target.dataset.act;
-    this.ptr.set(e.pointerId, { act, el: target, x0: e.clientX, x: e.clientX });
+    // (slide: a HUD button under the thumb is pressed if this turns out to be a tap, see up())
+    const tap = act === 'slide' ? hudButtonAt(e.clientX, e.clientY) : null;
+    this.ptr.set(e.pointerId, { act, el: target, x0: e.clientX, x: e.clientX, y0: e.clientY, y: e.clientY, t0: e.timeStamp, tap }); // (the touch's own time: right even when a frame is slow)
     target.classList.add('down');
     if (act === 'slide') { this.place(this.base, e.clientX, e.clientY); this.place(this.knob, e.clientX, e.clientY); this.base.classList.add('on'); this.knob.classList.add('on'); }
     else buzz(6);
@@ -111,7 +125,7 @@ export class TouchControls {
     const p = this.ptr.get(e.pointerId);
     if (!p) return;
     e.preventDefault();
-    p.x = e.clientX;
+    p.x = e.clientX; p.y = e.clientY;
     if (p.act === 'slide') {
       const range = TOUCH.slideRange * window.innerWidth, dx = clamp(p.x - p.x0, -range, range);
       this.knob.style.transform = `translate(${p.x0 + dx}px, ${parseFloat(this.knob.dataset.y)}px) translate(-50%, -50%)`;
@@ -123,7 +137,11 @@ export class TouchControls {
     this.ptr.delete(e.pointerId);
     if (p.hold) key('keyup', p.hold);
     if (![...this.ptr.values()].some((q) => q.el === p.el)) p.el.classList.remove('down');
-    if (p.act === 'slide') { this.base.classList.remove('on'); this.knob.classList.remove('on'); }
+    if (p.act === 'slide') {
+      this.base.classList.remove('on'); this.knob.classList.remove('on');
+      const T = TOUCH.tap;
+      if (p.tap && e.type === 'pointerup' && e.timeStamp - p.t0 < T.ms && Math.hypot(p.x - p.x0, p.y - p.y0) < T.px) { p.tap.click(); buzz(8); }
+    }
   }
   place(dot, x, y) { dot.dataset.y = y; dot.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`; }
 

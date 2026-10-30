@@ -17,7 +17,7 @@ export const ITEMS = [ // id, what it is, label, the editor's size range (× its
   { id: 'speedo', sel: '#speedo', label: 'Speed' },
   { id: 'tower', sel: '#tower', label: 'Positions' },
   { id: 'timing', sel: '#timing', label: 'Lap time' },
-  { id: 'map', sel: '#map-panel', label: 'Map' },
+  { id: 'map', sel: '#map-panel', label: 'Map', top: true }, // (top: pinned by its top edge, see apply())
 ];
 // Defaults: which corner (or edge) of the screen an item sits at, the gap to it (px) and its size (1 = as drawn; the HUD
 // panels are drawn at the desktop's size, so they're scaled down)
@@ -46,13 +46,21 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const $ = (s) => document.querySelector(s);
 
 export class HudLayout {
-  constructor() { this.saved = load(); this.mode = 'slide'; }
+  constructor() { this.saved = load(); this.mode = 'slide'; this.ref = {}; }
+
+  // an item's height for placing it. The map panel changes height with its page (map, pit, tyres, damage): it's placed
+  // by its height on the map page, top edge fixed, so the other pages grow downwards and its tabs never move under you
+  height(item, el) {
+    if (!item.top) return el.offsetHeight;
+    if (!this.ref[item.id] || el.dataset.page === 'map') this.ref[item.id] = el.offsetHeight;
+    return this.ref[item.id];
+  }
 
   // where an item goes now: { x, y } (its centre, px) and s (its scale)
   place(item, mode, el) {
     const W = innerWidth, H = innerHeight, mine = this.saved[mode]?.[item.id];
     if (mine) return { x: mine.cx * W, y: mine.cy * H, s: mine.s };
-    const d = defaults(mode)[item.id], w = el.offsetWidth * d.s, h = el.offsetHeight * d.s, a = d.a;
+    const d = defaults(mode)[item.id], w = el.offsetWidth * d.s, h = this.height(item, el) * d.s, a = d.a;
     const x = a[1] === 'l' ? d.x + w / 2 : a[1] === 'r' ? W - d.x - w / 2 : W / 2 + d.x;
     const y = a[0] === 't' ? d.y + h / 2 : a[0] === 'b' ? H - d.y - h / 2 : H / 2 + d.y;
     return { x, y, s: d.s };
@@ -64,9 +72,11 @@ export class HudLayout {
       const el = $(item.sel);
       if (!el || !el.offsetWidth) continue; // (not shown right now: placed when it is)
       const p = this.place(item, mode, el);
-      const w = el.offsetWidth * p.s, h = el.offsetHeight * p.s; // (kept on the screen)
+      const w = el.offsetWidth * p.s, h = this.height(item, el) * p.s; // (kept on the screen)
       const x = clamp(p.x, w / 2, Math.max(w / 2, innerWidth - w / 2)), y = clamp(p.y, h / 2, Math.max(h / 2, innerHeight - h / 2));
-      Object.assign(el.style, { position: 'fixed', left: `${x}px`, top: `${y}px`, right: 'auto', bottom: 'auto', margin: '0',
+      if (item.top) Object.assign(el.style, { position: 'fixed', left: `${x}px`, top: `${y - h / 2}px`, right: 'auto', bottom: 'auto', margin: '0',
+        transform: `translate(-50%, 0) scale(${p.s})`, transformOrigin: '50% 0' });
+      else Object.assign(el.style, { position: 'fixed', left: `${x}px`, top: `${y}px`, right: 'auto', bottom: 'auto', margin: '0',
         transform: `translate(-50%, -50%) scale(${p.s})`, transformOrigin: '50% 50%' });
     }
   }
