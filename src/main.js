@@ -36,6 +36,8 @@ import { GhostRecorder, GhostCar, loadGhost, saveGhost, ghostTrace } from './gho
 import { setupSupport, raceFinished, askOnResults } from './support.js';
 import { Cinema } from './cinema.js';
 import { IS_MOBILE } from './mobile/detect.js';
+import { applyAssists, prepareAssists, ASSIST_LEVELS, ASSIST_NAMES, ASSIST_NOTES } from './assists.js';
+import { Loader, nextFrame, within } from './loading.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -77,6 +79,11 @@ let sceneCar = myCar;   // the car the scenery was built for (its braking boards
 // The circuits' data and ground are worked out in a worker and the last few are kept (circuitBuilder.js)
 const builder = new CircuitBuilder();
 let previewJob = 0;     // the latest circuit asked for behind the menu (an older one still being built gives up)
+// The loading screen (loading.js): up while a race is made ready (startGame) or a graphics change rebuilds the scenery.
+// While it's up the game doesn't step or draw (tick), so everything goes into getting ready.
+const loader = new Loader();
+let loading = false;    // the loading screen is up
+let loadJob = 0;        // the latest thing being loaded (leaving the race meanwhile calls it off)
 
 // Build (or switch to) a circuit for a car and time of day: physics data, scenery and minimap, all at once (a race
 // is starting, or the page has just loaded; the menu uses previewTrack below, which doesn't freeze it).
@@ -119,6 +126,34 @@ async function previewTrack(id, car = myCar, time = myTime) {
   showcase.start(track, car);
 }
 const afterFrame = () => new Promise((go) => requestAnimationFrame(() => setTimeout(go, 0))); // once the next frame is drawn
+
+// The circuit for a race that's starting, built behind the loading screen as previewTrack builds one behind the menu (the
+// number crunching in the worker, then the scenery a piece a frame, its shaders compiled), so the page never freezes.
+// progress(0–1). Resolves true once it's the circuit on screen; false if something else was asked for meanwhile (the
+// race then builds it itself: loadTrack, in newRace)
+async function readyTrack(id, car, time, progress) {
+  const job = ++previewJob, stale = () => job !== previewJob; // (anything being built behind the menu gives up)
+  const def = getTrackDef(id), setup = raceSetup(car, def, time), key = builder.key(def, setup);
+  if (track && key === trackKey) { if (car !== sceneCar) newBoards(car); return true; } // the same circuit: just the car
+  progress(0);
+  const data = await builder.get(def, setup);
+  if (!data || stale()) return false;
+  const steps = circuitSteps(data.track, { car, ground: data.ground });
+  let r, k = 0;
+  progress(0.15);
+  while (!(r = steps.next()).done) {
+    progress(0.15 + 0.75 * (1 - 1 / (1 + ++k / 6))); // (how many pieces there are depends on the circuit: it slows as it goes)
+    await nextFrame();
+    if (stale()) { steps.return(); return false; } // (frees what it had built)
+  }
+  const next = r.value;
+  progress(0.92);
+  await within(renderer.compileAsync(next.group, camera, scene), 4000); // (or compiled when it's first drawn instead)
+  if (stale()) { disposeCircuit(next); return false; }
+  next.show();
+  showTrack(data.track, key, car, next);
+  return true;
+}
 
 // Make a circuit the one on screen: its scenery (built), minimap and menu details
 function showTrack(t, key, car, built) {
@@ -187,6 +222,7 @@ function applyCarShadows() {
 // Everything the race will draw, made ready while the start lights run: three.js otherwise builds a shader the first
 // time a material is drawn and uploads a texture the first time it's used, which is a hitch when it happens mid-lap
 // (a new building, a board, a car's far model). compileAsync builds them in the background where the browser can.
+// Returns a promise: done when they're built.
 function prewarm() {
   const seen = new Set();
   scene.traverse((o) => {
@@ -195,7 +231,7 @@ function prewarm() {
       for (const v of Object.values(m)) if (v?.isTexture && !v.isRenderTargetTexture && !seen.has(v)) { seen.add(v); try { renderer.initTexture(v); } catch { /* not ready yet */ } }
     }
   });
-  renderer.compileAsync(scene, camera).catch(() => {});
+  return renderer.compileAsync(scene, camera).catch(() => {}); // (the loading screen waits for it: startGame)
 }
 
 // Apply GRAPHICS to everything that's already built.
@@ -222,7 +258,9 @@ function applyGraphics() {
 // Switch preset. Returns true if part of it (edge smoothing) only changes once the page reloads.
 function choosePreset(name) {
   if (name === GRAPHICS.preset || !setGraphicsPreset(name)) return false;
-  applyGraphics();
+  // in a race, a change that rebuilds the scenery or every shader (shadows on / off) happens behind the loading screen
+  const heavy = race && !loading && !loader.active && (renderer.shadowMap.enabled !== GRAPHICS.shadows || (circuit && circuitBuiltWith !== sceneryKey()));
+  if (heavy) graphicsBehindLoader(); else applyGraphics();
   const needsReload = GRAPHICS.antialias !== startedWithAA;
   if (needsReload && !race && !menu.classList.contains('hidden')) { // on the main menu: reload now
     setGraphicsNote('Reloading to change edge smoothing…');
@@ -231,6 +269,23 @@ function choosePreset(name) {
   }
   setGraphicsNote(needsReload ? 'Edge smoothing changes the next time the page loads.' : '');
   return needsReload;
+}
+
+async function graphicsBehindLoader() {
+  const job = ++loadJob;
+  loading = true;
+  loader.show({ title: 'Graphics', sub: PRESET_NAMES[GRAPHICS.preset] });
+  loader.step(0.15, 'Scenery');
+  await nextFrame(); await nextFrame(); // (the loading screen up first)
+  applyGraphics(); // (even if the race was left meanwhile: the preset has changed)
+  if (job !== loadJob) return;
+  loader.step(0.6, 'Shaders');
+  await within(prewarm(), 6000);
+  if (job !== loadJob) return;
+  loading = false; clearPressed();
+  await nextFrame(); await nextFrame();
+  if (job !== loadJob) return;
+  await loader.hide();
 }
 
 // The Low / Medium / High buttons (main menu and pause menu, see index.html)
@@ -405,7 +460,8 @@ function newRace(cfg = soloConfig()) {
     return m;
   });
   syncModels(models, race.cars, camera);
-  prewarm(); // shaders and textures ready before the lights go out (no hitch the first time something comes into view)
+  prewarmed = prewarm(); // shaders and textures ready before the lights go out (no hitch the first time something comes into view)
+  prepareAssists(race); // driving assists: the speed plan they use (assists.js)
   pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // pit stops on: the crews in front of the garages (pitcrew.js)
   hud.setMode({ pits: !!race.pits, damage: !!race.damage }); // the pit and tyre pages, the damage page
   headlights.attach(models[race.cars.indexOf(race.player)], race.carDef, autoOn(timeOf(track))); // on at night
@@ -579,6 +635,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) stats
 // Career (career.js): a championship, round by round, always with pit stops and tyres (a quick race has them if you
 // switch them on: race setup → Race rules)
 let lastCfg = null; // the race you're in, to restart it
+let prewarmed = null; // the last race's shaders and textures being made ready (prewarm)
 const career = new Career({ tracks: TRACKS, onRace: (cfg) => startGame(cfg), onClose: () => menu.classList.remove('hidden') });
 career.color = () => playerColor;
 document.getElementById('btn-career').addEventListener('click', () => { menu.classList.add('hidden'); career.open(); });
@@ -614,18 +671,47 @@ loadTrack(SHOWCASES[0].track, getCar(SHOWCASES[0].car), SHOWCASES[0].time); // f
 previewSoon(); // (the menu's circuit info)
 carModelReady.then((ok) => { if (ok && !race && showcase.car === myCar) showcase.refreshPlayer(); }); // swap in your car's model once it has loaded
 
-// cfg: race settings (solo: from the menu; online: from the host)
+// cfg: race settings (solo: from the menu; online: from the host). Behind the loading screen: your car's model, the
+// circuit (a piece at a time), the cars on the grid, then the shaders compiled; the start lights only come on once
+// it's all ready, so nothing stutters (loading.js)
 async function startGame(cfg = soloConfig()) {
+  if (loading) return; // (already getting one ready)
+  const job = ++loadJob, car = getCar(cfg.car), def = getTrackDef(cfg.track);
+  const called = () => job !== loadJob; // (left meanwhile: exitRace)
   lastCfg = cfg;
   clearTimeout(previewTimer); // (the race builds its circuit itself)
-  audio.start();
-  audio.setCar(getCar(cfg.car)); // its engine sound (audio.js)
-  await loadCarModel(getCar(cfg.car).model); // the race car's model: usually loaded long before you press Start
+  audio.start(); // (here, in the click: browsers only start sound on one)
+  audio.setCar(car); // its engine sound (audio.js)
+  loading = true;
+  loader.show({ title: def.name, sub: [car.name, cfg.laps ? `${cfg.laps} lap${cfg.laps > 1 ? 's' : ''}` : null, lobby.session ? 'Online' : null].filter(Boolean).join('  ·  ') });
   menu.classList.add('hidden'); lobby.hide(); results.classList.add('hidden'); pauseEl.classList.add('hidden');
   paused = false; document.activeElement?.blur();
+  hud?.show(false); // (restarting: the last race's HUD away until this one's ready)
+  showcase.stop(); // (the live race behind the menu: not needed now)
+  await nextFrame(); // (the loading screen up before the heavy work starts)
+  if (called()) return;
+  loader.step(0.04, 'Car');
+  await loadCarModel(car.model); // the race car's model: usually loaded long before you press Start
+  if (called()) return;
+  loader.step(0.08, 'Circuit');
+  await readyTrack(cfg.track, car, cfg.time, (f) => loader.step(0.08 + 0.62 * f, f < 0.15 ? 'Circuit' : 'Scenery'));
+  if (called()) return;
+  loader.step(0.72, 'Cars on the grid');
+  await nextFrame();
+  if (called()) return;
   newRace(cfg);
+  loader.step(0.82, 'Shaders');
+  await within(prewarmed, 6000); // (most of it is usually ready already: compiled with the circuit)
+  if (called()) return;
+  // ready: the race runs from here (the countdown), still under the loading screen for a frame or two while the first
+  // frames draw (the shadows, anything that only gets made the first time it's drawn), then it fades away
+  loading = false;
+  clearPressed(); // (keys pressed while it loaded don't count)
   onlineLabels();
   hud.show(true);
+  await nextFrame(); await nextFrame();
+  if (called()) return;
+  await loader.hide();
 }
 const online = () => !!lobby.session;
 document.getElementById('btn-start').addEventListener('click', () => startGame());
@@ -637,6 +723,8 @@ document.getElementById('btn-restart').addEventListener('click', () => { setPaus
 
 // Clear the race away; the live race plays behind the menus again
 function exitRace() {
+  const wasLoading = loading || loader.active;
+  if (wasLoading) { loadJob++; loading = false; loader.cancel(); } // (a race being loaded, or its loading screen fading: called off)
   statsRun?.end(); statsRun = null;
   results.classList.add('hidden'); pauseEl.classList.add('hidden');
   hud.show(false); nameTags.clear();
@@ -651,6 +739,7 @@ function exitRace() {
   if (replayRec && race?.state === 'finished') { lastReplay = replayRec.snapshot(); saveReplay(lastReplay); }
   replayRec = null;
   if (race) { race = null; showcase.start(track, sceneCar); }
+  else if (wasLoading && track) showcase.start(track, sceneCar); // (called off before its race was made: the live race was stopped)
 }
 function toMenu() {
   lobby.leave(); lobby.hide(); // online: leaving the menu means leaving the room
@@ -696,6 +785,7 @@ function pauseView(view) {
 }
 function drawSettings() {
   const $ = (id) => document.getElementById(id);
+  drawAssists();
   $('set-line').setAttribute('aria-checked', String(OPTIONS.racingLine));
   $('set-ghost').setAttribute('aria-checked', String(OPTIONS.ghost));
   for (const b of $('set-map').querySelectorAll('button')) b.classList.toggle('on', (b.dataset.v === 'zoom') === OPTIONS.mapZoom);
@@ -712,7 +802,34 @@ document.getElementById('set-ghost').addEventListener('click', () => setOption('
 document.getElementById('set-map').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-v]'); if (b) setOption('mapZoom', b.dataset.v === 'zoom');
 });
+// Driving assists (assists.js): Off / Low / Medium / High for the steering and the brakes, the same buttons in the pause
+// menu's Settings and the race setup (every [data-assist] row), kept in options.js. ASSIST: what the physics steps use
+const ASSIST = { steer: OPTIONS.steerAssist, brake: OPTIONS.brakeAssist };
+function cap(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
+function drawAssists() {
+  for (const seg of document.querySelectorAll('[data-assist]')) {
+    const key = seg.dataset.assist;
+    if (!seg.childElementCount) {
+      seg.innerHTML = ASSIST_LEVELS.map((l) => `<button type="button" data-v="${l}" aria-pressed="false">${ASSIST_NAMES[l]}</button>`).join('');
+    }
+    for (const b of seg.children) { const on = b.dataset.v === OPTIONS[key]; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+  }
+  const s = OPTIONS.steerAssist, b = OPTIONS.brakeAssist, $ = (id) => document.getElementById(id);
+  $('set-steer-sub').textContent = cap(ASSIST_NOTES.steer[s]);
+  $('set-brake-sub').textContent = cap(ASSIST_NOTES.brake[b]);
+  $('assists-note').textContent = s === 'off' && b === 'off' ? 'No assists: it’s all you. You can change them in a race too (pause → Settings).'
+    : `Steering ${s}: ${ASSIST_NOTES.steer[s]}. Braking ${b}: ${ASSIST_NOTES.brake[b]}.`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-assist] button[data-v]');
+  if (!b) return;
+  setOption(b.closest('[data-assist]').dataset.assist, b.dataset.v);
+});
+drawAssists();
+
 onOption((key, value) => {
+  if (key === 'steerAssist') ASSIST.steer = value;
+  if (key === 'brakeAssist') ASSIST.brake = value;
   if (key === 'racingLine' && race) showRacingLine();
   if (key === 'ghost' && race) showGhost();
   if (key === 'mapZoom') hud.setMapMode(value);
@@ -846,6 +963,7 @@ function frame(timestamp) {
 // timer while the tab is hidden (see net/background.js), just without drawing anything.
 function tick(timestamp) {
   if (cinema.active) { lastTime = timestamp; return; } // (the cinematic replay draws itself: cinema.js)
+  if (loading) { lastTime = timestamp; return; } // the loading screen is up: everything goes into getting ready (startGame)
   const dt = lastTime == null ? 0 : Math.min(Math.max((timestamp - lastTime) / 1000, 0), 0.1);
   lastTime = timestamp;
   const drawing = !document.hidden;
@@ -890,7 +1008,8 @@ function tick(timestamp) {
     // long hitch all at once would make the next frame slow too (online the race has to keep real time)
     const simDt = session ? dt : Math.min(dt, 0.05);
     const steps = Math.ceil(simDt / (1 / 120)), t0 = performance.now();
-    for (let i = 0; i < steps; i++) race.step(simDt / steps, paused ? IDLE : input);
+    // driving assists (assists.js: pause → Settings): what your car is told to do, worked out again every step
+    for (let i = 0; i < steps; i++) race.step(simDt / steps, paused ? IDLE : applyAssists(race, input, ASSIST, simDt / steps));
     PERF.cur.sim = performance.now() - t0;
     ghostRec?.record(); // your lap, for the ghost (ghost.js)
     replayRec?.record(); // career: the race replay (replay.js)

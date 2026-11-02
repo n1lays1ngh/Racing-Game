@@ -317,6 +317,16 @@
           </div>
 
 
+          <!-- Driving assists (assists.js; the same settings as the pause menu's Settings, kept in options.js) -->
+          <div class="sh-block sh-assists">
+            <div class="sh-label"><span>Driving assists</span></div>
+            <div class="as-grid">
+              <div class="as-cell"><span>Steering</span><div class="seg" data-assist="steerAssist" role="group" aria-label="Steering assist"></div></div>
+              <div class="as-cell"><span>Braking</span><div class="seg" data-assist="brakeAssist" role="group" aria-label="Brake assist"></div></div>
+            </div>
+            <p id="assists-note" class="sh-fine"></p>
+          </div>
+
           <div class="sh-block">
             <div class="sh-label"><label for="opt-name">Driver</label></div>
             <input id="opt-name" class="name-input" type="text" maxlength="14" placeholder="You" autocomplete="off" spellcheck="false" aria-label="Your name" />
@@ -596,6 +606,15 @@
       <div class="pause-panel pp-settings">
         <div class="pause-title small"><span class="slash"></span>Settings</div>
         <div class="set-list">
+          <!-- driving assists (assists.js): Off / Low / Medium / High, also in the race setup -->
+          <div class="set-row">
+            <span class="set-txt"><b>Steering assist</b><small id="set-steer-sub"></small></span>
+            <div class="lb-seg" id="set-steer" data-assist="steerAssist" role="group" aria-label="Steering assist"></div>
+          </div>
+          <div class="set-row">
+            <span class="set-txt"><b>Brake assist</b><small id="set-brake-sub"></small></span>
+            <div class="lb-seg" id="set-brake" data-assist="brakeAssist" role="group" aria-label="Brake assist"></div>
+          </div>
           <button type="button" id="set-line" class="set-row" role="switch" aria-checked="false">
             <span class="set-txt"><b>Racing line</b><small>On the track: green where you can be on the throttle, red where you brake</small></span><i class="switch"></i>
           </button>
