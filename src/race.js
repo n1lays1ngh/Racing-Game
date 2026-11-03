@@ -77,6 +77,17 @@ const sectorOf = (s, L) => (s >= (2 * L) / 3 ? 2 : s >= L / 3 ? 1 : 0); // the H
 // (and the race lead) passed each point, worked out between physics steps, so a gap is exact to the thousandth and
 // doesn't jump about. car.gap: behind the leader (s); car.interval: behind the car ahead (s, or null until it can be
 // measured, e.g. just after the start for cars behind the leader's grid slot); car.lapsDown: laps behind the leader.
+// Contact with a friend's car online. Their car is driven on their computer: here it can't be pushed, and where it's
+// drawn is a moment old, so it can sit inside yours for a few steps. Taking the whole knock from it (as from a wall)
+// every one of those steps is what launched cars. Instead each computer gives its own car its share of one knock
+// (together: what two cars hitting each other get), the cars are eased apart, and one touch knocks once.
+export const CONTACT = {
+  restitution: 0.2,  // how bouncy a hit is (0: dead, 1: elastic); your share of it is half, as between two equal cars
+  maxKick: 6,        // m/s: the most one knock can change your car's speed
+  separate: 0.35,    // share of the overlap taken out each step (eased apart over a few steps, not snapped)
+  cooldown: 0.25,    // s: one knock per touch (the same two cars again within this: pushed apart, no new knock)
+};
+
 export const GAP_STEP = 4; // m between timing points
 const TRACE = 2048;   // timing points each car remembers (2048 × 4 m ≈ 8 km): enough for the interval to the car ahead
 export const newTrace = (size, ring) => ({ T: new Float64Array(size).fill(-1), ring, k: -1, p: null, t: 0 });
@@ -138,6 +149,7 @@ export class Race {
     this.leadTrace = newTrace(Math.ceil(((laps + 2) * track.length) / GAP_STEP) + 8, false); // the race lead, the whole race (gaps)
     this.events = [];             // messages for the HUD ("New best lap" etc.)
     this.contacts = 0; this.touch = new Map(); this.contactStep = 0; // car-to-car contacts (each new touch once: npm run sim)
+    this.kicked = new Map(); // online: when each pair last knocked (CONTACT.cooldown)
 
     // Grid: two columns, 8 m between rows, just behind the start line.
     // AI in team order, you (or everyone in an online room) at the back of the grid
@@ -414,6 +426,7 @@ export class Race {
         const ca = cars[a], cb = cars[b];
         if (ca.dnf || cb.dnf || (ca.remote && cb.remote)) continue;
         const wa = ca.remote ? 0 : cb.remote ? 1 : 0.5, wb = cb.remote ? 0 : ca.remote ? 1 : 0.5; // share of the push
+        const online = ca.remote || cb.remote; // a friend's car (CONTACT)
         const A = ca.state, B = cb.state;
         if ((A.x - B.x) ** 2 + (A.z - B.z) ** 2 > 64) continue;
         const pa = A.spec?.physics ?? CAR, pb = B.spec?.physics ?? CAR, reach = pa.radius + pb.radius;
@@ -431,13 +444,19 @@ export class Race {
             if (last === undefined || last < step - 1) this.contacts++;
             this.touch.set(key, step);
             dx /= d; dz /= d;
-            const push = reach - d;
+            const push = (reach - d) * (online ? CONTACT.separate : 1);
             A.x -= dx * push * wa; A.z -= dz * push * wa;
             B.x += dx * push * wb; B.z += dz * push * wb;
             const rel = (B.vx - A.vx) * dx + (B.vz - A.vz) * dz;
             if (rel < 0) {
               if (-rel > hit) { hit = -rel; hx = dx; hz = dz; }
-              const j = -rel * 1.2; // mostly inelastic
+              let j = -rel * 1.2; // mostly inelastic (split between the two cars: wa, wb)
+              if (online) { // your car's share of one knock, at most maxKick, once per touch
+                const t = this.time, lastKick = this.kicked.get(key);
+                j = lastKick !== undefined && t - lastKick < CONTACT.cooldown && t >= lastKick ? 0
+                  : Math.min(-rel * (1 + CONTACT.restitution) * 0.5, CONTACT.maxKick);
+                if (j > 0) this.kicked.set(key, t);
+              }
               A.vx -= dx * j * wa; A.vz -= dz * j * wa;
               B.vx += dx * j * wb; B.vz += dz * j * wb;
               if (cars[a].isPlayer || cars[b].isPlayer) {
