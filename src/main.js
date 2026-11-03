@@ -707,6 +707,18 @@ async function startGame(cfg = soloConfig()) {
   loader.step(0.82, 'Shaders');
   await within(prewarmed, 6000); // (most of it is usually ready already: compiled with the circuit)
   if (called()) return;
+  // online: the start lights only come on once every driver has the race loaded (net/session.js READY), so the
+  // loading screen stays up, saying who we're waiting for, until the host says go
+  const room = lobby.session;
+  if (room) {
+    room.markReady();
+    for (let st; (st = room.startStatus()) && !room.closed && !called(); await new Promise((go) => setTimeout(go, 200))) {
+      const soon = st.secondsLeft != null && st.secondsLeft <= 30 ? `  ·  starting anyway in ${st.secondsLeft} s` : '';
+      loader.step(0.95, st.waiting.length ? `Waiting for ${st.waiting.join(', ')}  ·  ${st.ready} of ${st.total} ready${soon}` : 'Everyone’s ready');
+    }
+    if (called()) return;
+    loader.step(1, 'Everyone’s ready');
+  }
   // ready: the race runs from here (the countdown), still under the loading screen for a frame or two while the first
   // frames draw (the shadows, anything that only gets made the first time it's drawn), then it fades away
   loading = false;

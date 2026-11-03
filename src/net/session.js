@@ -7,7 +7,8 @@
 //
 // Events (session.on(name, fn)):
 //   lobby            players or settings changed
-//   start (cfg)      a race is starting: build it, then call session.attach(race, cfg)
+//   start (cfg)      a race is starting: build it, then call session.attach(race, cfg) and session.markReady(). The
+//                    start lights only come on once everyone has (READY), so nobody misses the start while loading
 //   end              the host ended the race (everyone back to the lobby)
 //   dnf (car)        someone retired or dropped out mid-race
 //   closed (reason)  the room is gone (host left, connection lost)
@@ -20,6 +21,11 @@ import { makeRemote, applyPacket } from './remote.js';
 export const PLAYER_COLORS = [0xff2a1a, 0x2f7bff, 0xffd400, 0x00d26a, 0xff7a00, 0xb45cff, 0xff4fa3, 0x00e5ff, 0xf2f2f2, 0x9cff2e];
 export const MAX_CARS = 20;                   // AI fill the grid up to this
 const RATE = { snapshot: 1 / 20, car: 1 / 30 }; // seconds between position updates
+// The start: the host waits until every driver has the race loaded (or has left), then sets the start lights going
+export const READY = {
+  lead: 1500,      // ms from "everyone's ready" to the lights sequence beginning (time for the word to get round)
+  timeout: 60000,  // ms: someone still not ready by then (a stuck browser) and the race starts without waiting for them
+};
 
 export const cleanName = (n) => String(n ?? '').replace(/[<>&"'`]/g, '').trim().slice(0, 14) || 'Driver';
 function uniqueName(name, players) {
@@ -43,6 +49,8 @@ export class Session {
     this.offset = 0; this.rtt = 0; this.pings = [];
     this.race = null; this.cfg = null; this.raceNo = 0; this.sendTimer = 0; this.lastSnap = -Infinity; this.inbox = [];
     this.closed = false;
+    // the start (READY): the race being waited for, who's ready, when the lights begin (host clock; null: not yet)
+    this.wait = { raceNo: -1, ready: [], need: [], deadline: 0 }; this.goAt = null; this.goTimer = 0;
   }
   on(type, fn) { (this.handlers[type] ??= []).push(fn); return this; }
   emit(type, ...args) { for (const fn of this.handlers[type] ?? []) fn(...args); }
@@ -89,6 +97,7 @@ export class Session {
       }
       case 'ping': link.send({ t: 'pong', c: m.c, h: performance.now() }); if (link.player) link.player.ping = Math.round(m.rtt ?? 0); break;
       case 'retire': this.retire(link.id); break;
+      case 'ready': if (link.player && m.raceNo === this.wait.raceNo) this.isReady(link.id); break;
       case 'bye': link.drop('left'); break;
       case 'v': // voice chat (voice.js): for me, or passed on to the player it's for (from: who sent it, as the host knows it)
         if (!link.player) return;
@@ -112,6 +121,7 @@ export class Session {
     this.players = this.players.filter((x) => x !== p);
     this.retire(p.id); // mid-race: DNF
     this.broadcastLobby();
+    this.checkReady(); // (waiting for them at the start: not any more)
   }
 
   retire(id) {
@@ -141,17 +151,58 @@ export class Session {
       car: st.car, time: st.time,              // the car everyone races, and when (src/cars/)
       aiCount: Math.max(0, Math.min(st.ai, MAX_CARS - humans.length)), collisions: st.collisions, humans,
       lightsOutAt: 5.4 + Math.random() * 1.2,  // same random start for everyone
-      startAt: performance.now() + 1500,       // host clock: time for everyone to build the race
+      startAt: null,                           // host clock: set once everyone has the race loaded ('go')
     };
     this.phase = 'race'; this.room.accepting = false;
+    this.goAt = null; clearTimeout(this.goTimer);
+    this.wait = { raceNo: cfg.raceNo, ready: [], need: humans.map((h) => h.id), deadline: performance.now() + READY.timeout };
+    this.goTimer = setTimeout(() => this.go(), READY.timeout); // (someone stuck: start anyway)
     for (const l of this.links.values()) if (l.player) l.send({ t: 'start', cfg });
     this.emit('start', { ...cfg, localId: this.me.id });
+  }
+
+  // ---------- the start: everyone ready, then the lights ----------
+  // You have the race loaded (main.js startGame, once it's built): tell the host (the host: count yourself)
+  markReady() {
+    if (this.closed || this.phase !== 'race') return;
+    if (this.isHost) this.isReady(this.me.id);
+    else this.hostLink.send({ t: 'ready', raceNo: this.raceNo });
+  }
+  // Host: a driver is ready. Everyone who's still here ready → go; otherwise tell everyone who we're waiting for
+  isReady(id) {
+    if (this.goAt != null || this.wait.ready.includes(id)) return;
+    this.wait.ready.push(id);
+    this.checkReady();
+  }
+  checkReady() {
+    if (!this.isHost || this.phase !== 'race' || this.goAt != null || this.wait.raceNo < 0) return;
+    const here = new Set(this.players.map((p) => p.id));
+    this.wait.need = this.wait.need.filter((id) => here.has(id)); // (left meanwhile: not waited for)
+    if (this.wait.need.every((id) => this.wait.ready.includes(id))) { this.go(); return; }
+    const m = { t: 'waiting', raceNo: this.wait.raceNo, ready: this.wait.ready, need: this.wait.need, deadline: this.wait.deadline };
+    for (const l of this.links.values()) if (l.player) l.send(m);
+  }
+  // Host: the lights begin READY.lead from now, for everyone
+  go() {
+    if (!this.isHost || this.phase !== 'race' || this.goAt != null) return;
+    clearTimeout(this.goTimer);
+    this.goAt = performance.now() + READY.lead;
+    for (const l of this.links.values()) if (l.player) l.send({ t: 'go', raceNo: this.wait.raceNo, startAt: this.goAt });
+    if (this.cfg && this.cfg.raceNo === this.wait.raceNo) this.cfg.startAt = this.goAt;
+  }
+  // Who we're still waiting for, for the loading screen: { waiting: [names], ready, total, secondsLeft } (null: started)
+  startStatus() {
+    if (this.goAt != null) return null;
+    const w = this.wait, need = w.need.length ? w.need : this.players.map((p) => p.id);
+    const waiting = need.filter((id) => !w.ready.includes(id)).map((id) => this.players.find((p) => p.id === id)?.name).filter(Boolean);
+    return { waiting, ready: need.length - waiting.length, total: need.length, secondsLeft: w.deadline ? Math.max(0, Math.ceil((w.deadline - this.now()) / 1000)) : null };
   }
 
   // Host: race over, everyone back to the lobby. Player: leave the race (counts as retiring).
   endRace() {
     if (this.isHost) {
       if (this.phase !== 'race') return;
+      clearTimeout(this.goTimer); this.wait.raceNo = -1;
       this.phase = 'lobby'; this.race = null; this.room.accepting = true;
       for (const l of this.links.values()) if (l.player) l.send({ t: 'end' });
       this.broadcastLobby();
@@ -194,7 +245,16 @@ export class Session {
       case 'lobby':
         this.players = m.players; this.settings = m.settings; this.phase = m.phase ?? this.phase;
         this.emit('lobby'); break;
-      case 'start': this.phase = 'race'; this.emit('start', { ...m.cfg, localId: this.me.id }); break;
+      case 'start':
+        this.phase = 'race'; this.raceNo = m.cfg.raceNo; this.goAt = null;
+        this.wait = { raceNo: m.cfg.raceNo, ready: [], need: m.cfg.humans.map((h) => h.id), deadline: 0 };
+        this.emit('start', { ...m.cfg, localId: this.me.id }); break;
+      case 'waiting': // the host is waiting for these drivers to load the race
+        if (m.raceNo === this.wait.raceNo) this.wait = { raceNo: m.raceNo, ready: m.ready ?? [], need: m.need ?? [], deadline: m.deadline ?? 0 };
+        break;
+      case 'go': // everyone's ready: the lights begin at startAt (host clock)
+        if (m.raceNo === this.wait.raceNo) { this.goAt = m.startAt; if (this.cfg && this.cfg.raceNo === m.raceNo) this.cfg.startAt = m.startAt; }
+        break;
       case 'end': this.phase = 'lobby'; this.race = null; this.emit('end'); break;
       case 'pong': this.pong(m); break;
       case 'v': this.emit('voice', { from: m.from, d: m.d }); break; // voice chat (voice.js)
@@ -217,7 +277,9 @@ export class Session {
     this.race = race; this.cfg = cfg; this.raceNo = cfg.raceNo;
     this.sendTimer = 0; this.lastSnap = -Infinity; this.inbox = [];
     race.lightsOutAt = cfg.lightsOutAt;
-    race.countdownClock = () => (this.isHost || this.pings.length ? (this.now() - cfg.startAt) / 1000 : -1); // wait for the clock sync
+    if (cfg.startAt == null && this.goAt != null && cfg.raceNo === this.wait.raceNo) cfg.startAt = this.goAt; // ('go' came first)
+    // the lights: not before everyone's ready (startAt), and not before the clock is in sync with the host's
+    race.countdownClock = () => (cfg.startAt != null && (this.isHost || this.pings.length) ? (this.now() - cfg.startAt) / 1000 : -1);
     for (const car of race.cars) {
       const mine = car.isPlayer || (this.isHost && !car.isHuman); // the host drives the AI
       if (!mine) makeRemote(car, race.track);
