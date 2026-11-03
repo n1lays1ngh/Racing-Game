@@ -18,6 +18,7 @@ export const ITEMS = [ // id, what it is, label, the editor's size range (× its
   { id: 'tower', sel: '#tower', label: 'Positions' },
   { id: 'timing', sel: '#timing', label: 'Lap time' },
   { id: 'map', sel: '#map-panel', label: 'Map', top: true }, // (top: pinned by its top edge, see apply())
+  { id: 'voice', sel: '#voice-hud', label: 'Voice' },        // who's talking (online: net/voice.js)
 ];
 // Defaults: which corner (or edge) of the screen an item sits at, the gap to it (px) and its size (1 = as drawn; the HUD
 // panels are drawn at the desktop's size, so they're scaled down)
@@ -34,6 +35,7 @@ function defaults(mode) {
     left: { a: 'bl', x: 14, y: 12, s: 1 },
     right: { a: 'bl', x: 118, y: 12, s: 1 },
     speedo: { a: 'bl', x: 14, y: 12, s: PANEL.speedo },    // bottom left (your thumb steers anywhere on the left)
+    voice: { a: 'tc', x: 0, y: 56, s: 0.85 },              // under the buttons along the top
   };
   if (mode === 'buttons') d.speedo = { a: 'bc', x: -40, y: 10, s: PANEL.speedo }; // (the arrows are bottom left)
   if (mode === 'tilt') { d.brake = { a: 'bl', x: 14, y: 12, s: 1 }; d.boost = { a: 'br', x: 14, y: 174, s: 1 }; d.speedo = { a: 'bc', x: 0, y: 10, s: PANEL.speedo }; }

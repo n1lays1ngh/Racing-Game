@@ -156,7 +156,8 @@ export function setupMobile(ctx) {
     if (mode === 'tilt') setTimeout(() => { if (!touch.tilt.seen) ctx.getHud()?.toast?.('No tilt sensor found: try Slide', 3); }, 2500);
   }
 
-  // ---- Settings in the pause menu: steering, tilt, frame rate ----
+  // ---- Settings (the pause menu's, and the main menu's: the same list, main.js moves it): steering, tilt, frame rate,
+  // HUD layout (that one only in a race: the HUD is there to place) ----
   const list = document.querySelector('#pause .set-list');
   const rows = document.createElement('div');
   rows.className = 'm-settings';
@@ -167,7 +168,7 @@ export function setupMobile(ctx) {
       '<div class="lb-seg"><button type="button" id="m-recenter">Recenter</button><button type="button" id="m-invert">Invert</button></div></div>' +
     '<div class="set-row"><span class="set-txt"><b>Frame rate</b><small id="m-fps-sub">Lower runs cooler and saves battery</small></span>' +
       `<div class="lb-seg" id="m-fps"><button type="button" data-v="auto">Auto</button>${MOBILE.caps.slice(1).map((c) => `<button type="button" data-v="${c}">${c}</button>`).join('')}</div></div>` +
-    '<div class="set-row"><span class="set-txt"><b>HUD layout</b><small>Move and size the pedals, buttons, speed, map and timing</small></span>' +
+    '<div class="set-row m-hud-row"><span class="set-txt"><b>HUD layout</b><small>Move and size the pedals, buttons, speed, map and timing</small></span>' +
       '<div class="lb-seg"><button type="button" id="m-hud-edit">Edit layout</button></div></div>';
   list?.prepend(rows);
   function drawSettings() {
@@ -188,10 +189,10 @@ export function setupMobile(ctx) {
 
   // the HUD editor: from the pause menu's Settings (the race stays paused behind it), back there when you're done
   function editHud() {
-    const pause = $('pause');
-    pause.classList.add('hidden');
+    const screen = rows.closest('.overlay') ?? $('pause'); // (the screen the settings are on now)
+    screen.classList.add('hidden');
     touch.show(true, ctx.getRace()); touch.el.classList.add('has-boost'); // (every control, to place)
-    layout.edit(touch.mode, () => { pause.classList.remove('hidden'); placed = 0; });
+    layout.edit(touch.mode, () => { screen.classList.remove('hidden'); placed = 0; });
   }
 
   // ---- the frame cap, dynamic resolution aimed at it, and the heat guard ----

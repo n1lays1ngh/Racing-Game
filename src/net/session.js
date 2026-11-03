@@ -11,6 +11,7 @@
 //   end              the host ended the race (everyone back to the lobby)
 //   dnf (car)        someone retired or dropped out mid-race
 //   closed (reason)  the room is gone (host left, connection lost)
+//   voice ({ from, d })  voice chat setting up a connection between two players (voice.js; sendVoice sends one)
 import { HostRoom, joinRoom, NET } from './peer.js';
 import { packSnapshot, packCar, unpack, SNAP, CAR, VERSION } from './protocol.js';
 import { makeRemote, applyPacket } from './remote.js';
@@ -89,7 +90,19 @@ export class Session {
       case 'ping': link.send({ t: 'pong', c: m.c, h: performance.now() }); if (link.player) link.player.ping = Math.round(m.rtt ?? 0); break;
       case 'retire': this.retire(link.id); break;
       case 'bye': link.drop('left'); break;
+      case 'v': // voice chat (voice.js): for me, or passed on to the player it's for (from: who sent it, as the host knows it)
+        if (!link.player) return;
+        if (m.to === 'host') this.emit('voice', { from: link.id, d: m.d });
+        else this.links.get(m.to)?.player && this.links.get(m.to).send({ t: 'v', from: link.id, d: m.d });
+        break;
     }
+  }
+
+  // Voice chat (voice.js): a message for another player, through the host (who passes it on)
+  sendVoice(to, d) {
+    if (this.closed) return;
+    if (this.isHost) { const l = this.links.get(to); if (l?.player) l.send({ t: 'v', from: 'host', d }); }
+    else this.hostLink.send({ t: 'v', to, d });
   }
 
   lost(link) {
@@ -184,6 +197,7 @@ export class Session {
       case 'start': this.phase = 'race'; this.emit('start', { ...m.cfg, localId: this.me.id }); break;
       case 'end': this.phase = 'lobby'; this.race = null; this.emit('end'); break;
       case 'pong': this.pong(m); break;
+      case 'v': this.emit('voice', { from: m.from, d: m.d }); break; // voice chat (voice.js)
       case 'bye': this.close('The host closed the room.'); break;
     }
   }

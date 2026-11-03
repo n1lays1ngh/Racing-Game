@@ -25,6 +25,7 @@ export class NameTags {
       if (!car.isHuman || car.isPlayer) continue;
       const el = document.createElement('div');
       el.className = 'ntag';
+      if (car.humanId != null) el.dataset.id = car.humanId; // (voice chat lights up whoever's talking: voice.js)
       el.innerHTML = `<i style="background:${hex(car.team.color)}"></i><span></span><b></b>`;
       el.querySelector('span').textContent = car.team.name;
       this.root.appendChild(el);

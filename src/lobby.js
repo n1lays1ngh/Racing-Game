@@ -196,7 +196,7 @@ export class Lobby {
     const rows = s.players.map((p) => {
       const tags = (p.host ? '<em class="host">Host</em>' : '') + (p.id === s.me?.id ? '<em class="you">You</em>' : '');
       const ping = p.host ? '' : `<span class="ping ${p.ping > 150 ? 'bad' : p.ping > 80 ? 'meh' : ''}">${p.ping ? p.ping + ' ms' : '…'}</span>`;
-      return `<li><i style="background:${hex(p.color)}"></i><span class="nm">${esc(p.name)}</span>${tags}${ping}</li>`;
+      return `<li data-id="${esc(p.id)}"><i style="background:${hex(p.color)}"></i><span class="nm">${esc(p.name)}</span>${tags}${ping}</li>`;
     });
     for (let k = s.players.length; k < Math.min(NET.maxPlayers, s.players.length + 3); k++) rows.push('<li class="open"><i></i><span class="nm">Open seat</span></li>');
     $('lb-players').innerHTML = rows.join('');

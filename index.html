@@ -352,7 +352,7 @@
     <footer class="mn-bottom">
       <div class="mn-foot-home">
         <div class="keys">
-          <button type="button" id="btn-controls" class="mn-ctl"><span class="ctl-ico" aria-hidden="true"><i></i><i></i></span><b>Controls</b><span>Keyboard and controller</span></button>
+          <button type="button" id="btn-controls" class="mn-ctl"><span class="ctl-ico" aria-hidden="true"><i></i><i></i></span><b>Settings</b><span>Assists, voice, graphics, controls</span></button>
           <button type="button" id="btn-cinema" class="mn-ctl"><span class="cin-ico" aria-hidden="true">▶</span><b>Cinematic replay</b><span>Your best lap as a video</span></button>
         </div>
         <div class="mn-gfx"><span>Graphics</span><div class="lb-seg" data-gfx></div><div class="gfx-note" data-gfx-note></div></div>
@@ -473,14 +473,20 @@
     <div class="ctl-screen">
       <header class="st-head">
         <div>
-          <div class="res-kicker"><span class="slash"></span><span>Keyboard and controller</span></div>
-          <h2 class="st-title">Controls</h2>
+          <div class="res-kicker"><span class="slash"></span><span id="ctl-kicker">Keyboard and controller</span></div>
+          <h2 class="st-title" id="ctl-title">Controls</h2>
         </div>
         <div class="head-btns">
           <button class="st-back st-support" type="button" data-support><span>Support me</span></button>
           <button id="ctl-back" class="st-back" type="button"><span>Back</span><kbd>Esc</kbd></button>
         </div>
       </header>
+      <!-- Settings (the same list as the pause menu's Settings: main.js moves it here) and Controls -->
+      <div class="ctl-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="settings">Settings</button>
+        <button type="button" role="tab" data-tab="controls">Controls</button>
+      </div>
+      <div class="ctl-settings" id="ctl-settings"></div>
       <div class="ctl-grid">
         <section class="ctl-panel">
           <h3>Driving</h3>
@@ -505,6 +511,7 @@
               <tr><td>Tower: interval or gap to leader</td><td><kbd>T</kbd></td><td><i class="pb dp">↑</i><em>D-pad up</em></td></tr>
               <tr><td>Graphics preset</td><td><kbd>G</kbd></td><td class="none">–</td></tr>
               <tr><td>Frame rate counter</td><td><kbd>F</kbd></td><td class="none">–</td></tr>
+              <tr><td>Voice chat online: push to talk (hold)</td><td><kbd>X</kbd></td><td><i class="pb sh">R1</i><em>RB</em></td></tr>
             </tbody>
           </table>
         </section>
@@ -628,6 +635,19 @@
           <div class="set-row">
             <span class="set-txt"><b>Graphics</b><small class="gfx-note" data-gfx-note></small></span>
             <div class="lb-seg" data-gfx></div>
+          </div>
+          <!-- voice chat in online rooms (net/voice.js) -->
+          <div class="set-row">
+            <span class="set-txt"><b>Voice chat</b><small id="set-voice-sub">Online: talk to your friends in the room</small></span>
+            <div class="lb-seg" id="set-voice" data-opt="voice"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div>
+          </div>
+          <div class="set-row set-voice-row">
+            <span class="set-txt"><b>Microphone</b><small id="set-mic-sub"></small></span>
+            <div class="lb-seg" id="set-mic" data-opt="mic"><button type="button" data-v="ptt">Push to talk</button><button type="button" data-v="open">Open</button><button type="button" data-v="muted">Muted</button></div>
+          </div>
+          <div class="set-row set-voice-row">
+            <span class="set-txt"><b>Voices in the race</b><small id="set-range-sub"></small></span>
+            <div class="lb-seg" id="set-range" data-opt="voiceRange"><button type="button" data-v="near">Nearby cars</button><button type="button" data-v="all">Everyone</button></div>
           </div>
         </div>
         <button id="set-back" class="pm-btn"><span>Back</span><kbd>Esc</kbd></button>

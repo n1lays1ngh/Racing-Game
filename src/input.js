@@ -118,6 +118,7 @@ export const RACE_BUTTONS = {
   [BTN.DOWN]: 'KeyB',   // box: pit this lap
   [BTN.LEFT]: 'Comma',  // display (MFD): previous page
   [BTN.RIGHT]: 'Period', // … next page
+  [BTN.RB]: 'KeyX',     // voice chat: push to talk (held; net/voice.js)
 };
 export const LOOK_BACK = { key: 'KeyQ', on: 0.55, off: 0.35 }; // right stick down past `on` (let go below `off`)
 

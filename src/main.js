@@ -38,6 +38,7 @@ import { Cinema } from './cinema.js';
 import { IS_MOBILE } from './mobile/detect.js';
 import { applyAssists, prepareAssists, ASSIST_LEVELS, ASSIST_NAMES, ASSIST_NOTES } from './assists.js';
 import { Loader, nextFrame, within } from './loading.js';
+import { VoiceChat } from './net/voice.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -625,8 +626,11 @@ const lobby = new Lobby({
   onDnf: (car) => hud.toast(`${car.team.name} is out`, 2.5),
   onSession: (on) => { // keep racing in a background tab; out of the room, your own car and time again
     if (on) keepTicking(tick); else { stopTicking(); if (!race) previewTrack(trackSelect.value); }
+    voice.attach(on ? lobby.session : null); // voice chat with the room (net/voice.js), if it's on in Settings
   },
 });
+// Voice chat with your friends in the room (net/voice.js; Settings: on / off, microphone, voices in the race)
+const voice = new VoiceChat({ notice: (text) => (race && hud ? hud.toast(text, 3) : lobby.status(text, 'error')) });
 window.addEventListener('pagehide', () => lobby.session?.leave());
 window.addEventListener('pagehide', () => statsRun?.end());                                 // closing the tab mid-race
 document.addEventListener('visibilitychange', () => { if (document.hidden) statsRun?.flush(); }); // save what's driven so far
@@ -780,12 +784,14 @@ function setPaused(v) {
 // ---------- pause → Settings (racing line, ghost, map, graphics) ----------
 function pauseView(view) {
   pauseEl.dataset.view = view;
+  if (view === 'settings') mountSettings('pause');
   drawSettings();
   document.getElementById(view === 'settings' ? 'set-line' : 'btn-settings').focus({ preventScroll: true });
 }
 function drawSettings() {
   const $ = (id) => document.getElementById(id);
   drawAssists();
+  drawVoice();
   $('set-line').setAttribute('aria-checked', String(OPTIONS.racingLine));
   $('set-ghost').setAttribute('aria-checked', String(OPTIONS.ghost));
   for (const b of $('set-map').querySelectorAll('button')) b.classList.toggle('on', (b.dataset.v === 'zoom') === OPTIONS.mapZoom);
@@ -820,6 +826,22 @@ function drawAssists() {
   $('assists-note').textContent = s === 'off' && b === 'off' ? 'No assists: it’s all you. You can change them in a race too (pause → Settings).'
     : `Steering ${s}: ${ASSIST_NOTES.steer[s]}. Braking ${b}: ${ASSIST_NOTES.brake[b]}.`;
 }
+// Voice chat (net/voice.js): on / off, the microphone, the voices in the race. The rows under it only when it's on
+function drawVoice() {
+  const $ = (id) => document.getElementById(id);
+  const val = { voice: OPTIONS.voice ? 'on' : 'off', mic: OPTIONS.mic, voiceRange: OPTIONS.voiceRange };
+  for (const seg of document.querySelectorAll('[data-opt]')) for (const b of seg.children) b.classList.toggle('on', b.dataset.v === val[seg.dataset.opt]);
+  for (const r of document.querySelectorAll('.set-voice-row')) r.classList.toggle('hidden', !OPTIONS.voice);
+  $('set-voice-sub').textContent = OPTIONS.voice ? (lobby.session ? 'On: you’re in voice with this room' : 'On: in a multiplayer room you’ll hear your friends') : 'Online: talk to your friends in the room';
+  $('set-mic-sub').textContent = { ptt: IS_MOBILE ? 'Hold Talk to talk' : 'Hold X to talk (RB on a controller)', open: 'Always on: everyone hears you', muted: 'Listen only' }[OPTIONS.mic];
+  $('set-range-sub').textContent = OPTIONS.voiceRange === 'near' ? 'Hear the cars near you, from where they are' : 'Hear everyone all race';
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-opt] button[data-v]');
+  if (!b) return;
+  const key = b.closest('[data-opt]').dataset.opt;
+  setOption(key, key === 'voice' ? b.dataset.v === 'on' : b.dataset.v);
+});
 document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-assist] button[data-v]');
   if (!b) return;
@@ -828,6 +850,7 @@ document.addEventListener('click', (e) => {
 drawAssists();
 
 onOption((key, value) => {
+  if (key === 'voice' || key === 'mic' || key === 'voiceRange') drawVoice();
   if (key === 'steerAssist') ASSIST.steer = value;
   if (key === 'brakeAssist') ASSIST.brake = value;
   if (key === 'racingLine' && race) showRacingLine();
@@ -839,9 +862,26 @@ onOption((key, value) => {
 // ---------- Controls (the start screen's Controls button and the pause menu's) ----------
 const controlsEl = document.getElementById('controls');
 let controlsFrom = null;
+// The main menu's Settings and Controls: one screen, two tabs. The settings are the pause menu's own list (one list,
+// moved to wherever it's shown: mountSettings), so both always match. From the pause menu it opens on Controls.
+const settingsList = document.querySelector('#pause .set-list');
+function mountSettings(where) {
+  const home = where === 'pause' ? document.querySelector('#pause .pp-settings') : document.getElementById('ctl-settings');
+  if (settingsList.parentElement === home) return;
+  if (where === 'pause') home.insertBefore(settingsList, document.getElementById('set-back')); else home.appendChild(settingsList);
+}
+function controlsTab(tab) {
+  controlsEl.dataset.tab = tab;
+  for (const b of controlsEl.querySelectorAll('.ctl-tabs button')) { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); }
+  document.getElementById('ctl-title').textContent = tab === 'settings' ? 'Settings' : 'Controls';
+  document.getElementById('ctl-kicker').textContent = tab === 'settings' ? 'Assists, voice chat, display' : 'Keyboard and controller';
+  if (tab === 'settings') { mountSettings('menu'); drawSettings(); }
+}
+controlsEl.querySelector('.ctl-tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) controlsTab(b.dataset.tab); });
 function openControls(from) {
   controlsFrom = from;
   if (from === 'menu') menu.classList.add('hidden');
+  controlsTab(from === 'menu' ? 'settings' : 'controls');
   controlsEl.classList.remove('hidden'); controlsEl.scrollTop = 0;
   document.getElementById('ctl-back').focus({ preventScroll: true });
 }
@@ -964,6 +1004,7 @@ function frame(timestamp) {
 function tick(timestamp) {
   if (cinema.active) { lastTime = timestamp; return; } // (the cinematic replay draws itself: cinema.js)
   if (loading) { lastTime = timestamp; return; } // the loading screen is up: everything goes into getting ready (startGame)
+  voice.update(race, camera); // online voice chat: where each voice comes from, who's talking (net/voice.js)
   const dt = lastTime == null ? 0 : Math.min(Math.max((timestamp - lastTime) / 1000, 0), 0.1);
   lastTime = timestamp;
   const drawing = !document.hidden;

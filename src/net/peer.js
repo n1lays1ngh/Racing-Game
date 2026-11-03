@@ -46,15 +46,15 @@ async function iceConfig() {
   }
   return ice;
 }
-async function newConnection() {
+export async function newConnection() {
   const { servers, relay } = await iceConfig();
   const pc = new RTCPeerConnection({ iceServers: servers, iceTransportPolicy: NET.forceRelay && relay ? 'relay' : 'all' });
   return { pc, relay };
 }
 
 // Wait until the browser has found its network addresses (ICE candidates), so they can all be sent
-// in one go with the offer/answer. Usually well under a second.
-function gathered(pc, ms = 2500) {
+// in one go with the offer/answer. Usually well under a second. (voice.js uses these two as well)
+export function gathered(pc, ms = 2500) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => { clearTimeout(t); pc.removeEventListener('icegatheringstatechange', check); resolve(); };

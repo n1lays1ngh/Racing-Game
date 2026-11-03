@@ -34,6 +34,7 @@ const KEYS = [ // the small buttons along the top: [label, key, held?, extra cla
   ['Look', 'KeyQ', true, '', 'Look behind (hold)'],
   ['Reset', 'KeyR', false, '', 'Back onto the track'],
   ['Box', 'KeyB', false, 't-box', 'Box: pit this lap'],
+  ['Talk', 'KeyX', true, 't-talk', 'Voice chat: hold to talk'], // (online with push to talk on: net/voice.js)
 ];
 // A button of the HUD (the map panel's tabs and its pages' buttons) at this point of the screen, if it's showing
 function hudButtonAt(x, y) {

@@ -74,6 +74,11 @@ body.mobile kbd, body.mobile .sh-keys, body.mobile #mn-hint, body.mobile .tw-foo
 #touch .t-mini.down { background: rgba(255, 255, 255, 0.28); }
 #touch .t-box { display: none; color: #7cc4ff; border-color: rgba(43, 155, 255, 0.5); }
 #touch.has-box .t-box { display: flex; }
+#touch .t-talk { display: none; color: #ffd166; border-color: rgba(255, 209, 102, 0.5); }
+body.voice-ptt #touch .t-talk { display: flex; } /* online, voice chat with push to talk (net/voice.js) */
+#touch .t-talk.down { background: rgba(255, 209, 102, 0.35); }
+#controls .m-hud-row { display: none; } /* (the HUD layout is edited in a race: pause → Settings) */
+body.hud-editing #voice-hud { display: flex !important; }
 
 /* slide: the left of the screen, under the buttons along the top; a ring where your thumb went down and a dot that follows it */
 #touch .t-steer { display: none; position: absolute; left: 0; top: 56px; bottom: 0; width: 44%; }
@@ -185,7 +190,8 @@ body.hud-editing #touch .t-boost { display: flex; }
   body.mobile .mn-steps em { display: inline; }
   body.mobile #menu .mn-steps button { padding: 0 22px; }
   body.mobile .mn-steps button::after { left: 22px; right: 22px; }
-  body.mobile #btn-controls, body.mobile #btn-pause-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
+  body.mobile #btn-pause-controls { display: none; } /* (keyboard and controller keys: not for a phone) */
+  body.mobile #controls .ctl-tabs, body.mobile #controls .ctl-grid { display: none; } /* (the main menu's Settings: just the settings) */
 }
 
 /* ---------- iPhone in a browser: the Full screen button and how-to (index.js) ---------- */
