@@ -14,6 +14,7 @@
 //                               'pits' = only the pit straight). No choice yet (null): the circuit's own time.
 //   TIME_LABELS               → what the buttons say
 //   MAIN_CARS / DEV_CARS      → the proven cars / the ones still in development (`dev: true`); isDev(car)
+//   CATEGORIES, categoryOf(car) → the menu's groups (Formula, Endurance, GT, MotoGP) and which one a car is in
 import f1 from './f1.js';
 import hypercar from './hypercar.js';
 import gt3 from './gt3.js';
@@ -21,6 +22,7 @@ import porsche from './porsche.js';
 import r26 from './r26.js';
 import mp45 from './mp45.js';
 import mclaren from './mclaren.js';
+import motogp from './motogp.js';
 
 // The proven cars first, then the ones still in development (`dev: true` in their file). The menu shows the proven
 // cars up front and the others in an "In development" section you open if you want them (menu.js).
@@ -29,6 +31,7 @@ export const CARS = [
   hypercar,
   gt3,
   porsche,
+  motogp,
   // ---- in development ----
   r26,
   mp45,
@@ -38,6 +41,16 @@ export const DEFAULT_CAR = 'f1';
 export const isDev = (car) => !!car?.dev;
 export const MAIN_CARS = CARS.filter((c) => !isDev(c)); // tried and tested
 export const DEV_CARS = CARS.filter(isDev);              // still being tuned
+
+// The menu's groups (menu.js: a tab each). A car's file can say `category`; otherwise it's here by id.
+export const CATEGORIES = [
+  { id: 'formula', name: 'Formula', sub: 'Single-seaters' },
+  { id: 'endurance', name: 'Endurance', sub: 'Le Mans prototypes' },
+  { id: 'gt', name: 'GT', sub: 'Racing coupés' },
+  { id: 'bike', name: 'MotoGP', sub: 'Racing bikes' },
+];
+const CATEGORY_OF = { f1: 'formula', r26: 'formula', mp45: 'formula', hypercar: 'endurance', gt3: 'gt', porsche: 'gt', mclaren: 'gt', motogp: 'bike' };
+export const categoryOf = (car) => car?.category ?? CATEGORY_OF[car?.id] ?? 'formula';
 
 export function getCar(id) {
   return CARS.find((c) => c.id === id) ?? CARS.find((c) => c.id === DEFAULT_CAR) ?? CARS[0];

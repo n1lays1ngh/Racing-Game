@@ -22,6 +22,7 @@ import { steerLimit, gearbox } from './physics.js';
 import { bodyFor, rimGeometry, NEW_BODIES } from './carBodies.js';
 import F1 from './cars/f1.js';
 import { TYRES as COMPOUND_SETS } from './tyres.js';
+import { makeBike, syncBike } from './bikeModel.js';
 
 // The F1 car's model settings (src/cars/f1.js: `model`). Each car has its own in its file.
 export const CAR_MODEL = F1.model;
@@ -658,6 +659,7 @@ function createModelCar(cfg, { lite = false } = {}) {
 // team's colours (never a copy of your car).
 export function createCarModel(team = {}, { player = false, car = F1, lite = false } = {}) {
   const cfg = car.model;
+  if (car.bike && templates.has(cfg)) { const b = makeBike(templates.get(cfg), team); b.userData.cfg = cfg; b.userData.cams = cfg.cams; return b; } // a bike (bikeModel.js): every bike on the grid
   if (templates.has(cfg) && (player || cfg.forAI)) return createModelCar(cfg, { lite });
   // the car's body shape (BODIES), with its own cameras, unless the car only has the built-in body
   return createBuiltinCar(team, cfg.builtin ?? 'f1', cfg.builtin && !cfg.url ? cfg.cams : null);
@@ -676,6 +678,7 @@ const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b -
 const tmpQ = new THREE.Quaternion();
 
 export function syncCarModel(model, state) {
+  if (model.userData.bike) { syncBike(model, state, model.userData.cfg); return; } // (bikeModel.js)
   model.position.set(state.x, state.y ?? 0, state.z);
   model.rotation.y = state.h;
   const u = model.userData, cfg = u.cfg ?? CAR_MODEL; // the model's settings (the built-in car uses the F1 car's)

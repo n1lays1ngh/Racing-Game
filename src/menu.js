@@ -1,8 +1,9 @@
 // Main menu: a start screen, then three steps, then the race.
 //
 //   home    Race (→ the steps), Quick race (your last setup, straight away), Multiplayer, Your stats, graphics
-//   1 car   one tall panel per proven car (src/cars/) with numbers worked out from its physics; the cars still in
-//           development (`dev: true`) in a section underneath that opens when you want it (D)
+//   1 car   a tab per kind of car (Formula, Endurance, GT, MotoGP), and that kind's cars as tall cards with their 3D
+//           model turning (carPreview.js) and numbers worked out from their physics; cars still in development
+//           (`dev: true`) carry a badge
 //   2 track the circuit you've picked (outline with a car running round it, the hills along the lap, your best
 //           lap there in this car) and every circuit as a tile
 //   3 setup time of day (Day / Night, Twilight where that's the circuit's own time, Night without floodlights where the
@@ -15,7 +16,8 @@
 // truth: main.js and lobby.js read them. The car and the time of day go to main.js through onCar / onTime, a new
 // circuit through the select's change event (main.js rebuilds the circuit and the live race behind the menu).
 // Your last choices are remembered in this browser.
-import { timesFor, raceSetup } from './cars/index.js';
+import { timesFor, raceSetup, CATEGORIES, categoryOf } from './cars/index.js';
+import { CarPreviews } from './carPreview.js';
 import { getStats } from './stats.js';
 import { formatTime } from './race.js';
 
@@ -136,7 +138,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
 
   // ---------- steps ----------
   const HINTS = {
-    car: '<kbd>←</kbd><kbd>→</kbd> change car &nbsp; <kbd>D</kbd> cars in development',
+    car: '<kbd>←</kbd><kbd>→</kbd> change car &nbsp; <kbd>↑</kbd><kbd>↓</kbd> kind of car',
     track: '<kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> change circuit',
     setup: '<kbd>←</kbd><kbd>→</kbd> laps <kbd>⇧</kbd> ×10 &nbsp; <kbd>↑</kbd><kbd>↓</kbd> AI cars &nbsp; <kbd>N</kbd> time of day',
   };
@@ -155,7 +157,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     }
     $('mn-hint').innerHTML = HINTS[to] ?? '';
     $('mn-next-label').textContent = NEXT[to] ?? 'Next';
-    if (to === 'car') drawCars();
+    if (to === 'car') drawCars(); else previews.stop(); // (the turning models: only on the car page)
     if (to === 'track') { drawTiles(); fitMap(); }
     if (to === 'setup') { showTime(); showLaps(); }
     // keyboard focus on what this page is about
@@ -188,19 +190,21 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   }
 
   // ---------- 1 · car ----------
-  // The proven cars are the big cards; the ones still in development (`dev: true` in their file, cars/index.js) wait in
-  // a section underneath that stays shut until you open it (or one of them is the car you picked last time).
-  const mainCars = cars.filter((c) => !c.dev), devCars = cars.filter((c) => c.dev);
-  let devOpen = !!car.dev;
-  let lastMain = car.dev ? mainCars[0] : car; // the last proven car picked (shutting the section while on a dev car: back to it)
-  let lastDev = car.dev ? car : devCars[0];   // the last one in development picked (↓ goes back to it)
-  const numbers = new Map(mainCars.map((c) => [c, carNumbers(c)]));
-  const best = Object.fromEntries(STATS.map((s) => { // the bars compare the proven cars with each other
-    const v = mainCars.map((c) => numbers.get(c)[s.key]);
+  // A tab for each kind of car (cars/index.js CATEGORIES: Formula, Endurance, GT, MotoGP), and that kind's cars as
+  // big cards, each with its model turning on it (carPreview.js). Cars still in development (`dev: true` in their
+  // file) are in their kind with a badge on them. Under the cards: what the picked car comes with.
+  const cats = CATEGORIES.filter((k) => cars.some((c) => categoryOf(c) === k.id));
+  const inCat = (id) => cars.filter((c) => categoryOf(c) === id);
+  let cat = categoryOf(car);
+  const lastIn = new Map(cats.map((k) => [k.id, inCat(k.id)[0]])); lastIn.set(cat, car); // (the car each tab goes back to)
+  const numbers = new Map(cars.map((c) => [c, carNumbers(c)]));
+  const bestIn = new Map(cats.map((k) => [k.id, Object.fromEntries(STATS.map((s) => { // the bars compare the cars of a kind
+    const v = inCat(k.id).map((c) => numbers.get(c)[s.key]);
     return [s.key, s.high ? Math.max(...v) : Math.min(...v)];
-  }));
+  }))]));
   function carNotes(c) {
     const p = c.physics, out = [];
+    if (c.bike) out.push('Leans into the corners: turn in a moment early, it takes time to roll over');
     if (c.ers?.auto) out.push(`Hybrid boost by itself above ${Math.round(c.ers.minSpeed * 3.6)} km/h`);
     else if (c.ers) out.push('ERS boost: hold Shift (R1)');
     out.push(p.abs && p.tc ? 'ABS and traction control' : p.tc ? 'Traction control, no ABS' : p.abs ? 'ABS' : 'No driver aids');
@@ -211,56 +215,40 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     if (dark.length) out.push(`${andList(dark)} at night with no floodlights`);
     return out;
   }
-  // the proven cars in one row of big cards, the "In development" section under them, then a strip with what the
-  // picked car comes with
   const carPage = menu.querySelector('[data-page="car"]'), carPick = $('car-pick');
-  const dev = document.createElement('div');
-  dev.id = 'car-dev'; dev.className = 'car-dev';
+  const tabs = document.createElement('div');
+  tabs.id = 'car-cats'; tabs.className = 'car-cats'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Kind of car');
   const detail = document.createElement('div');
   detail.id = 'car-detail'; detail.className = 'car-detail'; detail.setAttribute('aria-live', 'polite');
-  carPick.after(dev, detail);
-  if (!devCars.length) dev.hidden = true;
+  carPick.before(tabs); carPick.after(detail);
+  const previews = new CarPreviews(() => step === 'car' && !menu.classList.contains('hidden'));
+  function drawTabs() {
+    tabs.innerHTML = cats.map((k) => {
+      const n = inCat(k.id).length, on = k.id === cat;
+      return `<button type="button" class="cat${on ? ' on' : ''}" data-cat="${esc(k.id)}" role="tab" aria-selected="${on}">` +
+        `<b>${esc(k.name)}</b><span>${esc(k.sub)}</span><i>${n}</i></button>`;
+    }).join('');
+  }
   function drawCars() {
-    carPick.style.setProperty('--cars', mainCars.length); // (the big letters shrink to fit more cars in a row)
-    carPick.innerHTML = `<div class="slat-row" role="presentation">${mainCars.map((c) => {
+    drawTabs();
+    const list = inCat(cat), best = bestIn.get(cat);
+    carPick.style.setProperty('--cars', list.length); // (the big letters shrink to fit more cars in a row)
+    carPick.innerHTML = `<div class="slat-row" role="presentation">${list.map((c) => {
       const nums = numbers.get(c);
       const stats = STATS.map((s) => {
         const v = nums[s.key], f = s.high ? v / best[s.key] : best[s.key] / v;
         return `<span class="stat"><span class="stat-l">${s.label}</span><b>${s.fmt(v)}<small>${s.unit}</small></b><i style="--f:${f.toFixed(3)}"></i></span>`;
       }).join('');
-      return `<button type="button" class="slat${c === car ? ' on' : ''}" data-pick data-car="${esc(c.id)}" role="radio" aria-checked="${c === car}">` +
+      return `<button type="button" class="slat${c === car ? ' on' : ''}${c.dev ? ' is-dev' : ''}" data-pick data-car="${esc(c.id)}" role="radio" aria-checked="${c === car}">` +
         `<span class="slat-big" aria-hidden="true">${esc(c.short ?? c.name)}</span>` +
-        `<span class="slat-head"><b>${esc(c.name)}</b><span>${esc(c.car)}</span></span>` +
+        '<canvas class="slat-view" aria-hidden="true"></canvas>' +
+        `<span class="slat-head"><b>${esc(c.name)}</b><span>${esc(c.car)}</span>${c.dev ? '<em class="dev-chip">In development</em>' : ''}</span>` +
         `<span class="slat-stats">${stats}</span>` +
         '</button>';
     }).join('')}</div>`;
-    drawDev();
+    previews.show([...carPick.querySelectorAll('.slat')].map((b) => ({ canvas: b.querySelector('canvas'), car: cars.find((c) => c.id === b.dataset.car) })), car.id);
+    if (step === 'car') previews.start();
     showDetail();
-  }
-  // the cars still in development: a bar that opens a row of small cards
-  function drawDev() {
-    if (!devCars.length) return;
-    dev.classList.toggle('open', devOpen);
-    dev.innerHTML = `<button type="button" class="dev-toggle" aria-expanded="${devOpen}" aria-controls="car-dev-list">` +
-        '<span class="dev-chip">In development</span>' +
-        `<b>${devCars.length} more ${devCars.length === 1 ? 'car' : 'cars'}</b>` +
-        '<span class="dev-sub">Still being tuned: handling, sound and the AI may change</span>' +
-        `<span class="dev-act">${devOpen ? 'Hide' : 'Show'}<kbd>D</kbd></span>` +
-      '</button>' +
-      `<div id="car-dev-list" class="dev-list" role="radiogroup" aria-label="Cars in development"${devOpen ? '' : ' hidden'}>` +
-      devCars.map((c) => `<button type="button" class="dev-card${c === car ? ' on' : ''}" data-pick data-car="${esc(c.id)}" role="radio" aria-checked="${c === car}">` +
-        `<span class="dev-short" aria-hidden="true">${esc(c.short ?? c.name)}</span>` +
-        `<span class="dev-head"><b>${esc(c.name)}</b><span>${esc(c.car)}</span></span>` +
-        '</button>').join('') +
-      '</div>';
-  }
-  function setDevOpen(open) {
-    if (!devCars.length || open === devOpen) return;
-    devOpen = open;
-    if (!open && car.dev) pickCar(lastMain); // shut while on one of them: back to the proven car you had
-    drawDev(); markCars();
-    const focusIn = document.activeElement?.closest?.('[data-page="car"]');
-    if (focusIn || document.body.classList.contains('pad-nav')) dev.querySelector('.dev-toggle')?.focus({ preventScroll: true });
   }
   function showDetail() {
     const driven = getStats(car.id).total.laps;
@@ -276,32 +264,37 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
       const on = b.dataset.car === car.id;
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on);
     }
+    previews.pick(car.id);
     showDetail();
   }
   function pickCar(c) {
     if (!c || c === car) return;
-    car = c; if (c.dev) lastDev = c; else lastMain = c;
-    if (c.dev && !devOpen) { devOpen = true; drawDev(); }
+    car = c; lastIn.set(categoryOf(c), c);
+    if (categoryOf(c) !== cat) { cat = categoryOf(c); drawCars(); }
     markCars(); showDef(current(), false); summary();
     if (step === 'track') drawTiles(); // your best laps are per car
     onCar?.(car.id);
   }
+  function pickCat(id) { // a tab: its cars, and the one you had picked there last
+    if (id === cat) return;
+    cat = id; drawCars();
+    pickCar(lastIn.get(id) ?? inCat(id)[0]);
+    markCars();
+  }
   carPage.addEventListener('click', (e) => {
-    if (e.target.closest('.dev-toggle')) { setDevOpen(!devOpen); return; }
+    const t = e.target.closest('[data-cat]'); if (t) { pickCat(t.dataset.cat); return; }
     const b = e.target.closest('[data-car]'); if (b) pickCar(cars.find((c) => c.id === b.dataset.car));
   });
   carPage.addEventListener('dblclick', (e) => { if (e.target.closest('[data-car]')) next(); });
-  const shown = () => (devOpen ? [...mainCars, ...devCars] : mainCars); // ← → go through these
   const focusPicked = () => { if (document.activeElement?.closest?.('[data-page="car"]')) carPage.querySelector('[data-car].on')?.focus({ preventScroll: true }); };
-  function stepCar(d) {
-    const list = shown(), k = list.indexOf(car);
+  function stepCar(d) { // ← →: the cars of this kind
+    const list = inCat(cat), k = list.indexOf(car);
     pickCar(list[k < 0 ? 0 : (k + d + list.length) % list.length]);
     focusPicked();
   }
-  function stepCarRow(d) { // ↑ ↓: between the proven cars and the ones in development (when that section is open)
-    if (!devOpen) return;
-    if (d > 0 === !!car.dev) return; // already in that row
-    pickCar(d > 0 ? lastDev : lastMain);
+  function stepCarRow(d) { // ↑ ↓ (and D / a controller's Y): the next kind of car
+    const k = cats.findIndex((x) => x.id === cat);
+    pickCat(cats[(k + d + cats.length) % cats.length].id);
     focusPicked();
   }
 
@@ -590,7 +583,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
     if (k === 'Escape') { e.preventDefault(); back(); return; }
     if (step === 'home') return;
     if (k === 'KeyN') { toggleTime(); return; }
-    if (k === 'KeyD' && step === 'car') { setDevOpen(!devOpen); return; } // the cars in development (controller: Y)
+    if (k === 'KeyD' && step === 'car') { stepCarRow(1); return; } // the next kind of car (controller: Y)
     const arrow = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1, PageDown: -1, PageUp: 1 }[k];
     if (!arrow) return;
     e.preventDefault();

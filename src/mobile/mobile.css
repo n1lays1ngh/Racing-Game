@@ -210,3 +210,9 @@ body.mobile:has(#menu[data-step]:not([data-step="home"])) #m-fs { display: none;
 .mf-box p { margin: 8px 0 0; font-size: 14px; font-weight: 600; color: #cfd4db; line-height: 1.4; }
 .mf-box .mf-steps { color: #ffe2a8; }
 .mf-ok { margin-top: 14px; padding: 9px 28px; border: 0; border-radius: 6px; background: #e10600; color: #fff; font: italic 900 15px 'Titillium Web', system-ui, sans-serif; text-transform: uppercase; }
+
+/* the menu's car cards (carPreview.js): room for the turning model; the numbers only on the picked car */
+body.mobile #menu .slat-view { flex: 1 1 0; height: auto; min-height: 60px; } /* (the narrow-screen rule fixes its height: not on a phone, zoomed to the desktop layout) */
+body.mobile #menu .slat:not(.on) .slat-stats { display: none; }
+body.mobile #menu .slat.on .slat-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } /* (one row: more room for the model) */
+body.mobile #menu .slat.on .stat-l { white-space: normal; line-height: 1.15; }

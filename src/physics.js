@@ -42,6 +42,9 @@ export function createCarState(x, z, heading, spec = F1) {
     // the two-axle tyre model (simPhysics.js): on now / last step, the front and rear slip angles (rad), the car's
     // acceleration lengthways (for the weight transfer, m/s²), rear wheels locked
     simOn: false, simWas: false, slipF: 0, slipR: 0, longAx: 0, lockR: false,
+    // a bike (its physics' `bike` block): how far it's leaned over (rad, + = to the left) and the front wheel's lift
+    // (rad, + = a wheelie, − = the rear lifting under braking)
+    lean: 0, wheelie: 0,
   };
 }
 
@@ -153,6 +156,10 @@ export function stepCar(car, input, track, dt, human = false) {
   if (car.spin > 0) yawTarget *= 1 + (p.spinRotation ?? 0) * car.spin; // wheelspin out of a corner: the rear steps out
   const yawMax = p.slideAllowance * latAvail / Math.max(Math.abs(vf), 3);
   yawTarget = clamp(yawTarget, -yawMax, yawMax);
+  // A bike (p.bike) turns by leaning: the steering asks for the lean that makes this turn, the bike rolls toward it (it
+  // takes a moment), and the turn it makes is the one its lean holds (g·tan(lean) ÷ speed). Grip limits the lean.
+  const B = p.bike;
+  if (B) yawTarget = bikeLean(car, B, p, yawTarget, vf, latAvail, dt);
   // Slides straighten themselves out: turn the nose toward where the car is travelling.
   const slipAngle = Math.atan2(vl, Math.max(Math.abs(vf), 1));
   yawTarget += p.stability * slipAngle;
@@ -176,6 +183,11 @@ export function stepCar(car, input, track, dt, human = false) {
       // without p.power, p.accel fading in a straight line toward top speed (p.accelFade)
       let push = drive * (dfx?.power ?? 1) * (p.power ? Math.min(p.accel, p.power / Math.max(vf, 1))
         : p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)));
+      if (B) { // a bike: the front wheel lifts past B.wheelie (the wheelie control holds it there)
+        const want = drive * (dfx?.power ?? 1) * (p.power ? p.power / Math.max(vf, 1) : p.accel);
+        bikeWheelie(car, B, want, dt);
+        push = Math.min(push, B.wheelie);
+      }
       if (p.traction) { // the driven wheels put down only so much (less while cornering): the rest is wheelspin
         const most = p.traction * latMax * share;
         if (push > most) {
@@ -191,6 +203,7 @@ export function stepCar(car, input, track, dt, human = false) {
   if (brk > 0) {
     if (vf > 0.3) {
       let decel = Math.min(p.brake, 1.2 * latMax * share) * brk; // (share: less braking while turning hard, p.combined)
+      if (B) decel = Math.min(decel, B.stoppie); // a bike: the rear lifts past this
       if (car.lockF) decel *= p.lockBrake;
       vf = Math.max(0, vf - decel * dt); car.longA = Math.max(car.longA, decel);
     } else {
@@ -216,6 +229,9 @@ export function stepCar(car, input, track, dt, human = false) {
   const corr = latAvail * dt;
   vl = Math.abs(vl) <= corr ? 0 : vl - Math.sign(vl) * corr;
 
+  if (B) { // the front settles back down off the throttle; under hard braking the rear goes light
+    if (!(thr > 0 && vf >= -0.5)) car.wheelie += (-(brk > 0 && vf > 0.3 ? Math.max(0, car.longA / B.stoppie - 0.8) * 0.2 : 0) - car.wheelie) * Math.min(1, 8 * dt);
+  } else car.lean = 0;
   car.vx = fx * vf + lx * vl;
   car.vz = fz * vf + lz * vl;
   car.x += car.vx * dt;
@@ -223,6 +239,26 @@ export function stepCar(car, input, track, dt, human = false) {
   if (car.tyres) tyreStep(car, dt, { lat: Math.min(1.2, latUse), brake: brk, throttle: drive, slip: car.slip, lock: car.lockF, dist: Math.abs(vf) * dt, length: track.length }); // tyre wear (tyres.js)
   car.vf = vf;
   finishStep(car, track, proj, grade, dt);
+}
+
+// A bike's lean (physics.js stepCar, p.bike): yawTarget is the turn the steering asks for. Returns the turn it makes.
+function bikeLean(car, B, p, yawTarget, vf, latAvail, dt) {
+  const v = Math.max(vf, 0.1);
+  const most = Math.min(B.maxLean, Math.atan((p.slideAllowance * latAvail) / p.g)); // as far as the grip lets it lean
+  const want = clamp(Math.atan((yawTarget * v) / p.g), -most, most);
+  const k = 1 - Math.exp(-B.rollResponse * dt), step = B.rollRate * dt;
+  car.lean += clamp((want - car.lean) * k, -step, step);
+  if (Math.abs(car.lean) > most) car.lean = Math.sign(car.lean) * most;
+  if (v < 1) car.lean *= Math.max(0, 1 - 4 * dt); // stopped: upright
+  const leaned = (p.g * Math.tan(car.lean)) / v;
+  const w = clamp((v - B.lowSpeed) / B.lowSpeed, 0, 1); // walking pace: the bars steer it
+  return w * leaned + (1 - w) * yawTarget;
+}
+// A bike's front wheel lifting on the power: want = the push the engine would give (m/s²)
+function bikeWheelie(car, B, want, dt) {
+  const upright = Math.cos(car.lean);  // (leaned over, the power can't lift it as much)
+  const target = want > B.wheelie && car.vf < 55 ? Math.min(B.wheelieMax, (want / B.wheelie - 1) * 0.5 + 0.04) * upright : 0;
+  car.wheelie += (target - car.wheelie) * Math.min(1, (target > car.wheelie ? 4 : 8) * dt);
 }
 
 // After either model has moved the car: speed, wheels, height and tilt on the road, and the barriers
@@ -281,6 +317,7 @@ export function placeCar(car, track, s, lateral = 0) {
   car.z = track.cz[i] + track.nz[i] * lateral;
   car.h = Math.atan2(track.tx[i], track.tz[i]);
   car.vx = car.vz = car.vf = car.speed = car.steer = car.yawRate = 0;
+  car.lean = car.wheelie = 0;
   car.lockF = false; car.inPitLane = false; car.pitLimiter = false;
   car.trackIndex = i; car.s = s; car.lateral = lateral;
   car.y = (track.h ? track.h[i] : 0) + bankLift(track, i, lateral); // on a banked grid (Daytona), on the banking, not in it

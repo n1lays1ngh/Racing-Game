@@ -29,6 +29,7 @@ export function createRemoteModel(team, car) {
 // The model for each car in a race (race.cars[i]): yours, a friend's (online) or an AI car's (the built-in car, which
 // also gets a far model: see farModel)
 export function createRaceModel(c, car) {
+  if (car.bike) return createCarModel(c.team, { player: true, car }); // a bike: every one the full bike, with its own far copy (bikeModel.js)
   if (c.isPlayer) return createCarModel(c.team, { player: true, car });
   if (c.isHuman) return createRemoteModel(c.team, car);
   const m = createCarModel(c.team, { car });

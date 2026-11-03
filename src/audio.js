@@ -62,6 +62,11 @@ export const ENGINES = {
              rough: 0.08, jitter: 0.008, pops: false,
              res: [[115, 0.9, 0.85], [290, 1.2, 0.8], [680, 1.6, 0.5], [1600, 2.2, 0.28], [3400, 2.8, 0.12]], gain: 1,
              turbo: { level: 1.4, hz: [1600, 5200], revs: [3000, 7000], spool: 0.45 } },
+  // MotoGP: a 1000 cc V4 to 18,000 rpm with a "big bang" firing order (the four fire close together, then a gap): a hard,
+  // raspy, uneven howl, with crackles on the overrun
+  v4: { cylinders: 4, rpmScale: 1, bank: 0.6, firing: [0, 1, 1, 0], pulse: 0.24, noise: 0.5, body: 0.14, drive: [1.2, 2.2],
+        cutoff: [2600, 7200], rough: 0.13, jitter: 0.01, pops: true,
+        res: [[190, 1.0, 0.8], [540, 1.4, 0.9], [1350, 2.0, 0.5], [3300, 2.6, 0.3]], gain: 0.95 },
 };
 
 export const SOUND = {

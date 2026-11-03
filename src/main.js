@@ -398,6 +398,7 @@ function previewSoon() {
 const SHOWCASES = [
   { track: 'spa', car: 'hypercar', time: null },
   { track: 'silverstone', car: 'gt3', time: null }, { track: 'bahrain', car: 'f1', time: 'night' },
+  { track: 'silverstone', car: 'motogp', time: null },
 ];
 const SHOWCASE_EVERY = 90;
 let showcaseIndex = 0, showcaseSince = performance.now();
@@ -970,6 +971,7 @@ const CAMERA = {
   onboard: { pitch: 1, roll: 1 },           // T-cam and Cockpit
   shake: { impacts: true, kerbs: false },   // shake when you hit something / over kerbs and grass
   speedFov: true,                           // the view widens a little with speed
+  bikeLean: { onboard: 0.85, chase: 0.12 }, // a bike's lean: how much of it the cameras follow (1 = all of it)
 };
 // Where the chase cameras sit (Chase, Far chase, and Q held: looking back) comes from the car's file in src/cars/
 // (`cameras`), the onboard cameras from its model (`model.cams`), since a bigger car needs them further out.
@@ -979,7 +981,9 @@ const camQ = new THREE.Quaternion(), camE = new THREE.Euler(0, 0, 0, 'YXZ'), cam
 function cameraTarget(state) {
   const onboard = camMode >= 2 && !rearView.lookBack, C = onboard ? CAMERA.onboard : CAMERA.chase;
   const yaw = !onboard && C.lag > 0 ? camYaw : state.h;
-  camE.set(-(state.pitch ?? 0) * C.pitch, yaw, (state.roll ?? 0) * C.roll); // the same rotation as the car model (carModel.js)
+  // (a bike: the onboard cameras lean with it, as a real onboard camera does; the chase cameras only a little)
+  const lean = (state.lean ?? 0) * (onboard ? CAMERA.bikeLean.onboard : CAMERA.bikeLean.chase);
+  camE.set(-(state.pitch ?? 0) * C.pitch, yaw, (state.roll ?? 0) * C.roll - lean); // the same rotation as the car model (carModel.js)
   camQ.setFromEuler(camE);
   let pos, look;
   const rig = (race?.carDef ?? myCar).cameras;
