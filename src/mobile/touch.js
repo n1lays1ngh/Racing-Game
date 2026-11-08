@@ -16,6 +16,7 @@
 //   touch.setMode(mode)      'slide' | 'buttons' | 'tilt'
 //   touch.show(on, race)     shown only while you're racing (not paused, no results)
 //   touch.recenter()         tilt: level is how you're holding it now
+import { tap } from '../haptics.js';
 export const TOUCH = {
   slideRange: 0.11,     // slide: share of the screen's width for full lock (from where your thumb went down)
   slideDead: 0.05,      // … dead zone in the middle (share of full lock)
@@ -46,7 +47,7 @@ function hudButtonAt(x, y) {
   return null;
 }
 function key(type, code) { window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true })); }
-const buzz = (ms) => { try { navigator.vibrate?.(ms); } catch { /* no vibration (iPhone) */ } };
+const buzz = (ms) => tap(ms < 8 ? 'light' : 'press'); // (haptics.js: the Haptics setting; an iPhone taps)
 
 export class TouchControls {
   constructor() {

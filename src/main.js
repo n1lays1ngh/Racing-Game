@@ -39,6 +39,7 @@ import { IS_MOBILE } from './mobile/detect.js';
 import { applyAssists, prepareAssists, ASSIST_LEVELS, ASSIST_NAMES, ASSIST_NOTES } from './assists.js';
 import { Loader, nextFrame, within } from './loading.js';
 import { VoiceChat } from './net/voice.js';
+import { phoneFeedback, resetFeedback, preview as hapticPreview, HAPTIC_NOTES } from './haptics.js';
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
@@ -464,6 +465,7 @@ function newRace(cfg = soloConfig()) {
   syncModels(models, race.cars, camera);
   prewarmed = prewarm(); // shaders and textures ready before the lights go out (no hitch the first time something comes into view)
   prepareAssists(race); // driving assists: the speed plan they use (assists.js)
+  resetFeedback(); // (haptics.js: a new race)
   pitCrews?.dispose(); pitCrews = race.pits ? new PitCrews(scene, race) : null; // pit stops on: the crews in front of the garages (pitcrew.js)
   hud.setMode({ pits: !!race.pits, damage: !!race.damage }); // the pit and tyre pages, the damage page
   headlights.attach(models[race.cars.indexOf(race.player)], race.carDef, autoOn(timeOf(track))); // on at night
@@ -842,11 +844,12 @@ function drawAssists() {
 // Voice chat (net/voice.js): on / off, the microphone, the voices in the race. The rows under it only when it's on
 function drawVoice() {
   const $ = (id) => document.getElementById(id);
-  const val = { voice: OPTIONS.voice ? 'on' : 'off', mic: OPTIONS.mic, voiceRange: OPTIONS.voiceRange };
+  const val = { voice: OPTIONS.voice ? 'on' : 'off', mic: OPTIONS.mic, voiceRange: OPTIONS.voiceRange, haptics: OPTIONS.haptics };
   for (const seg of document.querySelectorAll('[data-opt]')) for (const b of seg.children) b.classList.toggle('on', b.dataset.v === val[seg.dataset.opt]);
   for (const r of document.querySelectorAll('.set-voice-row')) r.classList.toggle('hidden', !OPTIONS.voice);
   $('set-voice-sub').textContent = OPTIONS.voice ? (lobby.session ? 'On: you’re in voice with this room' : 'On: in a multiplayer room you’ll hear your friends') : 'Online: talk to your friends in the room';
   $('set-mic-sub').textContent = { ptt: IS_MOBILE ? 'Hold Talk to talk' : 'Hold X to talk (RB on a controller)', open: 'Always on: everyone hears you', muted: 'Listen only' }[OPTIONS.mic];
+  $('set-haptics-sub').textContent = `${HAPTIC_NOTES[OPTIONS.haptics]} · ${IS_MOBILE ? 'phone vibration' : 'controller rumble'}${IS_MOBILE && !('vibrate' in navigator) ? ' (iPhone: light taps)' : ''}`;
   $('set-range-sub').textContent = OPTIONS.voiceRange === 'near' ? 'Hear the cars near you, from where they are' : 'Hear everyone all race';
 }
 document.addEventListener('click', (e) => {
@@ -863,7 +866,8 @@ document.addEventListener('click', (e) => {
 drawAssists();
 
 onOption((key, value) => {
-  if (key === 'voice' || key === 'mic' || key === 'voiceRange') drawVoice();
+  if (key === 'voice' || key === 'mic' || key === 'voiceRange' || key === 'haptics') drawVoice();
+  if (key === 'haptics') hapticPreview(value); // (a taste of the level you picked)
   if (key === 'steerAssist') ASSIST.steer = value;
   if (key === 'brakeAssist') ASSIST.brake = value;
   if (key === 'racingLine' && race) showRacingLine();
@@ -1145,6 +1149,9 @@ function tick(timestamp) {
   audio.updateTraffic(LIVE, race.player, camera); // engines around you, with Doppler
   if (!paused) padFeedback({ hit: ps.hitWall, surface: ps.surface, speed: ps.speed, slip: ps.slip, // controller rumble
     throttle: ps.throttle, brake: ps.brake, lock: ps.lockF, rpm: gb.rpm, gear: gb.gear });
+  if (!paused && IS_MOBILE) phoneFeedback({ state: race.state, speed: ps.speed, throttle: ps.throttle, brake: ps.brake, // phone vibration (haptics.js)
+    lock: ps.lockF, slip: ps.slip, surface: ps.surface, hit: ps.hitWall, gear: gb.gear, rpm: gb.rpm, maxRpm: box.rpm[1],
+    boost: ps.ersMode === 'deploy', lap: race.player.lapsDone }, dt);
   if (!paused) circuit.marks?.update(ps); // your tyres leave rubber on the track (tyreMarks.js)
 
   const tH = performance.now();

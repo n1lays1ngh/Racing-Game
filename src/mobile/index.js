@@ -226,7 +226,7 @@ export function setupMobile(ctx) {
     return true;
   });
 
-  // once a frame (only frames that are drawn): touch controls on while racing, the screen kept on, a buzz on a hit, and
+  // once a frame (only frames that are drawn): touch controls on while racing, the screen kept on (the vibration: haptics.js), and
   // a light sweep for car paint with clearcoat (a second layer of reflections: costly on a phone)
   function perFrame(race, t) {
     const racing = !!race && !$('hud').classList.contains('hidden') && $('pause').classList.contains('hidden') && $('results').classList.contains('hidden');
@@ -236,9 +236,6 @@ export function setupMobile(ctx) {
       lastRace = race;
       if (race) { touch.tilt.neutral = null; keepAwake(true); sweep = 0; } else keepAwake(false); // (tilt: level is how you hold it at the start)
     }
-    const hit = race?.player?.state?.hitWall ?? 0;
-    if (hit > 0.35 && hitWas <= 0.35) { try { navigator.vibrate?.(Math.round(20 + hit * 40)); } catch { /* none */ } }
-    hitWas = hit;
     if (t - sweep > 4000) { sweep = t; noClearcoat(ctx.scene); }
   }
   async function keepAwake(on) {

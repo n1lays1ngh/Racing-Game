@@ -5,15 +5,17 @@
 //   mapZoom     the minimap: false = the whole circuit with every car, true = a close-up of the road ahead (hud.js)
 //   steerAssist, brakeAssist   driving assists: 'off' | 'low' | 'medium' | 'high' (assists.js; also in the race setup)
 //   voice, mic, voiceRange     voice chat online (net/voice.js): on / off; 'ptt' | 'open' | 'muted'; 'near' | 'all'
+//   haptics    phone vibration and controller rumble: 'off' | 'low' | 'medium' | 'high' (haptics.js)
 const KEY = 'apex-circuit:options';
 export const OPTIONS = { racingLine: false, ghost: true, mapZoom: false, steerAssist: 'off', brakeAssist: 'off',
-  voice: false, mic: 'ptt', voiceRange: 'near' };
+  voice: false, mic: 'ptt', voiceRange: 'near', haptics: 'medium' };
 const LEVELS = ['off', 'low', 'medium', 'high'];
 
 try { Object.assign(OPTIONS, JSON.parse(localStorage.getItem(KEY)) ?? {}); } catch { /* nothing saved, or private mode */ }
 for (const k of ['steerAssist', 'brakeAssist']) if (!LEVELS.includes(OPTIONS[k])) OPTIONS[k] = 'off'; // (anything odd saved: off)
 if (!['ptt', 'open', 'muted'].includes(OPTIONS.mic)) OPTIONS.mic = 'ptt';
 if (!['near', 'all'].includes(OPTIONS.voiceRange)) OPTIONS.voiceRange = 'near';
+if (!LEVELS.includes(OPTIONS.haptics)) OPTIONS.haptics = 'medium';
 OPTIONS.voice = OPTIONS.voice === true;
 
 const listeners = new Set();

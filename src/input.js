@@ -16,6 +16,7 @@
 //             start screen: Y multiplayer, X your stats
 // Works with any controller the browser reports with the "standard" layout (Xbox, PlayStation,
 // Switch Pro and most others in Chrome, Edge, Firefox and Safari).
+import { padScale, padEngine, haptic } from './haptics.js';
 import { triggerFeedback } from './dualsense.js';
 
 export const PAD = {
@@ -285,10 +286,10 @@ export function padFeedback({ hit = 0, surface = 'road', speed = 0, slip = 0, th
   hitHold = Math.max(hit, hitHold - dt * 2.5);
   triggerFeedback({ brake, lock, throttle, speed });                // DualSense trigger resistance (if connected)
 
-  const pad = activePad(), act = pad?.vibrationActuator;
-  if (!PAD.rumble || !act || now < nextRumble) return;
+  const pad = activePad(), act = pad?.vibrationActuator, gain = PAD.rumble * padScale(); // (haptics.js: Off / Low / Medium / High)
+  if (!gain || !act || now < nextRumble) return;
   const fast = Math.min(1, speed / 60);
-  let strong = 0, weak = PAD.engineRumble * (0.04 + 0.16 * throttle * Math.min(1, rpm / 13000));
+  let strong = 0, weak = PAD.engineRumble * padEngine() * 2 * (0.04 + 0.16 * throttle * Math.min(1, rpm / 13000));
   strong += brake * 0.35 * fast;                                        // braking load
   if (lock && speed > 8) strong += (Math.floor(now / 45) % 2) * 0.7;    // locked wheels: hard pulsing
   if (surface === 'kerb' && speed > 4) { const on = kerbPhase < 1 ? 1 : 0.45; strong += 0.35 * on; weak += 0.6 * on; }
@@ -297,13 +298,16 @@ export function padFeedback({ hit = 0, surface = 'road', speed = 0, slip = 0, th
   if (slip > 1.5 && speed > 8) weak += Math.min(0.6, (slip - 1.5) * 0.12);
   if (kick > 0) strong += 0.45;
   strong += Math.min(1, hitHold * 1.4);
-  strong = Math.min(1, strong * PAD.rumble); weak = Math.min(1, weak * PAD.rumble);
+  if (haptic() === 'low') { // (Low: only the crashes and the lock-ups)
+    weak = 0; strong = Math.min(1, hitHold * 1.4) + (lock && speed > 8 ? (Math.floor(now / 45) % 2) * 0.7 : 0);
+  }
+  strong = Math.min(1, strong * gain); weak = Math.min(1, weak * gain);
   if (strong < 0.02 && weak < 0.02) return;
   const opts = { duration: 80, strongMagnitude: strong, weakMagnitude: weak };
   if (PAD.triggerRumble && act.effects?.includes('trigger-rumble')) {   // the triggers themselves (Xbox, Windows)
     act.playEffect('trigger-rumble', { ...opts,
-      leftTrigger: Math.min(1, (brake * 0.25 * fast + (lock ? (Math.floor(now / 45) % 2) * 0.9 : 0)) * PAD.rumble),
-      rightTrigger: Math.min(1, (slip > 2 && throttle > 0.5 && speed < 40 ? 0.5 : throttle * 0.08) * PAD.rumble) }).catch(() => {});
+      leftTrigger: Math.min(1, (brake * 0.25 * fast + (lock ? (Math.floor(now / 45) % 2) * 0.9 : 0)) * gain),
+      rightTrigger: Math.min(1, (slip > 2 && throttle > 0.5 && speed < 40 ? 0.5 : throttle * 0.08) * gain) }).catch(() => {});
   } else act.playEffect('dual-rumble', opts).catch(() => {});
   nextRumble = now + 50;
 }
