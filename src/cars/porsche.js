@@ -81,6 +81,8 @@ export default {
   // tools/prepare-car.mjs: rigged (wheels, calipers, steering wheel and its buttons, dash screen), 470k → 152k triangles.
   model: {
     url: '/models/porsche_911_gt3r.glb',
+    ai: '/models/porsche_911_gt3r_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
+    aiField: ['gt3', 'porsche', 'mclaren'],  // … and the cars on an AI grid: a mix of the GT cars (each team always the same one)
     length: null,
     builtin: 'gt',            // the AI cars: the built-in GT3 (carBodies.js), in their team's colours
     farLivery: { color: 0xe23585, accent: 0x18d848 }, // friends' cars further away (online): Roxy pink and green

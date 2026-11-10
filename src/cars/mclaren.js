@@ -74,6 +74,8 @@ export default {
   // wheel split, damage glass and blurred-rim copies removed, scaled to the 2.67 m wheelbase; 473k → 206k triangles).
   model: {
     url: '/models/mclaren_720s_gt3.glb',
+    ai: '/models/mclaren_720s_gt3_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
+    aiField: ['gt3', 'porsche', 'mclaren'],  // … and the cars on an AI grid: a mix of the GT cars (each team always the same one)
     length: null,
     builtin: 'gt',
     farLivery: { color: 0xf2f2f2, accent: 0xff7a00 },

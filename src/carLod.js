@@ -4,7 +4,8 @@
 // you can't tell). AI cars are always the built-in car, in their team's colours.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createCarModel, syncCarModel } from './carModel.js';
+import { createCarModel, syncCarModel, loadAiModel, aiReady } from './carModel.js';
+import { getCar } from './cars/index.js';
 import { GRAPHICS } from './settings.js';
 
 export const LOD = {
@@ -14,12 +15,24 @@ export const LOD = {
   farLivery: { color: 0x1b2448, accent: 0xd8141d }, // the RB19's colours (a car's own farLivery wins)
 };
 
+// The AI cars' looks in a race of `car`: the car's own light copy (model.ai, made by tools/prepare-ai-car.mjs), or
+// a mix of several cars' (model.aiField: the GT cars race each other). Each team always gets the same one.
+const fieldOf = (car) => (car.model.aiField ?? [car.id]).map(getCar).filter((c) => c.model?.ai);
+export function loadAiModels(car) { return car.bike ? Promise.resolve([]) : Promise.all(fieldOf(car).map((c) => loadAiModel(c.model))); }
+export const aiModelsReady = (car) => car.bike || fieldOf(car).every((c) => aiReady(c.model));
+function lookFor(car, team) {
+  const F = fieldOf(car).filter((c) => aiReady(c.model));
+  if (!F.length) return null;
+  let h = 0; for (const ch of String(team?.name ?? '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return F[h % F.length];
+}
+
 // A friend's car. car: the car everyone's racing (its file in src/cars/; race.carDef)
 export function createRemoteModel(team, car) {
   const group = new THREE.Group();
   const hi = createCarModel(team, { player: true, car, lite: true });
   hi.userData.display = null; // no live steering-wheel screen on other people's cars (saves work every frame)
-  const lo = createCarModel({ ...team, ...(car.model.farLivery ?? LOD.farLivery) }, { player: false, car });
+  const lo = createCarModel({ ...team, ...(car.model.farLivery ?? LOD.farLivery) }, { player: false, car, look: aiReady(car.model) ? car : null });
   lo.visible = false;
   group.add(hi, lo);
   group.userData = { lod: { hi, lo, near: false, d: 0 } };
@@ -32,7 +45,7 @@ export function createRaceModel(c, car) {
   if (car.bike) return createCarModel(c.team, { player: true, car }); // a bike: every one the full bike, with its own far copy (bikeModel.js)
   if (c.isPlayer) return createCarModel(c.team, { player: true, car });
   if (c.isHuman) return createRemoteModel(c.team, car);
-  const m = createCarModel(c.team, { car });
+  const m = createCarModel(c.team, { car, look: lookFor(car, c.team) });
   const near = [...m.children], far = farModel(m);
   if (far) { m.add(far); m.userData.lodFar = { near, far, on: false }; }
   return m;
@@ -67,13 +80,18 @@ function farModel(model) {
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     if (!m || m.transparent || m.visible === false) return;
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    const own = m.vertexColors ? g.attributes.color : null; // (an AI car's plain-coloured parts: their colours are in the mesh)
     for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
     if (!g.attributes.normal) g.computeVertexNormals();
     g.applyMatrix4(rel.multiplyMatrices(inv, o.matrixWorld));
     c.copy(m.color ?? c.set(0xffffff));
-    if (m.map) { const t = averageColour(m.map); if (t) c.multiply(t); }
+    if (m.userData.farColour) c.copy(m.userData.farColour); // (an AI car's paint: its team's colour)
+    else if (m.map) { const t = averageColour(m.map); if (t) c.multiply(t); }
     const n = g.attributes.position.count, col = new Float32Array(n * 3);
-    for (let k = 0; k < n; k++) { col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
+    for (let k = 0; k < n; k++) {
+      if (own) { col[k * 3] = own.getX(k) * c.r; col[k * 3 + 1] = own.getY(k) * c.g; col[k * 3 + 2] = own.getZ(k) * c.b; }
+      else { col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
+    }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     parts.push(g);
   });

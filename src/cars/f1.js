@@ -46,9 +46,9 @@ export default {
     liftOff: 4,           // m/s² extra slowing off the throttle (engine braking and the hybrid harvesting; the air does the rest)
     brake: 50,            // m/s² max braking (still limited by grip): with the drag, ~6 g from 300 km/h, ~3 g from 100
     // --- grip ---
-    mu: 1.65,              // tyre grip (mechanical: what's left at low speed)
+    mu: 1.7,              // tyre grip (mechanical: what's left at low speed)
     g: 9.81,
-    downforce: 0.0030,    // extra grip per v²: downforce ≈ 1.6 × the car's weight at 240 km/h (lift area ~4.7 m²)
+    downforce: 0.0035,    // extra grip per v²: downforce ≈ 1.6 × the car's weight at 240 km/h (lift area ~4.7 m²)
     // --- steering & handling feel ---
     wheelbase: 3.6,       // metres between the axles; the steering works from this (or steerBase, if a car has one)
     maxSteer: 0.36,       // steering lock at low speed
@@ -56,7 +56,7 @@ export default {
     steerRate: 2.3,       // how fast the front wheels turn
     yawResponse: 9,       // how quickly the car rotates (lower = heavier, higher = sharper)
     slideAllowance: 1.10, // how far the car can rotate past grip → small controllable slide
-    trailBrake: 0.35,     // extra rotation while braking into a corner
+    trailBrake: 0.15,     // extra rotation while braking into a corner
     powerRotation: 0.20,  // extra rotation on throttle in slow corners
     stability: 2,         // how strongly slides straighten out (higher = safer, lower = driftier)
     // --- lock-ups ---
@@ -140,6 +140,7 @@ export default {
   // "Oracle Red Bull F1 Car RB19 2023" by Redgrund on Sketchfab, CC-BY-4.0 (credit in the README).
   model: {
     url: '/models/rb19.glb',  // null = use the built-in car (builtin: its shape, 'f1' | 'proto' | 'gt', carModel.js)
+    ai: '/models/rb19_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
     length: 5.6,              // nose to rear wing in metres (the model is scaled to this)
     offsetZ: 0.29,            // slides the model so its wheels sit on the physics wheelbase (±1.8 m)
     forAI: false,             // true = every car on the grid is an RB19

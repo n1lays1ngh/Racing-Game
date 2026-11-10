@@ -75,6 +75,7 @@ export default {
   // were missing), so it's painted in the team's 2006 blue and yellow.
   model: {
     url: '/models/renault_r26.glb',
+    ai: '/models/renault_r26_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
     length: null,
     builtin: 'f1',
     farLivery: { color: 0x2f86e8, accent: 0xf2c200 },

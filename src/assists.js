@@ -61,10 +61,10 @@ const races = new WeakMap();
 export function prepareAssists(race) { // (main.js: while the race loads, so nothing is worked out when the lights go out)
   let c = races.get(race);
   if (!c || c.car !== race.player?.state) {
-    const lock = AI_TUNE.lockBonus;
-    AI_TUNE.lockBonus = 1;
+    const lock = AI_TUNE.lockBonus, hairpin = AI_TUNE.hairpin.bonus;
+    AI_TUNE.lockBonus = 1; AI_TUNE.hairpin.bonus = 0;
     let profile;
-    try { profile = buildSpeedProfile(race.track, 1, 0.97, 0.9, race.carDef?.physics); } finally { AI_TUNE.lockBonus = lock; }
+    try { profile = buildSpeedProfile(race.track, 1, 0.97, 0.9, race.carDef?.physics); } finally { AI_TUNE.lockBonus = lock; AI_TUNE.hairpin.bonus = hairpin; }
     c = { car: race.player?.state, profile, driver: null };
     races.set(race, c);
   }
@@ -109,7 +109,7 @@ export function applyAssists(race, input, levels, dt) {
   // ---- steering assist ----
   if (S && v > ASSISTS.steer.minSpeed) {
     if (S.line > 0) { // the racing line: steered as an AI driver would steer your car along it (ai.js, the same code)
-      const auto = clamp(lineDriver(race, c).update(dt, race.cars).steer * AI_TUNE.lockBonus, -1, 1); // (its extra lock → yours)
+      const drv = lineDriver(race, c), auto = clamp(drv.update(dt, race.cars).steer * drv.lockNow, -1, 1); // (its extra lock → yours)
       const w = S.line * (1 - S.give * clamp(Math.abs(steer) / ASSISTS.steer.override, 0, 1));
       steer += (auto - steer) * w;
     }

@@ -17,7 +17,7 @@ import { RearView } from './rearview.js';
 import { applyTimeOfDay, TIMES, timeOf } from './lighting.js';
 import { Lobby } from './lobby.js';
 import { NameTags } from './nametags.js';
-import { createRaceModel, syncModels } from './carLod.js';
+import { createRaceModel, syncModels, loadAiModels } from './carLod.js';
 import { keepTicking, stopTicking } from './net/background.js';
 import { StatsRun } from './stats.js';
 import { StatsScreen } from './statsScreen.js';
@@ -713,7 +713,8 @@ async function startGame(cfg = soloConfig()) {
   await nextFrame(); // (the loading screen up before the heavy work starts)
   if (called()) return;
   loader.step(0.04, 'Car');
-  await loadCarModel(car.model); // the race car's model: usually loaded long before you press Start
+  await Promise.all([loadCarModel(car.model), // the race car's model: usually loaded long before you press Start
+    cfg.aiCount === 0 && !lobby.session ? null : loadAiModels(car)]); // … and the light copies the other cars are (carLod.js)
   if (called()) return;
   loader.step(0.08, 'Circuit');
   await readyTrack(cfg.track, car, cfg.time, (f) => loader.step(0.08 + 0.62 * f, f < 0.15 ? 'Circuit' : 'Scenery'));

@@ -73,6 +73,7 @@ export default {
   // scaled to the 2.896 m wheelbase; 329k → 137k triangles).
   model: {
     url: '/models/mclaren_mp45.glb',
+    ai: '/models/mclaren_mp45_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
     length: null,
     builtin: 'f1',
     farLivery: { color: 0xf2f2f2, accent: 0xd40000 },

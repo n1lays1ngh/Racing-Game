@@ -48,10 +48,10 @@ export const TEAMS = [
 // and on the brakes. Set against a quick human on the racing line (track.js, K1999): easy 6–8.5 % slower a lap,
 // medium 2.5–4.5 % slower, hard level at the front to 1.5 % slower at the back, expert 1.3 % quicker to level.
 export const DIFFICULTY = {
-  easy:   { pace: [0.9, 0.86],    power: [0.98, 0.96], brakeUse: [0.9, 0.88],  grip: 1.0,  safety: 0.97, defence: 0.3,  attack: 0.3 },
-  medium: { pace: [0.97, 0.93],   power: [1, 0.99],    brakeUse: [0.96, 0.94], grip: 1.0,  safety: 0.99, defence: 0.45, attack: 0.6 },
-  hard:   { pace: [1.01, 0.98],   power: [1, 1],       brakeUse: [1.0, 0.98],  grip: 1.02, safety: 1.0,  defence: 0.55, attack: 0.85 },
-  expert: { pace: [1.02, 0.99],   power: [1, 1],       brakeUse: [1.0, 0.99],  grip: 1.06, safety: 1.0,  defence: 0.6,  attack: 1 },
+  easy:   { pace: [0.9, 0.86],    power: [0.98, 0.96], brakeUse: [0.9, 0.88],  grip: 1.0,  safety: 0.97, defence: 0.35, attack: 0.5 },
+  medium: { pace: [0.97, 0.93],   power: [1, 0.99],    brakeUse: [0.96, 0.94], grip: 1.0,  safety: 0.99, defence: 0.55, attack: 0.85 },
+  hard:   { pace: [1.01, 0.98],   power: [1, 1],       brakeUse: [1.0, 0.98],  grip: 1.02, safety: 1.0,  defence: 0.7,  attack: 1.05 },
+  expert: { pace: [1.02, 0.99],   power: [1, 1],       brakeUse: [1.0, 0.99],  grip: 1.06, safety: 1.0,  defence: 0.8,  attack: 1.2 },
 };
 // a [quickest, slowest] setting for a driver `rank` of the way down the grid (0 = the front, 1 = the back)
 export const paceAt = (x, rank) => (Array.isArray(x) ? x[0] + (x[1] - x[0]) * rank : x);
@@ -212,7 +212,7 @@ export class Race {
       const car = {
         id: id ?? teamIdx, team, state, isPlayer, isHuman: !!human, humanId: human?.id ?? null,
         lapsDone: -1, prevS: state.s, progress: 0,
-        lapStart: 0, lastLap: null, bestLap: null, finishTime: null,
+        lapStart: 0, crossAt: null, lastLap: null, bestLap: null, finishTime: null,
         position: slot + 1, gap: 0, gapKnown: false, interval: null, lapsDown: 0, grid: slot + 1,
         trace: newTrace(TRACE, true), // timing points it passed (for the interval of the car behind it)
         // track limits: this lap invalid? which sectors? (and the same for the lap just finished)

@@ -80,6 +80,8 @@ export default {
   // with tools/prepare-car.mjs: rigged (wheels, calipers, steering wheel, dash screen), 420k → 160k triangles.
   model: {
     url: '/models/amg_gt3.glb',
+    ai: '/models/amg_gt3_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
+    aiField: ['gt3', 'porsche', 'mclaren'],  // … and the cars on an AI grid: a mix of the GT cars (each team always the same one)
     length: null,             // null = the file is already to scale, in metres, centred on the axles (prepare-car.mjs)
     builtin: 'gt',            // the built-in GT3 (carBodies.js): the AI cars, in their team's colours (and your car if
                               // the model can't load). AI cars are never this model: that's yours

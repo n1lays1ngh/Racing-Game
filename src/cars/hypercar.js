@@ -101,6 +101,7 @@ export default {
   // with tools/prepare-car.mjs: rigged (wheels, calipers, steering wheel and its screen), 460k → 175k triangles.
   model: {
     url: '/models/ferrari_499p.glb',
+    ai: '/models/ferrari_499p_ai.glb',  // the light copy the AI cars use, repainted in their team's colours (tools/prepare-ai-car.mjs)
     length: null,
     builtin: 'proto',          // the built-in Hypercar (carBodies.js): the AI cars, in their team's colours
     farLivery: { color: 0xd80808, accent: 0xf8b808 },

@@ -17,7 +17,7 @@
 // Take: the same take always gives the same edit; another take, another edit. Sound: the engine of the car on camera.
 import * as THREE from 'three';
 import { createCarModel, loadCarModel, syncCarModel, carCams } from './carModel.js';
-import { createRaceModel, syncModels } from './carLod.js';
+import { createRaceModel, syncModels, loadAiModels } from './carLod.js';
 import { loadGhost } from './ghost.js';
 import { projectOnTrack, pointAt, sampleAt } from './track.js';
 import { formatTime } from './race.js';
@@ -220,7 +220,7 @@ export class Cinema {
     $('cin-kicker').textContent = m.series ? `${m.series} · race replay` : 'Race replay';
     $('cin-title').textContent = track.name;
     $('cin-sub').textContent = `${car.name}  ·  ${m.laps} laps  ·  ${clock(m.duration ?? 0)}${me ? `  ·  you ${me.dnf ? 'DNF' : `P${me.pos}`}` : ''}`;
-    await loadCarModel(car.model);
+    await Promise.all([loadCarModel(car.model), loadAiModels(car)]);
     if (!this.active) return;
     this.src = new RaceSource(replay, track);
     this.ready(this.src.duration > 1 ? null : 'This replay is empty.');

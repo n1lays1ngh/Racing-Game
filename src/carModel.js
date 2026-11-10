@@ -4,9 +4,11 @@
 //    (public/models/rb19.glb), the Ferrari 499P (ferrari_499p.glb) or the Mercedes-AMG GT3 (amg_gt3.glb).
 //    The model is rigged when it loads: the four wheels spin, the front wheels steer (with their brake
 //    calipers), and the steering wheel in the cockpit turns as you steer, with a live screen on it or the dash.
-//  • AI cars: a built-in car made in code, painted in each team's colours (createBuiltinCar further down), in the
-//    car's own shape: an F1 car (BODIES), a Le Mans Hypercar or a GT3 (carBodies.js). Never a copy of your car.
-//  • Your car is the built-in one too if its .glb can't be loaded.
+//  • AI cars: a light copy of the real car's model (public/models/<car>_ai.glb, made by tools/prepare-ai-car.mjs:
+//    the same shape at a tenth of the triangles, six parts to draw, the cockpit left out), its livery repainted in
+//    each team's colours (createAiCar further down). In a GT race the grid is a mix of the GT cars.
+//  • Until that copy has loaded (or if it can't be): a built-in car made in code in the team's colours
+//    (createBuiltinCar, carBodies.js). Your car is that one too if its own .glb can't be loaded.
 //
 // "Oracle Red Bull F1 Car RB19 2023" model by Redgrund
 // (https://sketchfab.com/3d-models/oracle-red-bull-f1-car-rb19-2023-e4afe46f3aab4b23a418da06fc163821),
@@ -622,6 +624,85 @@ function loadModel(cfg) {
   });
 }
 
+// ---------- the AI cars' models (tools/prepare-ai-car.mjs) ----------
+// cfg.ai: the light copy's file. It has a `body` and four wheels (wheel_FL …, each at its hub), two materials: the
+// paint (its livery texture, plus a mask of where the livery's main and second colours are) and everything else
+// (plain colours stored in the mesh). Each team gets its own paint: the livery with those two colours swapped for
+// the team's, sponsors and details as they are.
+const aiTemplates = new Map(), aiLoading = new Map();
+export const aiReady = (cfg) => aiTemplates.has(cfg);
+export function loadAiModel(cfg) {
+  if (!cfg?.ai) return Promise.resolve(false);
+  if (!aiLoading.has(cfg)) {
+    const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+    aiLoading.set(cfg, loader.loadAsync(cfg.ai).then((gltf) => {
+      const model = gltf.scene, paints = new Set();
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true; o.receiveShadow = true;
+        if (o.material.name.startsWith('ai_paint')) paints.add(o.material);
+      });
+      for (const m of paints) { // the mask travels in the file as the emissive texture: it's data, not light
+        const mask = m.emissiveMap;
+        if (mask) { mask.colorSpace = THREE.NoColorSpace; mask.needsUpdate = true; }
+        m.emissiveMap = null; m.emissive.set(0x000000);
+        m.userData.mask = mask ?? null;
+      }
+      for (const id of ['FL', 'FR', 'RL', 'RR']) { // each wheel: a pivot that steers, one that spins
+        const node = model.getObjectByName('wheel_' + id); if (!node) continue;
+        const steer = new THREE.Group(); steer.name = 'steer_' + id; steer.position.copy(node.position);
+        const spin = new THREE.Group(); spin.name = 'spin_' + id;
+        node.parent.add(steer); steer.add(spin); spin.add(node); node.position.set(0, 0, 0);
+      }
+      const template = new THREE.Group(); template.add(model);
+      aiTemplates.set(cfg, { template, paints: new Map() });
+      return true;
+    }).catch((err) => { console.warn(`AI car model ${cfg.ai} couldn't be loaded, using the built-in car.`, err); return false; }));
+  }
+  return aiLoading.get(cfg);
+}
+const AI_PAINT_GLSL = `#include <map_fragment>
+  {
+    vec4 aiMk = texture2D( aiMask, vMapUv );
+    float aiL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+    diffuseColor.rgb = mix( diffuseColor.rgb, aiTeam * clamp( aiL / aiLum, 0.75, 1.2 ), aiMk.r );
+    diffuseColor.rgb = mix( diffuseColor.rgb, aiAccent, aiMk.g );
+  }`;
+// A team's paint for this model (made once per team: every car of that team shares it)
+function aiPaint(T, base, team) {
+  const key = `${base.uuid}|${team.color}|${team.accent}`;
+  if (T.paints.has(key)) return T.paints.get(key);
+  const m = base.clone(), mask = base.userData.mask, info = base.userData.aiPaint ?? {};
+  m.userData = { ...base.userData, farColour: new THREE.Color(team.color ?? 0xe10600) }; // (carLod.js: the far model's colour)
+  if (mask && m.map) {
+    const U = { aiMask: { value: mask }, aiTeam: { value: new THREE.Color(team.color ?? 0xe10600) },
+      aiAccent: { value: new THREE.Color(team.accent ?? 0xffffff) }, aiLum: { value: Math.max(info.lum ?? 0.2, 0.01) } };
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D aiMask;\nuniform vec3 aiTeam;\nuniform vec3 aiAccent;\nuniform float aiLum;')
+        .replace('#include <map_fragment>', AI_PAINT_GLSL);
+    };
+    m.customProgramCacheKey = () => 'ai-paint';
+  } else m.color.set(team.color ?? 0xe10600);
+  T.paints.set(key, m);
+  return m;
+}
+function createAiCar(cfg, team) {
+  const T = aiTemplates.get(cfg), car = new THREE.Group();
+  car.rotation.order = 'YXZ';
+  car.add(T.template.clone()); // (geometry, textures and the plain-colour material are shared by every car)
+  const wheels = [], steerPivots = [];
+  car.traverse((o) => {
+    if (o.isMesh && o.material.name.startsWith('ai_paint')) o.material = aiPaint(T, o.material, team);
+    if (o.name.startsWith('spin_')) wheels.push(o);
+    if (o.name === 'steer_FL' || o.name === 'steer_FR') steerPivots.push(o);
+  });
+  car.userData = { model: true, ai: true, cfg, wheels, steerPivots, blurMats: [], steeringWheel: null, display: null, compoundMat: null,
+    cams: cfg.cams, spinVis: 0, lastSpin: null, frame: 0 };
+  return car;
+}
+
 // lite: someone else's car (a friend's, online), seen from outside: no live screen, and the parts in cfg.lite left
 // out (cockpit details nobody sees from outside)
 function createModelCar(cfg, { lite = false } = {}) {
@@ -655,10 +736,11 @@ function createModelCar(cfg, { lite = false } = {}) {
 // A car for a team. car: which car (its file in src/cars/; race.carDef).
 //   player: your car (or a friend's online): the model in its own livery
 //   lite:   seen only from outside (see createModelCar)
-// The model is used once it has loaded (loadCarModel); until then, and for AI cars, the built-in car in the
-// team's colours (never a copy of your car).
-export function createCarModel(team = {}, { player = false, car = F1, lite = false } = {}) {
+// The model is used once it has loaded (loadCarModel); until then the built-in car in the team's colours.
+//   look: an AI car: the car whose light copy it is (carLod.js picks it: in a GT race, any of the GT cars)
+export function createCarModel(team = {}, { player = false, car = F1, lite = false, look = null } = {}) {
   const cfg = car.model;
+  if (!player && !car.bike) { const L = (look ?? car).model; if (aiTemplates.has(L)) return createAiCar(L, team); }
   if (car.bike && templates.has(cfg)) { const b = makeBike(templates.get(cfg), team); b.userData.cfg = cfg; b.userData.cams = cfg.cams; return b; } // a bike (bikeModel.js): every bike on the grid
   if (templates.has(cfg) && (player || cfg.forAI)) return createModelCar(cfg, { lite });
   // the car's body shape (BODIES), with its own cameras, unless the car only has the built-in body

@@ -7,7 +7,7 @@ import { AIDriver } from './ai.js';
 import { pointAt, sampleAt } from './track.js';
 import { heightAtS } from './elevation.js';
 import { carCams, modelReady, loadCarModel } from './carModel.js';
-import { createRaceModel, syncModels } from './carLod.js';
+import { createRaceModel, syncModels, loadAiModels, aiModelsReady } from './carLod.js';
 import { PitCrews } from './pitcrew.js';
 
 const SHOTS = ['trackside', 'tracking', 'heli', 'trackside', 'front', 'tcam', 'trackside', 'tracking'];
@@ -29,6 +29,8 @@ export class Showcase {
         this.track = track; this.car = car;
         // a bike: every bike on the grid is the bike's model: (re)start once it has loaded
         if (car.bike && !modelReady(car)) loadCarModel(car.model).then((ok) => { if (ok && this.race && this.car === car && this.track === track) this.start(track, car); });
+        // … and the other cars are light copies of the real models (carLod.js): the same once those have loaded
+        if (!car.bike && !aiModelsReady(car)) loadAiModels(car).then(() => { if (this.race && this.car === car && this.track === track) this.start(track, car); });
         const race = new Race(track, { laps: 50, difficulty: 'hard', car });
         race.player.ai = new AIDriver(race.player.state, track, race.profile, 1.0, 1.12); // your car races too
         race.countdown = race.lightsOutAt;                                                 // lights out straight away
@@ -51,7 +53,7 @@ export class Showcase {
     // The model for a car in the live race: the one it had last time if there was one (the same car and team),
     // else a new one. Yours is your car's model once that has loaded (the built-in car until then).
     model(c) {
-        const car = this.race.carDef, key = `${car.id}|${c.isPlayer || car.bike ? `${c.isPlayer ? 'you' : c.team.name}|${modelReady(car)}` : c.team.name}`;
+        const car = this.race.carDef, key = `${car.id}|${c.isPlayer || car.bike ? `${c.isPlayer ? 'you' : c.team.name}|${modelReady(car)}` : `${c.team.name}|${aiModelsReady(car)}`}`;
         let m = this.kept.get(key);
         if (!m) { m = createRaceModel(c, car); this.kept.set(key, m); }
         return m;
