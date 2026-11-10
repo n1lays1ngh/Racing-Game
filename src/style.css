@@ -2018,3 +2018,54 @@ button.st-car.on { background: var(--plate-3); border-color: #fff; }
 .pitch, .title, .mn-h, .lb-steps span { text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55), 0 0 1px rgba(0, 0, 0, 0.55); }
 .pitch { color: #f0f0ee; }
 .door:not(.primary) .door-txt b { font-size: clamp(19px, 1.7vw, 28px); }
+
+/* ---- career: the season screen's board (career.js). One panel at a time under the next round, picked with the tabs;
+   every list whole on the screen (two columns down, then across), nothing scrolling inside the page ---- */
+#career .cr-screen { padding-top: 3vh; padding-bottom: 4vh; }
+#career .st-head { margin-bottom: 14px; }
+#cr-body { gap: 12px; }
+.cw-hero { padding: 14px 16px; gap: 18px; grid-template-columns: 190px minmax(0, 1fr) 300px; }
+.cw-hero-map { height: 136px; }
+.cw-hero-info h3 { margin: 2px 0 8px; font-size: clamp(24px, 2.6vw, 34px); }
+.cw-steps { margin-top: 10px; }
+.cw-steps li { padding: 6px 10px; }
+.cw-board { overflow: visible; }
+.cw-tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--rule); }
+#career .cw-tabs button[data-tab] { width: auto; margin: 0; display: flex; align-items: baseline; gap: 10px; padding: 12px 20px 11px; border: 0; border-right: 1px solid var(--rule);
+  background: transparent; color: #8f8f93; box-shadow: inset 0 -3px 0 transparent; }
+#career .cw-tabs button[data-tab] b { font-size: 13px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; }
+#career .cw-tabs button[data-tab] small { margin: 0; font-size: 12px; font-weight: 600; color: inherit; opacity: 0.8; }
+#career .cw-tabs button[data-tab]:hover { background: var(--plate-2); color: #fff; }
+#career .cw-tabs button[data-tab].on { background: var(--ink); color: #0a0a0b; }
+#career .cw-tabs #cr-reset { margin-left: auto; align-self: center; margin-right: 12px; color: #8f8f93; text-decoration: none; font-weight: 600; }
+#career .cw-tabs #cr-reset:hover { color: #fff; text-decoration: underline; }
+.cw-panel { padding: 10px; }
+.cw-panel-head { display: flex; align-items: center; gap: 14px; min-height: 30px; padding: 0 4px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.cw-panel-head .cw-ses { flex: none; }
+#career .cw-ses button { flex: none; padding: 6px 18px; }
+/* a list in two columns: 1–10 down the left, 11–20 down the right */
+.cw-two { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 10), auto); grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; padding: 0; }
+.cw-two li { min-height: 34px; margin: 0 !important; }
+.cw-standings.cw-two li:nth-child(odd), .cw-times.cw-two li:nth-child(odd) { background: transparent; }
+.cw-two li { border-bottom: 1px solid #19191b; }
+.cw-times.cw-two .n { flex: 1; }
+.cw-times.cw-two .t { width: 86px; text-align: right; }
+.cw-times.cw-two .g { width: 70px; }
+.cw-times.cw-two li.cut { box-shadow: none; border-bottom: 2px solid var(--red); }
+/* the calendar: a card a round */
+.cw-cal.cw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0; padding: 0; border-left: 1px solid var(--rule); border-top: 1px solid var(--rule); }
+.cw-cal.cw-grid li { min-height: 46px; margin: 0 !important; background: transparent !important; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.cw-cal.cw-grid li.next { background: #1e1e20 !important; box-shadow: inset 3px 0 0 var(--red); }
+.cw-cal.cw-grid li.done .p { color: #fff; }
+.cw-replay-list { padding: 0; }
+@media (max-width: 1100px) {
+  .cw-hero { grid-template-columns: 150px minmax(0, 1fr); }
+  .cw-hero-map { height: 110px; }
+}
+@media (max-width: 760px) {
+  .cw-hero { grid-template-columns: minmax(0, 1fr); }
+  .cw-two { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: minmax(0, 1fr); }
+  .cw-tabs { flex-wrap: wrap; }
+  #career .cw-tabs button[data-tab] { padding: 10px 14px; }
+  #career .cw-tabs button[data-tab] small { display: none; }
+}

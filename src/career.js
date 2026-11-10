@@ -72,6 +72,7 @@ export class Career {
     this.state = load();
     if (this.state) this.upgrade();
     this.pick = { series: 'f1', car: 'f1', length: 0.25, difficulty: 'medium', damage: 'medium', quali: true, minutes: defaultMinutes('f1'), calendar: null };
+    this.tab = 'standings'; this.tabFor = ''; this.ses = null; // the season screen: the panel showing, and the qualifying session in it
     this.el = $('career');
     $('cr-back').addEventListener('click', () => this.close());
     this.el.addEventListener('click', (e) => this.click(e));
@@ -193,8 +194,11 @@ export class Career {
   // The last few career races (replay.js): watch or record them in the cinematic replay
   async drawReplays() {
     const list = (await listReplays()).filter((r) => (r.meta.kind ?? 'career') === 'career'), box = $('cr-replays');
+    const tab = this.el.querySelector('[data-tab="replays"]'); // (the season screen: its Replays tab, only when there are some)
+    if (tab) { tab.classList.toggle('hidden', !list.length); const n = tab.querySelector('small') ?? tab.appendChild(document.createElement('small')); n.textContent = String(list.length); }
     if (!box) return;
-    box.closest('.cw-replays').classList.toggle('hidden', !list.length);
+    box.closest('.cw-replays')?.classList.toggle('hidden', !list.length);
+    if (!list.length) { box.innerHTML = '<p class="cw-fine">No race replays yet.</p>'; return; }
     box.innerHTML = list.map(({ id, meta: m }) => {
       const me = m.results?.find((r) => r.isPlayer), when = new Date(m.at ?? 0).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
       return `<div class="cw-replay"><div><b>${esc(m.trackName ?? m.track)}</b><small>${esc(m.series ?? '')}${m.round != null ? ` · round ${m.round + 1}` : ''} · ${m.laps} laps · ${when}</small></div>` +
@@ -232,6 +236,8 @@ export class Career {
       if (on.has(d.round)) { if (on.size > 1) on.delete(d.round); } else on.add(d.round);
       p.calendar = all.filter((id) => on.has(id)); this.render();
     } else if (d.cal) { const all = this.seriesCalendar(p.series).map((t) => t.id); p.calendar = d.cal === 'all' ? null : [all[0]]; this.render(); }
+    else if (d.tab) { this.tab = d.tab; this.render(); }
+    else if (d.ses) { this.ses = Number(d.ses); this.render(); }
     else if (d.tyre) { this.state.tyres[d.for] = d.tyre; save(this.state); this.render(); }
     else if (d.replay) this.onReplay?.(d.replay); // (main.js: the cinematic replay of that race)
     else if (b.id === 'cr-start') this.start({ name: $('opt-name').value.trim(), color: this.color?.() ?? 0xe10600 });
@@ -257,17 +263,24 @@ export class Career {
     const me = table.findIndex((r) => r.me), lead = table[0]?.pts ?? 0;
     const champ = done ? `<section class="cw-champ"><span class="cw-eyebrow">Champion</span><b>${table[0].me ? 'You are the champion' : esc(table[0].name)}</b>` +
       `<span>You finished P${me + 1} with ${table[me].pts} points · ${table[me].wins} win${table[me].wins === 1 ? '' : 's'}</span></section>` : '';
-    body.innerHTML = champ + (done ? '' : this.heroHtml(cal[s.round])) + this.sessionsHtml() +
-      `<div class="cw-cols"><section class="cw-card"><header><h3>Standings</h3><small>${s.results.length} of ${cal.length} rounds</small></header>` +
-      `<div class="cw-scroll"><ol class="cw-standings">${table.map((r, k) => this.standingRow(r, k, lead)).join('')}</ol></div></section>` +
-      `<section class="cw-card"><header><h3>Calendar</h3><small>${cal.length} rounds</small></header><div class="cw-scroll"><ol class="cw-cal">${this.calendarRows(cal)}</ol></div></section></div>` +
-      '<section class="cw-card cw-replays hidden"><header><h3>Race replays</h3></header><div id="cr-replays" class="cw-replay-list"></div></section>' +
-      `<div class="cw-foot"><button id="cr-reset" class="cw-btn ghost" type="button">${done ? 'Start a new championship' : 'Reset championship'}</button></div>`;
+    // Under the next round: one panel at a time (Qualifying, Standings, Calendar, Replays), each shown whole: two
+    // columns of ten, nothing to scroll inside. It opens on this weekend's qualifying once there is one.
+    const w = s.weekend && s.weekend.round === s.round && s.weekend.sessions.length ? s.weekend : null;
+    const tabs = [w ? ['quali', 'Qualifying', w.sessions.at(-1).name] : null, ['standings', 'Standings', me >= 0 ? `P${me + 1} · ${table[me].pts} pts` : ''],
+      ['calendar', 'Calendar', `${Math.min(s.round + 1, cal.length)} of ${cal.length}`], ['replays', 'Replays', '']].filter(Boolean);
+    if (this.tabFor !== `${s.round}|${w ? w.sessions.length : 0}`) { this.tabFor = `${s.round}|${w ? w.sessions.length : 0}`; this.tab = w ? 'quali' : 'standings'; this.ses = null; }
+    if (!tabs.some(([id]) => id === this.tab)) this.tab = 'standings';
+    const tab = this.tab;
+    const panel = tab === 'quali' ? this.qualiHtml(w)
+      : tab === 'calendar' ? `<ol class="cw-cal cw-grid">${this.calendarRows(cal)}</ol>`
+      : tab === 'replays' ? '<div id="cr-replays" class="cw-replay-list"></div>'
+      : `<ol class="cw-standings cw-two" style="--rows:${Math.ceil(table.length / 2)}">${table.map((r, k) => this.standingRow(r, k, lead)).join('')}</ol>`;
+    body.innerHTML = champ + (done ? '' : this.heroHtml(cal[s.round])) +
+      `<section class="cw-card cw-board"><nav class="cw-tabs">${tabs.map(([id, name, note]) =>
+        `<button type="button" data-tab="${id}" class="${id === tab ? 'on' : ''}${id === 'replays' ? ' hidden' : ''}"><b>${name}</b>${note ? `<small>${esc(note)}</small>` : ''}</button>`).join('')}` +
+      `<button id="cr-reset" class="cw-link" type="button">${done ? 'Start a new championship' : 'Reset championship'}</button></nav>` +
+      `<div class="cw-panel">${panel}</div></section>`;
     this.drawReplays();
-    if (s.results.length) for (const row of body.querySelectorAll('.cw-scroll .me, .cw-scroll .next')) { // your place and the next round in view
-      const box = row.closest('.cw-scroll'), at = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
-      if (at + row.offsetHeight > box.clientHeight) box.scrollTop = Math.max(0, at - box.clientHeight / 2);
-    }
   }
 
   // the next round: the circuit, the weekend so far, your tyres, and the button for what's next
@@ -294,19 +307,18 @@ export class Career {
       (quali ? `<p class="cw-fine">${esc(next.name)}: ${s.quali.minutes[w.k] ?? next.minutes} minutes. Pause → End session to finish early.</p>` : '') + '</div></section>';
   }
 
-  // this weekend's qualifying sessions so far: the times, and the drop zone
-  sessionsHtml() {
-    const w = this.state.weekend;
-    if (!w || w.round !== this.state.round || !w.sessions.length) return '';
-    const tabs = w.sessions.map((ses) => {
-      const pole = ses.rows[0]?.best;
-      const rows = ses.rows.map((r) => `<li class="${r.who === '@me' ? 'me' : ''}${r.out ? ' out' : ''}${ses.cut && r.pos === ses.cut ? ' cut' : ''}">` +
-        `<span class="p">${r.pos}</span><i style="background:${hex(this.colorOf(r.who))}"></i><span class="n">${esc(this.nameOf(r.who))}</span>` +
-        `<span class="t">${fmt(r.best)}</span><span class="g">${r.pos > 1 && r.best != null && pole != null ? `+${(r.best - pole).toFixed(3)}` : ''}</span></li>`).join('');
-      return `<section class="cw-card cw-session"><header><h3>${esc(ses.name)}</h3><small>${ses.simulated ? 'Without you' : ses.cut ? `Top ${ses.cut} through` : 'Final order'}</small></header>` +
-        `<div class="cw-scroll short"><ol class="cw-times">${rows}</ol></div></section>`;
-    }).join('');
-    return `<div class="cw-sessions n${w.sessions.length}">${tabs}</div>`;
+  // this weekend's qualifying: one session at a time (the latest first; Q1 / Q2 / Q3 to look back), the whole
+  // classification in two columns, with the line under the last car that went through
+  qualiHtml(w) {
+    const k = Math.min(this.ses ?? w.sessions.length - 1, w.sessions.length - 1), ses = w.sessions[k], pole = ses.rows[0]?.best;
+    const rows = ses.rows.map((r) => `<li class="${r.who === '@me' ? 'me' : ''}${r.out ? ' out' : ''}${ses.cut && r.pos === ses.cut ? ' cut' : ''}">` +
+      `<span class="p">${r.pos}</span><i style="background:${hex(this.colorOf(r.who))}"></i><span class="n">${esc(this.nameOf(r.who))}</span>` +
+      `<span class="t">${fmt(r.best)}</span><span class="g">${r.pos > 1 && r.best != null && pole != null ? `+${(r.best - pole).toFixed(3)}` : r.pos === 1 && r.best != null ? 'Pole' : ''}</span></li>`).join('');
+    const mine = ses.rows.find((r) => r.who === '@me');
+    const pick = w.sessions.length > 1 ? `<div class="cw-seg cw-ses">${w.sessions.map((x, i) => `<button type="button" data-ses="${i}" class="${i === k ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` : '';
+    const note = [ses.simulated ? 'Run without you' : mine ? `You: P${mine.pos}${mine.best != null ? ` · ${fmt(mine.best)}` : ''}${mine.out ? ' · knocked out' : ''}` : '',
+      ses.cut ? `Top ${ses.cut} went through` : w.grid ? 'This is the grid' : 'Final order'].filter(Boolean).join('  ·  ');
+    return `<div class="cw-panel-head">${pick}<span>${esc(note)}</span></div><ol class="cw-times cw-two" style="--rows:${Math.ceil(ses.rows.length / 2)}">${rows}</ol>`;
   }
 
   standingRow(r, k, lead) {
