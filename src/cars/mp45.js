@@ -29,8 +29,10 @@ export default {
     combined: true,
     drag: 0.00097,        // ½ × 1.2 × drag area 1.05 m² ÷ 650 kg → ~317 km/h flat out
     roll: 0.45,
-    liftOff: 4,
-    brake: 28,            // early carbon brakes and far less downforce: ~3.8 g from 300 km/h, ~2.7 g from 100
+    liftOff: 3,
+    brake: 28,            // early carbon brakes and far less downforce: ~3.7 g from 300 km/h, ~2.3 g from 100
+    brakeGrip: 1.08,      // under braking the tyres take this much more than sideways (see f1.js)
+    shiftTime: 0.11,      // s without drive on every upshift: a manual gearbox, a hand off the wheel (the others: seamless)
     // --- grip: wide slicks, little downforce ---
     mu: 1.6,              // 1989 compounds: ~1.8 g in slow corners
     g: 9.81,
@@ -52,6 +54,23 @@ export default {
     lockSteer: 0.30,
     lockBrake: 0.78,
     reverseMax: 10,
+    // --- how it feels when YOU drive it (as in f1.js: the AI keeps the numbers above) ---
+    // Heavy unassisted steering, little downforce, no driver aids: it moves about under you, slides early and
+    // gently, and wants the power fed in. The slowest hands of the three, the most forgiving once it's sliding.
+    human: {
+      steerRate: 1.5,       // (1.8)
+      steerFade: 22,
+      yawResponse: 5,       // (7.5) it takes a moment to take a set
+      stability: 1.2,       // (1.7)
+      slideAllowance: 1.2,  // (1.14) a long, lazy slide before it lets go
+      trailBrake: 0.26,     // (0.18)
+      combinedMin: 0.6,
+      lockThreshold: 1.4,   // (1.15) the fronts still lock if you stamp on the brakes while turning
+      // weight transfer you can feel (physics.js), for your car only:
+      liftRotation: 0.16,   // lift off mid-corner and the nose tucks in (the weight comes forward): up to this much more turn
+      powerPush: 0.05,      // flat on the power in a fast corner the front goes light: up to this much less turn (feed it in)
+      scrub: 0.6,          // a slide scrubs speed: m/s² for each m/s it's sliding sideways past 1.5 (tidy is fast)
+    },
     // --- size (4.4 m long, 2.15 m wide) ---
     radius: 1.2,
     contactOffset: 1.1,

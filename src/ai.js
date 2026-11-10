@@ -142,7 +142,7 @@ export function brakeShare(p, v, mu, k) {
 // the driver plans to use (1 = all of it: the latest braking there is).
 export function brakeDecel(p, v, mu, brakeUse = 1, grade = 0, vc = 0) {
   const gEff = Math.max(p.g + vc * v * v, 2);
-  const tyres = Math.min(p.brake, 1.2 * mu * (gEff + p.downforce * v * v));
+  const tyres = Math.min(p.brake, (p.brakeGrip ?? 1.2) * mu * (gEff + p.downforce * v * v));
   return Math.max(brakeUse * (tyres + p.drag * v * v + p.roll + (p.liftOff ?? 0)) + p.g * grade, 5);
 }
 
@@ -545,7 +545,7 @@ export class AIDriver {
       const k1 = at(kr), k2 = Math.min(K, k1 + 4), vt = Math.min(vk[k2], target);
       const needDecel = vt < v ? (v * v - vt * vt) / (2 * Math.max((k2 - k1) * ds + (v - target > 0 ? 0 : 1), 1)) : 0;
       const free = p.drag * v * v + p.roll + (p.liftOff ?? 0) + p.g * (t.grade ? t.grade[i] : 0);
-      const tyres = Math.min(p.brake, 1.2 * mu * (Math.max(p.g + (t.vcurv ? t.vcurv[i] : 0) * v * v, 2) + p.downforce * v * v));
+      const tyres = Math.min(p.brake, (p.brakeGrip ?? 1.2) * mu * (Math.max(p.g + (t.vcurv ? t.vcurv[i] : 0) * v * v, 2) + p.downforce * v * v));
       brake = clamp(((needDecel - free) / tyres) * 1.05 + Math.max(0, -err) * 0.4, 0, 1);
       if (brake < 0.04) { brake = 0; if (err > -0.3 && !outOfLock) throttle = clamp(0.3 + err, 0, 0.5); } // lifting is enough
     } else if (!outOfLock) throttle = err > 1 ? 1 : 0.4 + err * 0.6;
@@ -556,7 +556,7 @@ export class AIDriver {
       if (throttle > 0) {
         const full = p.power ? Math.min(p.accel, p.power / Math.max(v, 1)) : p.accel * (1 - (p.accelFade ?? 0) * Math.min(v / 90, 1));
         throttle = Math.min(throttle, Math.max(X.minThrottle, room / Math.max(full, 1)));
-      } else brake = Math.min(brake, Math.max(X.minBrake, room / Math.min(p.brake, 1.2 * latMax)) + Math.max(0, -err - 0.5) * X.over); // (well over its speed: slowing comes first)
+      } else brake = Math.min(brake, Math.max(X.minBrake, room / Math.min(p.brake, (p.brakeGrip ?? 1.2) * latMax)) + Math.max(0, -err - 0.5) * X.over); // (well over its speed: slowing comes first)
     }
     if (offTrack) throttle = Math.min(throttle, 0.7);
     const slip = car.slip ?? 0; // sliding sideways (m/s): feed the power in gently until the tyres grip again

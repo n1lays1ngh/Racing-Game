@@ -30,12 +30,13 @@ export default {
     combined: true,       // braking / driving and turning share the tyres
     drag: 0.00108,        // ½ × 1.2 × drag area 1.15 m² ÷ 640 kg → ~326 km/h flat out
     roll: 0.4,
-    liftOff: 4.5,         // a high-revving V8's engine braking (no hybrid harvesting)
-    brake: 46,            // ~6 g from 300 km/h, ~5 g from 200 (light car, carbon brakes)
+    liftOff: 3.5,         // a high-revving V8's engine braking (no hybrid harvesting)
+    brake: 44,            // ~5.3 g from 300 km/h, ~3.6 g from 200, ~2.3 g from 100 (light car, carbon brakes)
+    brakeGrip: 1.05,      // under braking the tyres take this much more than sideways (see f1.js)
     // --- grip ---
     mu: 1.55,             // grooved tyres: ~2.0 g in slow corners (2023 slicks: ~2.2 g)
     g: 9.81,
-    downforce: 0.00403,   // ½ × 1.2 × lift area 4.3 m² ÷ 640 kg: ~3.5 g at 200 km/h, ~6 g at 300
+    downforce: 0.0038,    // ½ × 1.2 × lift area 4.05 m² ÷ 640 kg: ~3.4 g at 200 km/h, ~5.7 g at 300
     // --- steering & handling feel: lighter and shorter than the 2023 car, so sharper ---
     wheelbase: 3.1,       // the real one (the model, tyre marks)
     steerBase: 3.4,       // steering geometry: a bit sharper than the 2023 car's 3.6 m
@@ -53,6 +54,21 @@ export default {
     lockSteer: 0.30,
     lockBrake: 0.8,
     reverseMax: 12,
+    // --- how it feels when YOU drive it (as in f1.js: the AI keeps the numbers above) ---
+    // A light, short car on grooved tyres: quick to turn, a little nervous on the brakes, and it rotates when you lift.
+    human: {
+      steerRate: 1.9,       // (2.5) heavier hands: less twitchy on a keyboard
+      yawResponse: 6.2,     // (9.8) still the sharpest of the three, but planted
+      stability: 1.4,       // (2.1)
+      slideAllowance: 1.16, // (1.08)
+      trailBrake: 0.26,     // (0.15) braking into the corner helps it turn in
+      combinedMin: 0.6,     // braking hard still leaves this much grip to turn
+      lockThreshold: 1.5,   // (1.2) no ABS: full brake with a lot of steering still locks the fronts
+      // weight transfer you can feel (physics.js), for your car only:
+      liftRotation: 0.14,   // lift off mid-corner and the nose tucks in (the weight comes forward): up to this much more turn
+      powerPush: 0.08,      // flat on the power in a fast corner the front goes light: up to this much less turn (feed it in)
+      scrub: 0.7,          // a slide scrubs speed: m/s² for each m/s it's sliding sideways past 1.5 (tidy is fast)
+    },
     // --- size (4.6 m long, 1.8 m wide) ---
     radius: 1.2,
     contactOffset: 1.25,

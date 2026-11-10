@@ -43,8 +43,10 @@ export default {
     combined: true,       // braking / accelerating and turning share the tyres' grip (a friction circle): trail-brake gently
     drag: 0.00095,        // aero drag (× v²): ½ × air density × drag area 1.26 m² ÷ 798 kg
     roll: 0.4,            // rolling resistance, m/s²
-    liftOff: 4,           // m/s² extra slowing off the throttle (engine braking and the hybrid harvesting; the air does the rest)
-    brake: 50,            // m/s² max braking (still limited by grip): with the drag, ~6 g from 300 km/h, ~3 g from 100
+    liftOff: 3,           // m/s² extra slowing off the throttle (engine braking and the hybrid harvesting; the air does the rest)
+    brake: 46,            // m/s² the most the brakes give (the tyres' grip limits it below ~270 km/h): with the drag, ~5.5 g from
+                          // 300 km/h, ~2.5 g from 100. A real one: 5–6 g at the start of a big stop, fading as the downforce goes
+    brakeGrip: 1.05,      // under braking the tyres take this much more than they do sideways (the game's other cars: 1.2)
     // --- grip ---
     mu: 1.7,              // tyre grip (mechanical: what's left at low speed)
     g: 9.81,
@@ -96,15 +98,20 @@ export default {
     // with a bit of weight to it: it turns in when you ask, doesn't push wide, and doesn't twitch.
     human: {
       // weight: the wheels turn a little slower and the car takes longer to build up (and settle) its rotation
-      steerRate: 1.7,       // (2.3) how fast the front wheels turn: lower = heavier steering, less twitchy on a keyboard
-      yawResponse: 5.5,     // (9) how quickly the car follows the steering: lower = heavier, more planted
+      steerRate: 1.5,       // (2.3) how fast the front wheels turn: lower = heavier steering, less twitchy on a keyboard
+      yawResponse: 4.5,     // (9) how quickly the car follows the steering: lower = heavier, more planted
       // less understeer
+      steerFade: 18,
       stability: 1.3,       // (2) the pull that straightens a slide also turns the nose out of the corner: less of it
       slideAllowance: 1.18, // (1.10) the car can rotate a bit further past the grip: it tucks into the apex
       trailBrake: 0.28,     // (0.15) braking into a corner helps the car turn in (instead of pushing on)
       combinedMin: 0.62,    // (0.45 in physics.js) braking hard still leaves this much grip for turning
       lockThreshold: 1.6,   // (1.25) brake + steering needed to lock the fronts: full brake while turning no longer
                             // locks them straight away (a locked front keeps only lockSteer of its steering)
+      // weight transfer you can feel (physics.js), for your car only:
+      liftRotation: 0.12,   // lift off mid-corner and the nose tucks in (the weight comes forward): up to this much more turn
+      powerPush: 0.1,      // flat on the power in a fast corner the front goes light: up to this much less turn (feed it in)
+      scrub: 0.7,          // a slide scrubs speed: m/s² for each m/s it's sliding sideways past 1.5 (tidy is fast)
     },
     // Optional (see hypercar.js and gt3.js): steerBase (the steering works from this instead of the wheelbase),
     // trackWidth (between the left and right wheels, for the tyre marks), abs: true (can't lock the wheels),

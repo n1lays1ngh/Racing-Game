@@ -29,7 +29,7 @@ export function createCarState(x, z, heading, spec = F1) {
     x, z, h: heading, vx: 0, vz: 0,
     y: 0, pitch: 0, roll: 0, // height, nose-up angle and sideways tilt from hills and banking
     steer: 0, speed: 0, vf: 0, slip: 0,
-    yawRate: 0, lockF: false,
+    yawRate: 0, lockF: false, gearWas: 0, shiftCut: 0,
     throttle: 0, brake: 0,
     surface: 'road', hitWall: 0,
     trackIndex: -1, s: 0, lateral: 0,
@@ -152,6 +152,11 @@ export function stepCar(car, input, track, dt, human = false) {
   const slow = clamp(1 - vf / 60, 0, 1);
   let yawTarget = vf * Math.tan(car.steer) / (p.steerBase ?? p.wheelbase); // where you're steering (steerBase: see src/cars/)
   yawTarget *= 1 + p.trailBrake * brk + p.powerRotation * drive * slow * (1 - 0.5 * (p.tc ?? 0)); // (TC tames power oversteer)
+  // Weight moving about (a car's own `human` block turns these on: src/cars/f1.js). Lift off in a corner and the
+  // weight comes forward: the nose bites and the car tucks in (liftRotation). Stand on the power in a fast corner and
+  // it goes back: the front goes light and the car pushes wide (powerPush), so you feed the power in as the corner opens.
+  if (p.liftRotation && thr < 0.15 && brk < 0.1) yawTarget *= 1 + p.liftRotation * Math.min(latUse, 1) * clamp(vf / 25, 0, 1);
+  if (p.powerPush && drive > 0.5) yawTarget *= 1 - p.powerPush * (drive - 0.5) * 2 * Math.min(latUse, 1) * clamp((vf - 25) / 30, 0, 1);
   if (car.lockF) yawTarget *= p.lockSteer;
   if (car.spin > 0) yawTarget *= 1 + (p.spinRotation ?? 0) * car.spin; // wheelspin out of a corner: the rear steps out
   const yawMax = p.slideAllowance * latAvail / Math.max(Math.abs(vf), 3);
@@ -197,12 +202,21 @@ export function stepCar(car, input, track, dt, human = false) {
           push = most + over * 0.15 * (1 - tc);            // spinning wheels still push a little
         }
       }
+      // a gear change: no drive for a moment (p.shiftTime s: an old manual box; today's seamless ones lose nothing)
+      if (p.shiftTime) {
+        const box = car.spec?.gearbox ?? F1.gearbox, g = gearIndex(vf, box);
+        if (g > car.gearWas) { if (car.gearWas > 0) car.shiftCut = p.shiftTime; car.gearWas = g; }
+        else if (g < car.gearWas && vf < box.top[car.gearWas - 1] * 0.9) car.gearWas = g; // (down a gear only well below the change-up speed: the cut itself slows the car a little)
+        if (car.shiftCut > 0) { car.shiftCut -= dt; push = 0; }
+      }
       vf += push * dt; car.longA = push;
     } else vf = Math.min(0, vf + thr * 10 * dt); // throttle while reversing = stop
   }
   if (brk > 0) {
     if (vf > 0.3) {
-      let decel = Math.min(p.brake, 1.2 * latMax * share) * brk; // (share: less braking while turning hard, p.combined)
+      // (share: less braking while turning hard, p.combined. brakeGrip: how much more the tyres take lengthways than
+      //  sideways: 1.2, or a car's own. Engine braking, liftOff below, comes on top of it)
+      let decel = Math.min(p.brake, (p.brakeGrip ?? 1.2) * latMax * share) * brk;
       if (B) decel = Math.min(decel, B.stoppie); // a bike: the rear lifts past this
       if (car.lockF) decel *= p.lockBrake;
       vf = Math.max(0, vf - decel * dt); car.longA = Math.max(car.longA, decel);
@@ -225,6 +239,8 @@ export function stepCar(car, input, track, dt, human = false) {
   if (pitLimit && vf > pitLimit) vf = Math.max(pitLimit, vf - PITLANE.slowdown * dt);
 
   // --- Tyres pull the slide back in, up to the grip limit ----------------
+  // (a slide scrubs speed off: p.scrub m/s² for each m/s it's sliding sideways past scrubFrom. Tidy is fast.)
+  if (p.scrub && Math.abs(vl) > (p.scrubFrom ?? 1.5) && vf > 5) vf = Math.max(0, vf - Math.min(p.scrubMax ?? 6, p.scrub * (Math.abs(vl) - (p.scrubFrom ?? 1.5))) * dt);
   car.slip = car.lockF ? Math.max(Math.abs(vl), vf * 0.3) : Math.abs(vl);
   const corr = latAvail * dt;
   vl = Math.abs(vl) <= corr ? 0 : vl - Math.sign(vl) * corr;
@@ -319,6 +335,7 @@ export function placeCar(car, track, s, lateral = 0) {
   car.vx = car.vz = car.vf = car.speed = car.steer = car.yawRate = 0;
   car.lean = car.wheelie = 0;
   car.lockF = false; car.inPitLane = false; car.pitLimiter = false;
+  car.gearWas = 0; car.shiftCut = 0;
   car.trackIndex = i; car.s = s; car.lateral = lateral;
   car.y = (track.h ? track.h[i] : 0) + bankLift(track, i, lateral); // on a banked grid (Daytona), on the banking, not in it
   car.roll = bankRoll(track, i, lateral);
@@ -334,6 +351,14 @@ export function gearbox(speed, box = F1.gearbox) {
   const lo = g === 1 ? 0 : top[g - 1] * 0.82, hi = top[g];
   const f = clamp((speed - lo) / (hi - lo), 0, 1);
   return { gear: String(g), rpm: r0 + f * (r1 - r0) };
+}
+
+// which gear at this speed (1 …), as gearbox() above
+function gearIndex(speed, box = F1.gearbox) {
+  const top = box.top, gears = top.length - 1;
+  let g = 1;
+  while (g < gears && speed > top[g]) g++;
+  return g;
 }
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
