@@ -36,6 +36,7 @@ const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); //
 const fmtGap = (v) => (v < 60 ? `+${v.toFixed(3)}` : `+${Math.floor(v / 60)}:${(v % 60).toFixed(3).padStart(6, '0')}`);
 const fmtLaps = (n) => `+${n} ${n === 1 ? 'lap' : 'laps'}`;
 const fmtDelta = (d) => `${d < 0 ? '−' : '+'}${Math.abs(d).toFixed(3)}`;
+const fmtLap = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}`;
 const code = (c) => (c.isHuman ? c.team.name.slice(0, 8) : c.team.name.slice(0, 3)).toUpperCase(); // people: their name
 
 export class HUD {
@@ -43,7 +44,7 @@ export class HUD {
     this.el = {
       hud: $('hud'), tower: $('tower'), speed: $('speed'), gear: $('gear'), rpm: $('rpm'), thr: $('thr'), brk: $('brk'),
       revlights: $('revlights'), tacho: $('tacho'),
-      lap: $('lap'), lapTotal: $('lap-total'), pos: $('pos'), posTotal: $('pos-total'),
+      lap: $('lap'), lapTotal: $('lap-total'), lapLabel: $('lap').previousElementSibling, pos: $('pos'), posTotal: $('pos-total'),
       label: $('t-label'), cur: $('t-cur'), last: $('t-last'), best: $('t-best'), delta: $('t-delta'),
       sectors: [1, 2, 3].map((k) => $('sec' + k)),
       battle: $('battle'), ahead: $('bt-ahead'), behind: $('bt-behind'),
@@ -567,6 +568,12 @@ export class HUD {
   gapText(race, st, i) {
     const c = st[i], L = race.track.length;
     if (c.dnf) return 'DNF';
+    if (race.session) { // qualifying: best laps; pole's time, then the gap to pole (or to the car ahead)
+      if (c.bestLap == null) return 'No time';
+      if (i === 0) return fmtLap(c.bestLap);
+      const g = this.showLeaderGap ? c.gap : c.interval;
+      return g != null ? fmtGap(g) : '';
+    }
     if (race.state === 'countdown') return '';
     if (i === 0) return this.showLeaderGap ? 'Leader' : 'Interval';
     if (this.showLeaderGap) return c.lapsDown > 0 ? fmtLaps(c.lapsDown) : c.gapKnown ? fmtGap(c.gap) : '';
@@ -575,7 +582,7 @@ export class HUD {
   }
 
   updateTower(race) {
-    this.el.mode.textContent = this.showLeaderGap ? 'Gap to leader' : 'Interval';
+    this.el.mode.textContent = this.showLeaderGap ? (race.session ? 'Gap to pole' : 'Gap to leader') : 'Interval';
     if (race.state === 'countdown' || !this.grid) this.grid = new Map(race.cars.map((c) => [c, c.position]));
     const fl = race.bestLapOverall?.name;
     const st = race.standings;
@@ -593,8 +600,10 @@ export class HUD {
     const html = (el, v) => { if (el._h !== v) { el._h = v; el.innerHTML = v; } }; // (compared with what we last wrote)
     st.forEach((c, i) => {
       const li = ul.children[i], [p, bar, n, chg, g] = li.children;
-      const moved = (this.grid.get(c) ?? c.position) - c.position;
-      set(li, 'className', [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : ''].join(' '));
+      const moved = race.session ? 0 : (this.grid.get(c) ?? c.position) - c.position;
+      const cut = race.session?.cut; // qualifying: the line between who goes through and who's out
+      set(li, 'className', [c.isPlayer ? 'me' : c.isHuman ? 'human' : '', i === 0 ? 'leader' : '', c.dnf ? 'dnf' : '',
+        cut && i === cut - 1 ? 'cut' : '', cut && i >= cut ? 'drop' : ''].join(' '));
       set(p, 'textContent', String(c.position));
       const colour = hex(c.team.color); if (bar.dataset.c !== colour) { bar.dataset.c = colour; bar.style.background = colour; }
       const tyre = c.state.tyres?.compound;
@@ -608,7 +617,7 @@ export class HUD {
   // The cars either side of you on the road, and whether the gap is coming down (green) or going up (red) for you
   updateBattle(race) {
     const p = race.player, st = race.standings, i = st.indexOf(p), L = race.track.length;
-    const show = race.cars.length > 1 && race.state !== 'countdown';
+    const show = race.cars.length > 1 && race.state !== 'countdown' && !race.session; // (qualifying: no battles, only lap times)
     this.el.battle.classList.toggle('hidden', !show);
     if (!show) return;
     const row = (el, car, gap, laps, good) => {
@@ -702,7 +711,16 @@ export class HUD {
     const practice = race.cars.length === 1;
     if (practice !== this.practice) { this.practice = practice; E.tower.classList.toggle('hidden', practice); }
     const lap = Math.min(Math.max(p.lapsDone + 1, 1), race.laps);
-    E.lap.textContent = lap; E.lapTotal.textContent = '/' + race.laps;
+    if (race.session) { // qualifying: the session's clock instead of the lap count
+      const S = race.session, left = race.sessionLeft, clock = S.flag ? 'FLAG' : `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+      if (E.lap.textContent !== clock) E.lap.textContent = clock;
+      if (E.lapTotal.textContent !== '') E.lapTotal.textContent = '';
+      if (E.lapLabel.textContent !== S.name) E.lapLabel.textContent = S.name;
+      E.lap.parentElement.classList.toggle('session', true);
+    } else {
+      E.lap.textContent = lap; E.lapTotal.textContent = '/' + race.laps;
+      if (E.lapLabel.textContent !== 'Lap') { E.lapLabel.textContent = 'Lap'; E.lap.parentElement.classList.remove('session'); }
+    }
     E.pos.textContent = p.position; E.posTotal.textContent = '/' + race.cars.length;
 
     this.updateLapTimes(race, p, dt);
@@ -717,7 +735,7 @@ export class HUD {
     this.updateDash(race, s, dt);
 
     // Start lights
-    const showLights = race.state === 'countdown' || (race.time < 1.2 && race.state === 'racing');
+    const showLights = !race.session && (race.state === 'countdown' || (race.time < 1.2 && race.state === 'racing'));
     E.lights.classList.toggle('show', showLights);
     this.lamps.forEach((l, i) => l.classList.toggle('on', race.state === 'countdown' && i < race.lightsOn));
 

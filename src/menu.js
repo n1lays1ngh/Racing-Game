@@ -536,7 +536,8 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   for (const r of [laps, ai]) r.addEventListener('keydown', (e) => { if (/^(Arrow|Page|Home|End)/.test(e.code)) e.stopPropagation(); });
 
   // Race rules: tyre wear and pit stops (off / on), damage (off / low / medium / real). main.js soloConfig reads the selects
-  const pitsSel = $('opt-pits'), dmgSel = $('opt-damage');
+  const pitsSel = $('opt-pits'), dmgSel = $('opt-damage'), tyreSel = $('opt-tyres');
+  if (saved.tyres && [...tyreSel.options].some((o) => o.value === saved.tyres)) tyreSel.value = saved.tyres;
   if (saved.pits && [...pitsSel.options].some((o) => o.value === saved.pits)) pitsSel.value = saved.pits;
   if (saved.damage && [...dmgSel.options].some((o) => o.value === saved.damage)) dmgSel.value = saved.damage;
   const RULE_NOTES = {
@@ -547,6 +548,7 @@ export function setupMenu({ tracks, cars, carId, onStart, onCar, onTime }) {
   };
   function showRules() {
     const pits = pitsSel.value, dmg = dmgSel.value;
+    $('tyres-row').classList.toggle('hidden', pits !== 'on'); // (the set you start on: only with tyre wear on)
     const fix = pits === 'off' && dmg !== 'off' ? ' No pit stops, so no repairs.' : pits === 'on' && dmg !== 'off' ? ' Repairs at your pit stop.' : '';
     $('rules-note').textContent = [RULE_NOTES.pits[pits], RULE_NOTES.damage[dmg] + fix].filter((x) => x.trim()).join(' ');
   }

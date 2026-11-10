@@ -286,10 +286,14 @@
           <div class="sh-rules" id="rules-row">
             <div class="sh-label"><span>Race rules</span></div>
             <div class="ai-skill rule-row"><span>Tyres &amp; pits</span><div class="seg" data-for="opt-pits" data-save="pits"></div></div>
+            <div class="ai-skill rule-row" id="tyres-row"><span>Start tyres</span><div class="seg" data-for="opt-tyres" data-save="tyres"></div></div>
             <div class="ai-skill rule-row"><span>Damage</span><div class="seg" data-for="opt-damage" data-save="damage"></div></div>
             <p id="rules-note" class="sh-fine"></p>
             <select id="opt-pits" class="sr-only" aria-label="Tyre wear and pit stops" tabindex="-1">
               <option value="off" selected>Off</option><option value="on">On</option>
+            </select>
+            <select id="opt-tyres" class="sr-only" aria-label="Start tyres" tabindex="-1">
+              <option value="soft">Soft</option><option value="medium" selected>Medium</option><option value="hard">Hard</option>
             </select>
             <select id="opt-damage" class="sr-only" aria-label="Damage" tabindex="-1">
               <option value="off" selected>Off</option><option value="low">Low</option><option value="medium">Medium</option><option value="real">Real</option>
@@ -602,6 +606,7 @@
         <div class="pause-info" id="pause-info"></div>
         <nav class="pause-menu">
           <button id="btn-resume" class="pm-btn primary"><span>Resume</span><kbd>Esc</kbd></button>
+          <button id="btn-endsession" class="pm-btn hidden"><span>End session</span></button>
           <button id="btn-restart" class="pm-btn"><span>Restart race</span></button>
           <button id="btn-settings" class="pm-btn"><span>Settings</span></button>
           <button id="btn-pause-controls" class="pm-btn"><span>Controls</span></button>

@@ -438,7 +438,7 @@ function soloConfig() {
     aiCount: Number($('opt-ai').value), playerName: $('opt-name').value.trim() || 'You', playerColor,
     car: myCar.id, time: myTime,
     // Race rules (race setup): tyre wear and pit stops, and damage ('off' | 'low' | 'medium' | 'real'); race.js
-    strategy: $('opt-pits').value === 'on', damage: $('opt-damage').value === 'off' ? null : $('opt-damage').value,
+    strategy: $('opt-pits').value === 'on', tyres: $('opt-pits').value === 'on' ? $('opt-tyres').value : null, damage: $('opt-damage').value === 'off' ? null : $('opt-damage').value,
   };
 }
 
@@ -452,7 +452,7 @@ function newRace(cfg = soloConfig()) {
   race = new Race(track, cfg);
   // every car's position through the race, for the race replay (replay.js; Race replays): career races and offline
   // quick races with other cars (not online, not practice on your own)
-  replayRec = !cfg.humans && race.cars.length > 1 ? new ReplayRecorder(race, { kind: race.career ? 'career' : 'quick',
+  replayRec = !cfg.humans && !cfg.session && race.cars.length > 1 ? new ReplayRecorder(race, { kind: race.career ? 'career' : 'quick',
     track: track.id, trackName: track.name, car: race.carDef.id, time: cfg.time ?? null, round: race.career ? cfg.round ?? null : null,
     series: race.career && career.state ? CAREER.series[career.state.series]?.short ?? '' : '' }) : null;
   lobby.session?.attach(race, cfg); // online: other people's cars are driven from the network
@@ -671,6 +671,21 @@ document.getElementById('btn-replay').addEventListener('click', () => {
 });
 career.onReplay = async (id) => watchReplay(await replayById(id), () => career.open());
 function toCareer() { exitRace(); career.open(); }
+// Career qualifying (career.js, qualifying.js): a session is over (the flag and your last lap, you ended it, or you
+// retired): its times go into the weekend, then back to the career screen for the next session or the race
+function sessionOver(delay = 2500) {
+  const done = race;
+  setTimeout(() => {
+    if (race !== done) return;
+    if (!done.session.ended) done.endSession(); // (retired: the session's over for you)
+    career.recordSession(done);
+    toCareer();
+  }, delay);
+}
+document.getElementById('btn-endsession').addEventListener('click', () => {
+  if (!race?.session || race.session.ended) return;
+  setPaused(false); race.endSession();
+});
 const statsScreen = new StatsScreen({ tracks: TRACKS, onClose: () => menu.classList.remove('hidden') });
 document.getElementById('btn-stats').addEventListener('click', () => { menu.classList.add('hidden'); statsScreen.open(myCar.id); });
 
@@ -778,7 +793,8 @@ function onlineLabels() {
   const s = lobby.session, set = (sel, on, off) => { document.querySelector(sel).textContent = s ? on : off; };
   set('#btn-again', 'Back to lobby', race?.career ? 'Back to career' : 'Race again');
   set('#btn-menu', 'Leave room', 'Main menu');
-  set('#btn-restart span', s?.isHost ? 'End race · back to lobby' : 'Retire · back to lobby', 'Restart race');
+  set('#btn-restart span', s?.isHost ? 'End race · back to lobby' : 'Retire · back to lobby', race?.session ? 'Restart session' : 'Restart race');
+  document.getElementById('btn-endsession').classList.toggle('hidden', !race?.session);
   set('#btn-quit span', 'Leave room', 'Quit to menu');
 }
 function setPaused(v) {
@@ -787,8 +803,10 @@ function setPaused(v) {
   if (!online()) v ? audio.suspend() : audio.resume(); // online the race carries on behind the menu
   if (!v) document.activeElement?.blur(); // so Space (brake) can't press a hidden button
   if (v && race) { // where you are, shown under PAUSED
+    onlineLabels(); // (and the session buttons)
     const p = race.player, lap = Math.min(Math.max(p.lapsDone + 1, 1), race.laps);
-    const bits = [track.name, `Lap ${lap}/${race.laps}`];
+    const left = race.sessionLeft, clock = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+    const bits = race.session ? [track.name, `${race.session.name}  ${race.session.flag ? 'Chequered flag' : `${clock} left`}`] : [track.name, `Lap ${lap}/${race.laps}`];
     if (race.cars.length > 1) bits.push(`P${p.position} of ${race.cars.length}`);
     if (p.bestLap) bits.push(`Best ${formatTime(p.bestLap)}`);
     document.getElementById('pause-info').textContent = bits.join('  ·  ');
@@ -1093,7 +1111,18 @@ function tick(timestamp) {
       // damage (damage.js, when it's on): a part getting bad, someone out, or you
       if (e.type === 'damage') { msg = `${DAMAGE.names[e.part]} ${e.level > 1 ? (race.pits ? 'badly damaged: box for repairs' : 'badly damaged') : 'damage'}`; secs = 2.6; hud.mfdShow('damage'); }
       if (e.type === 'out') msg ??= `${e.car.team.name} retires: ${DAMAGE.names[e.part].toLowerCase()}`;
-      if (e.type === 'retired') {
+      // qualifying (career): the session's start, the flag, the end
+      if (e.type === 'session') { const m = Math.round(race.session.duration / 60); msg = `${e.name}  ·  ${m} minute${m === 1 ? '' : 's'}  ·  set your best lap`; secs = 3.5; }
+      if (e.type === 'flag') { msg = race.player.finishTime == null ? 'Chequered flag: finish your lap' : 'Chequered flag'; secs = 3; }
+      if (e.type === 'sessionEnd') {
+        const p = race.player, pos = p.bestLap ? `P${p.position}  ·  ${formatTime(p.bestLap)}` : 'No time set';
+        msg = `${race.session.name} over  ·  ${pos}`; secs = 3;
+        sessionOver();
+      }
+      if (e.type === 'retired' && race.session) {
+        msg = `Retired: ${DAMAGE.names[e.part].toLowerCase()} damage`; secs = 3;
+        sessionOver(3000);
+      } else if (e.type === 'retired') {
         msg = `Retired: ${DAMAGE.names[e.part].toLowerCase()} damage`; secs = 3; hud.mfdShow('damage');
         const out = race;
         setTimeout(() => { if (race === out) showResults(); }, 3000);

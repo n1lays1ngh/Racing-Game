@@ -116,6 +116,31 @@ export function traceTime(tr, P) {
   return t0 + ((P - k * GAP_STEP) / (p1 - k * GAP_STEP)) * (t1 - t0);
 }
 
+// Qualifying (career.js, qualifying.js). The AI runs as drivers do: an out lap, a couple of flying laps, a slower lap to
+// cool the tyres (and while cooling it gets out of the way of anyone quicker coming up behind: ai.js `cool`), and
+// again. The cars start spread round the lap, so the circuit is busy from the start.
+export const SESSION = {
+  pushLaps: [2, 3],     // flying laps in a run
+  coolPace: 0.8,        // pace on an out lap or a cool-down lap (× its racing pace)
+  aiTyres: 'soft',      // the AI qualifies on the softest set
+  startAt: 0.8,         // you start this far round the lap (an out lap of a fifth of a lap)
+};
+// where the cars start: you at SESSION.startAt, the others spread evenly round the rest of the lap
+function spreadOut(count, L) {
+  const at = [], you = SESSION.startAt * L;
+  for (let k = 0; k < count; k++) at.push(((you + 120 + (k * (L - 240)) / Math.max(1, count)) % L));
+  return at;
+}
+// what an AI car is doing in qualifying: its pace and whether it's moving out of the way
+function sessionPhase(car, phase) {
+  const q = car.q; if (!q) return;
+  q.phase = phase;
+  const pushing = phase === 'push';
+  car.ai.skill = pushing ? q.skill : q.skill * SESSION.coolPace;
+  car.ai.cool = !pushing; // (ai.js: lets quicker cars by)
+  car.ai.usesErs = pushing && !!car.state.spec?.ers;
+}
+
 export class Race {
   // aiCount: how many AI cars (0 = Practice, just you). playerName: shown in the tower and results.
   // Online races (see net/session.js) also pass:
@@ -125,16 +150,25 @@ export class Race {
   // strategy: tyre wear and pit stops (pitstop.js, tyres.js); damage: null (off) or a damage.js mode ('low' | 'medium' |
   //   'real'). A career race always has strategy; a quick race has them if you switch them on in the menu (race setup
   //   → Race rules). Offline only: online races have neither (other people's cars aren't driven here).
+  // Career (career.js, qualifying.js) also passes:
+  //   gridOrder: who starts where, front to back: team names, '@me' for you (from qualifying)
+  //   paceRank: { team name: 0 (the quickest) … 1 }: each AI driver's pace for the season (else: by grid slot)
+  //   session: a qualifying session instead of a race (SESSION below): { name, duration (s), field: who's in it (as
+  //     gridOrder), cut (how many go through; for the HUD's line) }. No start lights: the cars are out on track already,
+  //     timed on their best lap; the clock runs down, and a lap started before the flag still counts
   constructor(track, { laps = 3, difficulty = 'medium', playerColor, aiCount = TEAMS.length - 1, playerName,
     humans = null, localId = null, collisions = true, car = DEFAULT_CAR, tyres = null, career = false, round = null, playerGrid = null, damage = null,
-    strategy = false } = {}) {
+    strategy = false, gridOrder = null, paceRank = null, session = null } = {}) {
     this.track = track;
     this.carDef = typeof car === 'string' || car == null ? getCar(car) : car;
     this.laps = laps;
     this.collisions = collisions;
     this.difficulty = difficulty;
     this.career = !!career; this.round = round; // career (career.js)
-    this.strategy = !humans && (this.career || !!strategy); // tyre wear and pit stops: career races, or a quick race with them on
+    this.session = session && !humans ? { ...session, flag: false, ended: false } : null; // qualifying (SESSION)
+    this.strategy = !humans && !this.session && (this.career ? strategy !== false : !!strategy); // tyre wear and pit stops: career races (not
+    // MotoGP's: its series says strategy: false), or a quick race with them on; qualifying has tyres but no pit stops
+    this.tyresOn = this.strategy || (!!this.session && strategy !== false);
     this.countdownClock = null;   // online: a shared clock runs the start lights (else they count up here)
     this.state = 'countdown';     // countdown → racing → finished
     this.time = 0;                // race clock, starts at lights out
@@ -153,11 +187,19 @@ export class Race {
 
     // Grid: two columns, 8 m between rows, just behind the start line.
     // AI in team order, you (or everyone in an online room) at the back of the grid
-    const n = Math.max(0, Math.min(aiCount, TEAMS.length - 1));
-    const order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).map((k) => ({ teamIdx: k }));
+    let n = Math.max(0, Math.min(aiCount, TEAMS.length - 1));
+    let order = [...TEAMS.keys()].filter((k) => k !== 0).slice(0, n).map((k) => ({ teamIdx: k }));
     if (humans) humans.forEach((h, k) => order.push({ teamIdx: 0, human: h, id: 100 + k }));
     else order.push({ teamIdx: 0, human: { id: localId } }); // alone = pole position
     if (playerGrid && !humans) order.splice(Math.min(order.length - 1, Math.max(0, playerGrid - 1)), 0, order.pop()); // (career: your grid slot)
+    const who = this.session?.field ?? gridOrder; // career: the order from qualifying (or the session's drivers)
+    if (who && !humans) {
+      const idx = (w) => (w === '@me' ? 0 : TEAMS.findIndex((t, k) => k > 0 && t.name === w));
+      order = who.map(idx).filter((k) => k >= 0).map((k) => (k === 0 ? { teamIdx: 0, human: { id: localId } } : { teamIdx: k }));
+      if (!order.some((o) => o.teamIdx === 0) && !this.session) order.push({ teamIdx: 0, human: { id: localId } });
+      n = order.filter((o) => o.teamIdx !== 0).length;
+    }
+    const L0 = track.length, spread = this.session ? spreadOut(order.length, L0) : null;
     order.forEach(({ teamIdx, human, id }, slot) => {
       const team = { ...TEAMS[teamIdx] };
       const isPlayer = !!human && human.id === localId;
@@ -165,7 +207,8 @@ export class Race {
       if (isPlayer && playerName) team.name = playerName;
       if (human?.name) { team.name = human.name; team.color = human.color ?? team.color; }
       const state = createCarState(0, 0, 0, this.carDef);
-      placeCar(state, track, track.length - 10 - slot * 8, slot % 2 === 0 ? 2.8 : -2.8);
+      if (spread) placeCar(state, track, spread[slot], slot % 2 === 0 ? 2.2 : -2.2); // qualifying: spread round the lap
+      else placeCar(state, track, track.length - 10 - slot * 8, slot % 2 === 0 ? 2.8 : -2.8);
       const car = {
         id: id ?? teamIdx, team, state, isPlayer, isHuman: !!human, humanId: human?.id ?? null,
         lapsDone: -1, prevS: state.s, progress: 0,
@@ -183,11 +226,19 @@ export class Race {
       };
       if (!human) { // each driver's pace: roughly the quickest at the front of the grid (DIFFICULTY above). Not exactly
         // in order, as after a real qualifying: a few start out of place and have to fight their way back up
-        const rank = n > 1 ? clamp((Math.min(slot, n - 1) + (Math.random() - 0.5) * 5) / (n - 1), 0, 1) : 0;
+        // (career: each team's pace for the season, paceRank, so the quick ones are quick in qualifying and the race)
+        const ranked = paceRank?.[team.name];
+        const rank = ranked != null ? clamp(ranked + (Math.random() - 0.5) * 0.08, 0, 1)
+          : n > 1 ? clamp((Math.min(slot, n - 1) + (Math.random() - 0.5) * 5) / (n - 1), 0, 1) : 0;
         const pace = paceAt(diff.pace, rank) * (1 + (Math.random() - 0.5) * 0.004);
         car.ai = new AIDriver(state, track, this.profile, Math.min(pace, 1.02), diff.grip, {
           brakeUse: paceAt(diff.brakeUse, rank), power: Math.min(1, paceAt(diff.power, rank)),
-          safety: diff.safety, defence: diff.defence, attack: diff.attack, start: true });
+          safety: diff.safety, defence: diff.defence, attack: diff.attack, start: !this.session });
+        car.rank = rank;
+        if (this.session) { // qualifying: what it's doing this lap (SESSION: out lap, flying laps, a cool-down lap)
+          car.q = { phase: slot % 3 === 1 ? 'cool' : 'out', push: 0, runs: SESSION.pushLaps[0] + Math.floor(Math.random() * (SESSION.pushLaps[1] - SESSION.pushLaps[0] + 1)), skill: car.ai.skill };
+          sessionPhase(car, car.q.phase);
+        }
       }
       this.cars.push(car);
     });
@@ -195,8 +246,9 @@ export class Race {
     this.pits = this.strategy ? new PitStops(this) : null; // boxes, the AI's stops, the stops themselves (pitstop.js)
     // Tyres (tyres.js): you start on your pick (TYRES.start, or 1 / 2 / 3 on the grid), the AI on a mix, and a pit stop
     // fits the set you chose on the pit page (car.nextTyres), or the softest one that lasts the rest of the race
-    if (this.strategy) for (const c of this.cars) {
+    if (this.tyresOn) for (const c of this.cars) {
       const pick = c.isHuman ? (c.isPlayer ? tyres : null) ?? TYRES.start
+        : this.session ? SESSION.aiTyres // (qualifying: the AI on the quickest set)
         : this.laps < TYRES.twoCompounds ? chooseCompound(this, this.laps)
         : Math.random() < 0.35 ? 'soft' : Math.random() < 0.8 ? 'medium' : 'hard';
       fitTyres(c.state, pick, this);
@@ -212,6 +264,33 @@ export class Race {
     this.updatePositions();
     this.cars.forEach((c, i) => { c.position = i + 1; }); // grid order until the start
     this.standings = [...this.cars];
+    if (this.session) { // qualifying: out on track straight away, the clock running
+      this.state = 'racing'; this.countdown = this.lightsOutAt;
+      for (const c of this.cars) { c.lapsDone = -1; c.prevS = c.state.s; c.progress = c.state.s - L0; }
+      this.events.push({ type: 'session', name: this.session.name });
+    }
+  }
+
+  // ---------- qualifying (SESSION) ----------
+  get sessionLeft() { return this.session ? Math.max(0, this.session.duration - this.time) : 0; }
+  // The flag: no more laps start (the one you're on counts). Ended: your session is over (the results)
+  sessionTick() {
+    const S = this.session;
+    if (S.flag || this.time < S.duration) return;
+    S.flag = true;
+    this.events.push({ type: 'flag' });
+    const p = this.player;
+    if (p && p.finishTime == null && !(p.lapsDone >= 0 && p.lapStart < S.duration)) this.endSession(); // not on a timed lap: done
+  }
+  // You're done (the flag, or you ended it): the AI drives your car back in
+  endSession() {
+    const S = this.session, p = this.player;
+    if (!S || S.ended) return;
+    S.ended = true; S.endedAt = this.time;
+    if (p && p.finishTime == null) p.finishTime = this.time;
+    this.state = 'finished';
+    this.events.push({ type: 'sessionEnd' });
+    if (p && !p.dnf) p.ai = new AIDriver(p.state, this.track, this.playerProfile, 0.7);
   }
 
   step(dt, playerInput) {
@@ -230,7 +309,7 @@ export class Race {
       return;
     }
 
-    this.time += dt;
+    this.time += dt; this.dt = dt;
     newPlanStep(); // (the AI's plans this step: ai.js)
     const states = this.liveStates ??= []; states.length = 0; // (one array, reused every step: no garbage)
     for (const c of this.cars) if (!c.dnf) states.push(c.state);
@@ -272,6 +351,7 @@ export class Race {
       }
     }
     this.resolveContacts();
+    if (this.session) this.sessionTick();
     this.updatePositions();
   }
 
@@ -301,6 +381,8 @@ export class Race {
   updateLap(car) {
     const L = this.track.length, s = car.state.s;
     if (car.prevS > L * 0.75 && s < L * 0.25) {
+      // (when it crossed the line, between this step and the last: qualifying times to the thousandth, no ties)
+      car.crossAt = this.time - (this.dt ?? 0) * (s / Math.max(1e-6, s + L - car.prevS));
       car.lapsDone++;
       if (car.crossedBack) car.crossedBack = false; // back over the line after rolling back across it: same lap, carry on
       else this.completeLap(car);
@@ -316,6 +398,32 @@ export class Race {
     const valid = !car.lapInvalid;
     car.lastLapInvalid = car.lapInvalid; car.lastOffSec = car.offSec;
     car.lapInvalid = false; car.offSec = [false, false, false]; car.strikes = 0;
+    const S = this.session;
+    if (S) { // qualifying: the out lap ends at the line; after that every lap is timed (if it started before the flag)
+      if (car.finishTime != null) return;
+      const at = car.crossAt ?? this.time;
+      if (car.lapsDone >= 1) {
+        const lap = at - car.lapStart, inTime = car.lapStart < S.duration;
+        car.lastLap = lap; car.lastLapAt = this.time;
+        if (inTime && valid && (car.bestLap == null || lap < car.bestLap)) {
+          car.bestLap = lap;
+          if (car.isPlayer) this.events.push({ type: 'bestLap', time: lap });
+        }
+        if (car.isPlayer) this.events.push({ type: 'lap', lap: car.lapsDone, time: lap, at: this.time, valid: valid && inTime, offSec: car.lastOffSec });
+        if (inTime && valid && (this.bestLapOverall == null || lap < this.bestLapOverall.time)) this.bestLapOverall = { time: lap, name: car.team.name };
+      }
+      car.lapStart = at;
+      if (S.flag) { // the chequered flag: done
+        if (car.isPlayer) this.endSession(); else { car.finishTime = this.time; sessionPhase(car, 'done'); }
+        return;
+      }
+      if (car.q) { // the AI's run plan: an out lap, a few flying laps, a lap to cool the tyres, and again
+        const q = car.q;
+        if (q.phase === 'out' || q.phase === 'cool') { q.push = 0; sessionPhase(car, 'push'); }
+        else if (q.phase === 'push' && ++q.push >= q.runs) sessionPhase(car, 'cool');
+      }
+      return;
+    }
     if (car.lapsDone >= 1 && car.finishTime == null) {
       const lap = this.time - car.lapStart;
       car.lastLap = lap; car.lastLapAt = this.time; car.lapStart = this.time; // (lastLapAt: when, for the HUD)
@@ -382,6 +490,18 @@ export class Race {
   }
 
   updatePositions() {
+    if (this.session) { // qualifying: by best lap (no time: at the back, in their order on the grid)
+      const sorted = [...this.cars].sort((a, b) => (a.bestLap ?? Infinity) - (b.bestLap ?? Infinity) || a.grid - b.grid);
+      const pole = sorted[0]?.bestLap;
+      sorted.forEach((c, i) => {
+        c.position = i + 1; c.lapsDown = 0;
+        c.gapKnown = c.bestLap != null && pole != null; c.gap = c.gapKnown ? c.bestLap - pole : 0;
+        const a = sorted[i - 1];
+        c.interval = i && c.bestLap != null && a.bestLap != null ? c.bestLap - a.bestLap : null;
+      });
+      this.standings = sorted;
+      return;
+    }
     const sorted = [...this.cars].sort((a, b) => {
       if (!!a.dnf !== !!b.dnf) return a.dnf ? 1 : -1; // retired / disconnected: bottom of the order
       if (a.finishTime != null && b.finishTime != null) return a.finishTime - b.finishTime;

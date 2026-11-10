@@ -231,6 +231,7 @@ export class AIDriver {
     // (every field it ever has, set here: an object that gains fields as it goes changes shape, and the browser then
     //  throws away the fast compiled code for update() and falls back to slow code that makes garbage)
     this.route = null; this.stopAt = null; this.hold = false; this.planRoute = null; this.planLat = null;
+    this.cool = false; // qualifying: on an out lap or a cool-down lap, keeping out of the way (race.js SESSION)
     this.blocked = null; this.towing = null; this.kDemand = -1; this.wasWide = false; this.startDone = false; this.defendedAt = -1;
     // racecraft: aggression (attack, 0–1 from the difficulty) and defence, a little different for each driver;
     // fight: racing a car right now (brakes later); stalk: seconds stuck right behind the car ahead; bu: braking it plans
@@ -570,9 +571,11 @@ export class AIDriver {
     }
     // ---- off the grid: keep to its own side until the field has strung out ----
     if (this.odo < T.start && dBrake > 60 && !this.startDone) { this.lane = makeLane('start', clamp(this.gridLat, lo, hi)); return; }
-    // ---- about to be lapped: let the leader by on the straight ----
-    const lapper = near.find((N) => N.lapping && N.d < 0 && N.d > -70);
-    if (lapper && dBrake > 120) {
+    // ---- about to be lapped: let the leader by on the straight. Qualifying, on a slow lap (this.cool): anyone quicker
+    // coming up behind, from further back and not only on the straights, so it never spoils their lap ----
+    const lapper = this.cool ? near.find((N) => N.d < 0 && N.d > -150 && N.v > v + 3)
+      : near.find((N) => N.lapping && N.d < 0 && N.d > -70);
+    if (lapper && dBrake > (this.cool ? 50 : 120)) {
       const away = lapper.lat >= lat ? -1 : 1, to = away > 0 ? hi - 0.3 : lo + 0.3;
       if (canMove(to)) { this.lane = makeLane('yield', to, lapper.o); return; }
     }
