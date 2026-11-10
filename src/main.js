@@ -10,7 +10,7 @@ import { Headlights, autoOn } from './headlights.js';
 import { setupMenu, savedTime } from './menu.js';
 import { Race, formatTime } from './race.js';
 import { gearbox } from './physics.js';
-import { readInput, wasPressed, clearPressed, pollPad, padFeedback } from './input.js';
+import { readInput, wasPressed, clearPressed, pollPad, padFeedback, lookStick } from './input.js';
 import { EngineAudio } from './audio.js';
 import { HUD } from './hud.js';
 import { RearView } from './rearview.js';
@@ -1000,29 +1000,76 @@ const CAMERA = {
 // (`cameras`), the onboard cameras from its model (`model.cams`), since a bigger car needs them further out.
 let camYaw = 0;
 const camQ = new THREE.Quaternion(), camE = new THREE.Euler(0, 0, 0, 'YXZ'), camBase = new THREE.Vector3();
+// Looking round (the controller's right stick: input.js lookStick; Q: behind). The way you push the stick is the way
+// you look, and the view swings there the way a head turns (LOOK.speed), not in a cut:
+//   up-left / up-right   a glance that way (the onboard cameras turn where they are; the chase cameras swing round the car)
+//   left / right         out of that side of the car, from its door
+//   down, or Q           behind, from the back of the car (nothing of the car in the way)
+const LOOK = {
+  speed: 9,              // 1/s: how fast the view follows (higher = snappier; a head takes about a third of a second)
+  from: [50, 90],        // °: between these the camera moves from where it is to the car's door
+  back: [105, 160],      // °: … and between these from the door to the back of the car
+  door: { out: 0.15, y: null, z: 0.1 }, // the door camera: this far outside the car's side, at the cockpit camera's height
+  rear: { y: 1.0, behind: 0.15, tilt: -2 }, // the rear camera: this far behind the tail, looking back (tilt °)
+  range: 30,             // m: how far away it looks
+};
+let lookYaw = 0; // rad: where the view is turned now (0 = ahead, + = right, ±π = behind)
+const lookA = new THREE.Vector3(), lookB = new THREE.Vector3(), lookP = new THREE.Vector3(), lookL = new THREE.Vector3();
+const smooth = (a, b, x) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+// the view turns toward where the stick points (the short way round: from one side to the other it goes past behind
+// only if that's nearer)
+function turnHead(dt) {
+  const stick = lookStick(), want = rearView.lookBack ? Math.PI * (lookYaw < 0 ? -1 : 1) : stick ?? 0;
+  let d = want - lookYaw;
+  if (stick !== null || rearView.lookBack) d = Math.atan2(Math.sin(d), Math.cos(d)); // (back to ahead: the way it came)
+  lookYaw += d * Math.min(1, LOOK.speed * dt);
+  if (Math.abs(want) < 1e-3 && Math.abs(lookYaw) < 0.004) lookYaw = 0;
+  if (lookYaw > Math.PI) lookYaw -= 2 * Math.PI; else if (lookYaw < -Math.PI) lookYaw += 2 * Math.PI;
+  rearView.away = Math.abs(lookYaw) > 1.9; // (looking behind: no mirror)
+}
+// (x, y, z) in the car's frame turned `yaw` to the right about the car's upright axis (+x is the car's left)
+const turned = (v, yaw, out) => { const c = Math.cos(yaw), s = Math.sin(yaw); return out.set(v[0] * c - v[2] * s, v[1], v[0] * s + v[2] * c); };
 // Where the camera goes for this car state: camPos, camLook and camera.up
 function cameraTarget(state) {
-  const onboard = camMode >= 2 && !rearView.lookBack, C = onboard ? CAMERA.onboard : CAMERA.chase;
+  const onboard = camMode >= 2, C = onboard ? CAMERA.onboard : CAMERA.chase;
   const yaw = !onboard && C.lag > 0 ? camYaw : state.h;
   // (a bike: the onboard cameras lean with it, as a real onboard camera does; the chase cameras only a little)
   const lean = (state.lean ?? 0) * (onboard ? CAMERA.bikeLean.onboard : CAMERA.bikeLean.chase);
   camE.set(-(state.pitch ?? 0) * C.pitch, yaw, (state.roll ?? 0) * C.roll - lean); // the same rotation as the car model (carModel.js)
   camQ.setFromEuler(camE);
   let pos, look;
-  const rig = (race?.carDef ?? myCar).cameras;
-  if (rearView.lookBack) ({ pos, look } = rig.back);
-  else if (onboard) { // T-cam on the airbox or roof / driver's eyes (x: the seat, if it isn't in the middle)
+  const def = race?.carDef ?? myCar, rig = def.cameras;
+  if (onboard) { // T-cam on the airbox or roof / driver's eyes (x: the seat, if it isn't in the middle)
     const c = camMode === 2 ? cams.tcam : cams.cockpit, tilt = Math.tan(THREE.MathUtils.degToRad(c.tilt ?? 0)) * 20;
     pos = [c.x ?? 0, c.y, c.z]; look = [c.x ?? 0, c.y + tilt, 20];
   } else ({ pos, look } = camMode === 0 ? rig.chase : rig.far);
+  camPos.set(...pos); camLook.set(...look);
+  if (lookYaw !== 0) { // looking round
+    const a = Math.abs(lookYaw), deg = THREE.MathUtils.radToDeg(a), side = lookYaw > 0 ? -1 : 1; // (side: +1 = the car's left)
+    // a glance: an onboard camera turns where it is; a chase camera swings round the car
+    if (onboard) { lookA.set(look[0] - pos[0], look[1] - pos[1], look[2] - pos[2]); turned([lookA.x, lookA.y, lookA.z], lookYaw, lookB); camLook.copy(camPos).add(lookB); }
+    else { turned(pos, lookYaw, camPos); turned(look, lookYaw, camLook); }
+    // further round: the camera goes to the car's door, then to its tail, and looks straight out from there
+    const w = smooth(LOOK.from[0], LOOK.from[1], deg);
+    if (w > 0) {
+      const p = def.physics, half = def.bike ? 0.35 : (p.trackWidth ?? 1.6) / 2 + 0.2, tail = (p.contactOffset ?? 1.4) + (p.radius ?? 1.25);
+      const eyeY = LOOK.door.y ?? cams?.cockpit?.y ?? 1;
+      lookA.set(side * (half + LOOK.door.out), eyeY, LOOK.door.z);         // the door
+      lookB.set(0, Math.max(LOOK.rear.y, def.bike ? 1.1 : 0), -(tail + LOOK.rear.behind)); // the tail
+      lookP.lerpVectors(lookA, lookB, smooth(LOOK.back[0], LOOK.back[1], deg));
+      const drop = Math.tan(THREE.MathUtils.degToRad(LOOK.rear.tilt)) * LOOK.range * smooth(LOOK.back[0], LOOK.back[1], deg);
+      turned([0, drop, LOOK.range], lookYaw, lookL).add(lookP);
+      camPos.lerp(lookP, w); camLook.lerp(lookL, w);
+    }
+  }
   camBase.set(state.x, state.y ?? 0, state.z);
-  camPos.set(...pos).applyQuaternion(camQ).add(camBase);
-  camLook.set(...look).applyQuaternion(camQ).add(camBase);
+  camPos.applyQuaternion(camQ).add(camBase);
+  camLook.applyQuaternion(camQ).add(camBase);
   camera.up.set(0, 1, 0).applyQuaternion(camQ); // leans with the car on banking
 }
 function snapCamera() {
   if (!race) return;
-  camYaw = race.player.state.h;
+  camYaw = race.player.state.h; lookYaw = 0;
   cameraTarget(race.player.state);
   camera.position.copy(camPos); camera.lookAt(camLook);
 }
@@ -1154,6 +1201,7 @@ function tick(timestamp) {
   const ps = race.player.state, lag = CAMERA.chase.lag;
   if (lag > 0) { const dYaw = Math.atan2(Math.sin(ps.h - camYaw), Math.cos(ps.h - camYaw)); camYaw += dYaw * (1 - Math.exp(-dt / lag)); }
   else camYaw = ps.h;
+  turnHead(dt); // (the right stick, or Q: looking round)
   cameraTarget(ps);
   camera.position.copy(camPos);
   const SH = CAMERA.shake;

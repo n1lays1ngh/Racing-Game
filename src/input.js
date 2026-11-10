@@ -8,7 +8,7 @@
 //
 // Controller layout (Xbox names; PlayStation: A = ✕, B = ○, X = □, Y = △, LB = L1, RT = R2, LT = L2, Menu = Options,
 // View = Create). The full list is on the Controls screen (index.html #controls).
-//   Driving:  left stick steer · RT throttle · LT brake · LB (hold) ERS boost · right stick down (hold) look back
+//   Driving:  left stick steer · RT throttle · LT brake · LB (hold) ERS boost · right stick (hold) look round: the way you push it
 //   Race:     X reset · Y camera · B pause · R3 mirror · Menu map (whole circuit / road ahead) · View mute
 //             D-pad left headlights · D-pad up tower gaps
 //   Menus:    D-pad or left stick move · A choose · B back · LB / RB a slider by 10 · X time of day (race setup)
@@ -106,7 +106,7 @@ export function readInput(dt) {
 // Button numbers in the browser's standard layout (Xbox names; PlayStation in brackets)
 export const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 // In a race: button → the key it presses (the keyboard shortcut does the same). RT / LT / LB and the left stick are
-// read in readInput(); the right stick pushed down holds Q (look back).
+// read in readInput(); the right stick looks round (lookStick).
 export const RACE_BUTTONS = {
   [BTN.X]: 'KeyR',      // reset onto the track
   [BTN.Y]: 'KeyC',      // camera
@@ -121,7 +121,12 @@ export const RACE_BUTTONS = {
   [BTN.RIGHT]: 'Period', // … next page
   [BTN.RB]: 'KeyX',     // voice chat: push to talk (held; net/voice.js)
 };
-export const LOOK_BACK = { key: 'KeyQ', on: 0.55, off: 0.35 }; // right stick down past `on` (let go below `off`)
+// The right stick looks around (main.js, the camera): the way you push it is the way you look. Up-left / up-right:
+// a glance that way; left / right: out of that side of the car; down: behind. Pushed past `on` (let go below `off`).
+export const LOOK = { on: 0.5, off: 0.3 };
+let lookDir = null; // rad: 0 = ahead, + = to the right, ±π = behind; null = not looking round
+// Where the right stick says to look (rad, as above), or null: main.js, every frame of a race
+export function lookStick() { return lookDir; }
 
 // Menus and pause: the D-pad or the left stick moves the focus between the buttons on screen, A presses the one
 // with the focus, B goes back. On a screen:
@@ -159,7 +164,7 @@ function screen() {
 
 let prevButtons = [];
 const held = new Map(); // button → key it is holding down (released on button up, whatever the screen)
-let lookBack = false, navDir = null, navNext = 0, lastScreen = null;
+let navDir = null, navNext = 0, lastScreen = null;
 
 function sendKey(type, code) { window.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true })); }
 function act(action) {
@@ -214,15 +219,15 @@ function navigate(S, dir) {
 
 export function pollPad(dt = 1 / 60) {
   const pad = activePad();
-  if (!pad) { prevButtons = []; return; }
+  if (!pad) { prevButtons = []; lookDir = null; return; }
   const name = screen(), S = SCREENS[name];
   const down = (i) => !!pad.buttons[i]?.pressed && !prevButtons[i];
   pad.buttons.forEach((b, i) => { // let go of a held key
     if (!b.pressed && prevButtons[i] && held.has(i)) { sendKey('keyup', held.get(i)); held.delete(i); }
   });
-  // right stick down: look back while it's held (only while driving)
-  const rs = pad.axes[3] ?? 0, wantBack = name === 'race' && (lookBack ? rs > LOOK_BACK.off : rs > LOOK_BACK.on);
-  if (wantBack !== lookBack) { lookBack = wantBack; sendKey(wantBack ? 'keydown' : 'keyup', LOOK_BACK.key); }
+  // right stick: look that way while it's held (only while driving)
+  const rx = pad.axes[2] ?? 0, ry = pad.axes[3] ?? 0, rm = Math.hypot(rx, ry);
+  lookDir = name === 'race' && rm > (lookDir === null ? LOOK.on : LOOK.off) ? Math.atan2(rx, -ry) : null;
 
   if (!S) { // driving
     pad.buttons.forEach((b, i) => { const key = RACE_BUTTONS[i]; if (key && down(i)) { sendKey('keydown', key); held.set(i, key); } });

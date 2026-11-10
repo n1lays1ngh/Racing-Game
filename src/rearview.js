@@ -25,6 +25,7 @@ export class RearView {
     this.renderer = renderer;
     this.enabled = GRAPHICS.mirror ?? true; // mirror strip on/off (V); the graphics preset sets it at the start
     this.lookBack = false; // Q held
+    this.away = false;     // looking behind with the controller's right stick (main.js)
     this.visible = false;
 
     this.cam = new THREE.PerspectiveCamera(55, 4, 0.3, 4000);
@@ -98,7 +99,7 @@ export class RearView {
 
   // Draw the mirror for this car (call after the main render each frame).
   render(scene, state) {
-    const show = this.enabled && !this.lookBack;
+    const show = this.enabled && !this.lookBack && !this.away; // (away: you're looking behind with the stick: main.js)
     if (show !== this.visible) this.setVisible(show);
     if (!show) return;
     this.layout();
