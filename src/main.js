@@ -1001,12 +1001,11 @@ const CAMERA = {
 let camYaw = 0;
 const camQ = new THREE.Quaternion(), camE = new THREE.Euler(0, 0, 0, 'YXZ'), camBase = new THREE.Vector3();
 // Looking round (the controller's right stick: input.js lookStick; Q: behind). The way you push the stick is the way
-// you look, and the view swings there the way a head turns (LOOK.speed), not in a cut:
+// you look, and the view cuts straight there:
 //   up-left / up-right   a glance that way (the onboard cameras turn where they are; the chase cameras swing round the car)
 //   left / right         out of that side of the car, from its door
 //   down, or Q           behind, from the back of the car (nothing of the car in the way)
 const LOOK = {
-  speed: 9,              // 1/s: how fast the view follows (higher = snappier; a head takes about a third of a second)
   from: [50, 90],        // °: between these the camera moves from where it is to the car's door
   back: [105, 160],      // °: … and between these from the door to the back of the car
   door: { out: 0.15, y: null, z: 0.1 }, // the door camera: this far outside the car's side, at the cockpit camera's height
@@ -1016,15 +1015,10 @@ const LOOK = {
 let lookYaw = 0; // rad: where the view is turned now (0 = ahead, + = right, ±π = behind)
 const lookA = new THREE.Vector3(), lookB = new THREE.Vector3(), lookP = new THREE.Vector3(), lookL = new THREE.Vector3();
 const smooth = (a, b, x) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-// the view turns toward where the stick points (the short way round: from one side to the other it goes past behind
-// only if that's nearer)
-function turnHead(dt) {
-  const stick = lookStick(), want = rearView.lookBack ? Math.PI * (lookYaw < 0 ? -1 : 1) : stick ?? 0;
-  let d = want - lookYaw;
-  if (stick !== null || rearView.lookBack) d = Math.atan2(Math.sin(d), Math.cos(d)); // (back to ahead: the way it came)
-  lookYaw += d * Math.min(1, LOOK.speed * dt);
-  if (Math.abs(want) < 1e-3 && Math.abs(lookYaw) < 0.004) lookYaw = 0;
-  if (lookYaw > Math.PI) lookYaw -= 2 * Math.PI; else if (lookYaw < -Math.PI) lookYaw += 2 * Math.PI;
+// the view cuts straight to where the stick points (no swing)
+function turnHead() {
+  const stick = lookStick();
+  lookYaw = rearView.lookBack ? Math.PI : stick ?? 0;
   rearView.away = Math.abs(lookYaw) > 1.9; // (looking behind: no mirror)
 }
 // (x, y, z) in the car's frame turned `yaw` to the right about the car's upright axis (+x is the car's left)
@@ -1201,7 +1195,7 @@ function tick(timestamp) {
   const ps = race.player.state, lag = CAMERA.chase.lag;
   if (lag > 0) { const dYaw = Math.atan2(Math.sin(ps.h - camYaw), Math.cos(ps.h - camYaw)); camYaw += dYaw * (1 - Math.exp(-dt / lag)); }
   else camYaw = ps.h;
-  turnHead(dt); // (the right stick, or Q: looking round)
+  turnHead(); // (the right stick, or Q: looking round)
   cameraTarget(ps);
   camera.position.copy(camPos);
   const SH = CAMERA.shake;
