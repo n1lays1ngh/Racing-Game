@@ -258,10 +258,20 @@ export function stepCar(car, input, track, dt, human = false) {
 }
 
 // A bike's lean (physics.js stepCar, p.bike): yawTarget is the turn the steering asks for. Returns the turn it makes.
+//
+// The bike you ride (p.leanSteer, its `human` block: src/cars/motogp.js): the stick *is* the lean. Half stick = half the
+// lean, full stick = as far as the tyres let it go (× leanMargin, a little in hand), at any speed. Without it the
+// steering asks for a turn of the bars, and above walking pace the smallest touch is already more turn than the
+// tyres have: the bike only ever went bolt upright or flat on its ear. (The AI steers the other way: it works out the
+// turn it wants, and that asks for exactly the lean that makes it.)
 function bikeLean(car, B, p, yawTarget, vf, latAvail, dt) {
   const v = Math.max(vf, 0.1);
   const most = Math.min(B.maxLean, Math.atan((p.slideAllowance * latAvail) / p.g)); // as far as the grip lets it lean
-  const want = clamp(Math.atan((yawTarget * v) / p.g), -most, most);
+  let want;
+  if (p.leanSteer) {
+    const x = clamp(car.steer / Math.max(steerLimit(vf, p), 1e-4), -1, 1);
+    want = Math.sign(x) * Math.abs(x) ** (p.leanCurve ?? 1) * most * (p.leanMargin ?? 1) * (car.lockF ? p.lockSteer : 1);
+  } else want = clamp(Math.atan((yawTarget * v) / p.g), -most, most);
   const k = 1 - Math.exp(-B.rollResponse * dt), step = B.rollRate * dt;
   car.lean += clamp((want - car.lean) * k, -step, step);
   if (Math.abs(car.lean) > most) car.lean = Math.sign(car.lean) * most;
@@ -359,6 +369,17 @@ function gearIndex(speed, box = F1.gearbox) {
   let g = 1;
   while (g < gears && speed > top[g]) g++;
   return g;
+}
+
+// For the steering assist (assists.js) on a bike you steer by lean (p.leanSteer): the stick position that makes the
+// turn an AI driver's steering asks for (its `steer`, a share of the bars' lock, × its lock bonus)
+export function leanSteerFor(car, aiSteer) {
+  const base = car.spec?.physics ?? CAR, p = base.human ? humanPhysics(base) : base, B = p.bike;
+  if (!B || !p.leanSteer) return aiSteer;
+  const v = Math.max(car.vf, 0.1), yaw = (v * Math.tan(aiSteer * steerLimit(v, base))) / (base.steerBase ?? base.wheelbase);
+  const most = Math.min(B.maxLean, Math.atan((p.slideAllowance * lateralGrip(v, 1, 0, p)) / p.g)) * (p.leanMargin ?? 1);
+  const x = clamp(Math.atan((yaw * v) / p.g) / Math.max(most, 1e-3), -1, 1);
+  return Math.sign(x) * Math.abs(x) ** (1 / (p.leanCurve ?? 1));
 }
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }

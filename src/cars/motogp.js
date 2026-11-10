@@ -55,6 +55,19 @@ export default {
     lockSteer: 0.3,
     lockBrake: 0.75,
     reverseMax: 2,
+    // --- how it feels when YOU ride it (the AI keeps the numbers above) ---
+    human: {
+      // The stick is the lean: half stick = half lean, full stick = as far as the tyres allow, at any speed
+      // (physics.js bikeLean). Before, the lightest touch at speed was already full lean.
+      leanSteer: true,
+      leanCurve: 1.3,       // above 1: the first part of the stick is gentler (small corrections on the straights)
+      leanMargin: 0.95,     // full stick stops this share short of the tyres' limit: a little in hand
+      steerRate: 6,         // (the lean is the slow part, not your hands)
+      combinedMin: 0.55,    // (0.3) braking leaned over still leaves this much grip to turn: you can trail the brake in
+      lockThreshold: 1.7,   // (1.15) the front only locks if you grab a lot of brake at a lot of lean
+      slideAllowance: 1.08, // (1.03) it slides a touch before it runs wide
+      tc: 0.85,             // (0.7) more traction control: full throttle leaned over is held, not punished
+    },
     // --- size for contact (race.js): two small circles along the bike ---
     radius: 0.5,
     contactOffset: 0.55,
