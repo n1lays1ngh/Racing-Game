@@ -186,7 +186,8 @@ export function stepCar(car, input, track, dt, human = false) {
     if (vf >= -0.5) {
       // the engine: a fixed power (p.power, W/kg: the push falls as speed rises, as in a real car) up to p.accel; or,
       // without p.power, p.accel fading in a straight line toward top speed (p.accelFade)
-      let push = drive * (dfx?.power ?? 1) * (p.power ? Math.min(p.accel, p.power / Math.max(vf, 1))
+      // (input.power: an AI driver in a fight finds a little more, ai.js AI_TUNE.battle)
+      let push = drive * (dfx?.power ?? 1) * (input.power ?? 1) * (p.power ? Math.min(p.accel, p.power / Math.max(vf, 1))
         : p.accel * (1 - p.accelFade * Math.min(Math.max(vf, 0) / 90, 1)));
       if (B) { // a bike: the front wheel lifts past B.wheelie (the wheelie control holds it there)
         const want = drive * (dfx?.power ?? 1) * (p.power ? p.power / Math.max(vf, 1) : p.accel);
