@@ -97,21 +97,38 @@ export default {
     // Anything here replaces the same setting above for your car only. Aim: an arcade car every level of player enjoys,
     // with a bit of weight to it: it turns in when you ask, doesn't push wide, and doesn't twitch.
     human: {
-      // weight: the wheels turn a little slower and the car takes longer to build up (and settle) its rotation
-      steerRate: 1.5,       // (2.3) how fast the front wheels turn: lower = heavier steering, less twitchy on a keyboard
-      yawResponse: 4.5,     // (9) how quickly the car follows the steering: lower = heavier, more planted
-      // less understeer
-      steerFade: 18,
+      // --- steering: speed-sensitive (physics.js steerLimit). Full stick is always just past what the tyres can hold
+      // at the speed you're doing, so half stick ≈ half the grip, in a hairpin or at 300 km/h. At speed the lock is
+      // small and the wheels move slowly, so a small move is a small correction; in slow corners you get the full lock.
+      steerToGrip: 1.05,    // full stick = this × the grip at this speed (1 = exactly the limit; higher = more bite, and the
+                            // grip runs out a little before full stick; lower = it can't quite reach the limit)
+      maxSteer: 0.42,       // (0.36) lock in the slowest hairpins: enough for a 10 m hairpin at 50 km/h
+      steerFade: 120,       // (32) the lock barely fades on its own now: the grip sets it (above ~60 km/h)
+      steerRate: 3.4,       // (2.3) ÷ maxSteer = how many times a second the wheels can go lock to lock, at every speed
+                            // (8: no lag you'd feel on a controller; keyboards are smoothed already, input.js)
+      yawResponse:5.57,       // (9) how quickly the car follows the steering in slow corners: lower = heavier, higher = more direct
+      // Heavy at speed: from `from` to `to` m/s (90 → 250 km/h) the steering gets heavier, all of it by `to`:
+      heavy: {
+        from: 25, to: 70,
+        yawResponse: 4,     // how quickly the car answers at speed (7 in slow corners): lower = heavier, but slower to catch
+        steerRate: 0.40,    // the wheels turn at this share of their slow-corner speed
+        centre: 0.5,        // the middle of the stick goes soft: stick ^ 1.7 at speed (10% → 2%, 30% → 13%, 60% → 42%,
+                            // full = full). Higher = a bigger push needed before it turns
+      },
       stability: 1.3,       // (2) the pull that straightens a slide also turns the nose out of the corner: less of it
-      slideAllowance: 1.18, // (1.10) the car can rotate a bit further past the grip: it tucks into the apex
-      trailBrake: 0.28,     // (0.15) braking into a corner helps the car turn in (instead of pushing on)
-      combinedMin: 0.62,    // (0.45 in physics.js) braking hard still leaves this much grip for turning
-      lockThreshold: 1.6,   // (1.25) brake + steering needed to lock the fronts: full brake while turning no longer
-                            // locks them straight away (a locked front keeps only lockSteer of its steering)
+      slideAllowance: 1.15, // (1.10) the car can rotate a bit further past the grip: it tucks into the apex
+      trailBrake: 0.3,      // (0.15) braking into a corner helps the car turn in (instead of pushing on)
+      combinedMin: 0.7,     // (0.45 in physics.js) braking hard still leaves at least this much grip for turning …
+      brakeLoad: 0.3,       // … and the weight coming onto the front under braking adds up to this (0.7 + 0.3: the fronts
+                            // keep all their cornering grip at full brake), and they take this much more before they lock.
+                            // Lower = it pushes on more under braking. (No extra rotation: brakeRotation, physics.js, is 0)
+      // --- lock-ups: only when you're braking hard *and* the car is already sliding, not from turning in on the brakes ---
+      lockThreshold: 1.8,   // (1.25) brake + cornering needed to lock the fronts (full brake + 1.5 × the grip: a slide)
+      lockSteer: 0.5,       // (0.3) a locked front keeps half its steering: you run a little wide, not straight on
       // weight transfer you can feel (physics.js), for your car only:
-      liftRotation: 0.12,   // lift off mid-corner and the nose tucks in (the weight comes forward): up to this much more turn
-      powerPush: 0.1,      // flat on the power in a fast corner the front goes light: up to this much less turn (feed it in)
-      scrub: 0.7,          // a slide scrubs speed: m/s² for each m/s it's sliding sideways past 1.5 (tidy is fast)
+      liftRotation: 0.15,   // lift off mid-corner and the nose tucks in (the weight comes forward): up to this much more turn
+      powerPush: 0.4,       // (0.1) flat on the power in a fast corner the front goes light: up to this much less turn
+      scrub: 0.7,           // a slide scrubs speed: m/s² for each m/s it's sliding sideways past 1.5 (tidy is fast)
     },
     // Optional (see hypercar.js and gt3.js): steerBase (the steering works from this instead of the wheelbase),
     // trackWidth (between the left and right wheels, for the tyre marks), abs: true (can't lock the wheels),

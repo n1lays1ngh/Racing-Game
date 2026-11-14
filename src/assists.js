@@ -15,7 +15,7 @@
 // Steering assist: every level keeps you on the road (when the car runs toward the edge, it steers you back); medium
 // and high also steer you along the racing line: medium does part of it, high all of it (let go and it drives the line).
 // Steer yourself and it hands the steering back to you (the harder you steer, the more), so you can still pass and defend.
-import { clamp, steerLimit, leanSteerFor } from './physics.js';
+import { clamp, playerSteerLimit, leanSteerFor } from './physics.js';
 import { KERB_WIDTH, projectOnTrack } from './track.js';
 import { AIDriver, AI_TUNE, buildSpeedProfile } from './ai.js';
 
@@ -121,7 +121,7 @@ export function applyAssists(race, input, levels, dt) {
       const need = (2 * path.over) / (path.t * path.t);                     // m/s² more toward the middle to stay on
       const angle = Math.atan((need * base) / (vv * vv));                   // the steering angle for that
       const k = S.edge * clamp(path.over / ASSISTS.steer.ramp, 0.25, 1);
-      steer += -path.side * k * (angle / steerLimit(v, p));
+      steer += -path.side * k * (angle / Math.max(playerSteerLimit(st), 1e-4));
     }
     steer = clamp(steer, -1, 1);
   }

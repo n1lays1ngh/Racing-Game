@@ -57,8 +57,22 @@ function humanPhysics(base) {
 }
 
 // Steering lock available at a given speed (the AI uses this too). p: the car's physics (state.spec.physics)
+//
+// p.steerToGrip (a car's `human` block: src/cars/f1.js): speed-sensitive steering. Full lock is then no more than the
+// turn the tyres can hold at this speed (× steerToGrip, a little past it, so you can always reach the limit), so the
+// stick means the same at every speed: half stick ≈ half the grip, in a hairpin or at 300 km/h. Without it, the lock
+// only fades with speed (steerFade), and above ~100 km/h the tyres run out long before the stick does: a small move
+// is a big turn. (The AI steers on the plain fade.)
 export function steerLimit(vf, p = CAR) {
-  return p.maxSteer / (1 + Math.max(vf, 0) / p.steerFade);
+  const fade = p.maxSteer / (1 + Math.max(vf, 0) / p.steerFade);
+  if (!p.steerToGrip) return fade;
+  const v = Math.max(vf, 1);
+  return Math.min(fade, Math.atan(((p.steerBase ?? p.wheelbase) * p.steerToGrip * (p.slideAllowance ?? 1) * lateralGrip(v, 1, 0, p)) / (v * v)));
+}
+// your car's steering lock now (its `human` settings, if it has them): the steering assist and the steering wheel use it
+export function playerSteerLimit(car) {
+  const base = car.spec?.physics ?? CAR;
+  return steerLimit(Math.abs(car.vf ?? 0), base.human ? humanPhysics(base) : base);
 }
 
 // Cornering grip. vcurv > 0 in a dip (car pressed into the road = more grip),
@@ -122,8 +136,18 @@ export function stepCar(car, input, track, dt, human = false) {
   car.simWas = false; car.lockR = false;
 
   // --- Steering ---------------------------------------------------------
-  const target = clamp(input.steer + (dfx?.pull ?? 0), -1, 1) * steerLimit(vf, p) * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
-  car.steer += clamp(target - car.steer, -p.steerRate * dt, p.steerRate * dt);
+  const lim = steerLimit(vf, p);
+  // Heavy at speed (p.heavy, a car's `human` block: src/cars/f1.js). From heavy.from to heavy.to (m/s) the car takes
+  // longer to answer (yawResponse → heavy.yawResponse), the wheels turn more slowly (× heavy.steerRate) and the middle
+  // of the stick goes soft (stick ^ (1 + heavy.centre)): a touch is a touch, a real turn takes a real push.
+  const H = p.heavy, hf = H ? clamp((vf - H.from) / (H.to - H.from), 0, 1) : 0;
+  const steerIn = clamp(input.steer + (dfx?.pull ?? 0), -1, 1);
+  const shaped = hf > 0 ? Math.sign(steerIn) * Math.abs(steerIn) ** (1 + H.centre * hf) : steerIn;
+  const target = shaped * lim * (input.lock ?? 1); // input.lock: the AI's extra lock (ai.js)
+  // (speed-sensitive steering: the wheels move at the same share of the lock a second at every speed, so at speed,
+  //  where the lock is small, they move slowly: steerRate ÷ maxSteer is how many times a second they can go lock to lock)
+  const rate = (p.steerToGrip ? (p.steerRate * lim) / p.maxSteer : p.steerRate) * (hf > 0 ? 1 + (H.steerRate - 1) * hf : 1);
+  car.steer += clamp(target - car.steer, -rate * dt, rate * dt);
 
   // input.grip: AI difficulty bonus. Banking adds grip when turning into it, takes it away the other way.
   const bankGrip = p.g * (1 + 0.5 * p.mu) * Math.sin(Math.abs(bank)) * (car.yawRate * bank >= 0 ? 1 : -1);
@@ -133,7 +157,11 @@ export function stepCar(car, input, track, dt, human = false) {
   const latMax = Math.max(lateralGrip(vf, grip * (input.grip ?? 1) * dirty * (car.tyreGrip ?? 1) * (dfx?.grip ?? 1), vcurv, p, dfx?.aero ?? 1) + bankGrip, 2);
   // Combined grip (p.combined, a friction circle): braking or driving hard leaves less grip for turning, and turning
   // hard leaves less for braking and driving (below). The tyres take a little more lengthways than sideways (1.2×).
-  const latAvail = p.combined ? latMax * Math.max(p.combinedMin ?? 0.45, Math.sqrt(Math.max(0, 1 - (car.longA / (1.2 * latMax)) ** 2))) : latMax;
+  // (p.brakeLoad, a car's `human` block: on the brakes the weight comes onto the front tyres, so they keep more of their
+  //  cornering grip while braking: the least it can fall to rises from combinedMin toward 1 as you brake harder. The
+  //  car turns on the brakes as well as off them, no better: no extra rotation)
+  const frontLoad = (p.brakeLoad ?? 0) * brk;
+  const latAvail = p.combined ? latMax * Math.max(Math.min(1, (p.combinedMin ?? 0.45) + frontLoad), Math.sqrt(Math.max(0, 1 - (car.longA / (1.2 * latMax)) ** 2))) : latMax;
 
   // --- Lock-up: only when braking hard AND cornering hard ------------------
   // (a car with ABS, p.abs, never locks: the HUD shows ABS working where it would have)
@@ -141,10 +169,11 @@ export function stepCar(car, input, track, dt, human = false) {
   const load = Math.hypot(brk, latUse);
   car.absActive = !!p.abs && brk >= 0.8 && vf >= 10 && load > p.lockThreshold;
   if (input.abs || p.abs || brk < 0.8 || vf < 10) car.lockF = false; // ease off the brake to recover
-  else if (!car.lockF && load > p.lockThreshold) car.lockF = true;
+  else if (!car.lockF && load > p.lockThreshold * (1 + frontLoad)) car.lockF = true; // (the loaded fronts take more before they lock)
 
   // --- Traction control (p.tc, 0–1): when the rear steps out on the throttle, it trims the power --------
-  const tcCut = p.tc ? p.tc * clamp((car.slip - 1.2) / 3, 0, 1) * (thr > 0.3 ? 1 : 0) : 0;
+  // (it comes in smoothly as you open the throttle from 10% to 40%: no step to feel as you squeeze the trigger)
+  const tcCut = p.tc ? p.tc * clamp((car.slip - 1.2) / 3, 0, 1) * clamp((thr - 0.1) / 0.3, 0, 1) : 0;
   car.tcActive = tcCut > 0.04;
   const drive = thr * (1 - tcCut * 0.6);                 // throttle that reaches the road
 
@@ -155,11 +184,15 @@ export function stepCar(car, input, track, dt, human = false) {
   // Weight moving about (a car's own `human` block turns these on: src/cars/f1.js). Lift off in a corner and the
   // weight comes forward: the nose bites and the car tucks in (liftRotation). Stand on the power in a fast corner and
   // it goes back: the front goes light and the car pushes wide (powerPush), so you feed the power in as the corner opens.
-  if (p.liftRotation && thr < 0.15 && brk < 0.1) yawTarget *= 1 + p.liftRotation * Math.min(latUse, 1) * clamp(vf / 25, 0, 1);
+  // (all of it with your foot off both pedals, fading out by 25% throttle or 20% brake: no step as you modulate)
+  if (p.liftRotation) yawTarget *= 1 + p.liftRotation * Math.min(latUse, 1) * clamp(vf / 25, 0, 1) * clamp(1 - thr / 0.25, 0, 1) * clamp(1 - brk / 0.2, 0, 1);
   if (p.powerPush && drive > 0.5) yawTarget *= 1 - p.powerPush * (drive - 0.5) * 2 * Math.min(latUse, 1) * clamp((vf - 25) / 30, 0, 1);
   if (car.lockF) yawTarget *= p.lockSteer;
   if (car.spin > 0) yawTarget *= 1 + (p.spinRotation ?? 0) * car.spin; // wheelspin out of a corner: the rear steps out
-  const yawMax = p.slideAllowance * latAvail / Math.max(Math.abs(vf), 3);
+  // (p.brakeRotation, a car's `human` block: on the brakes the weight comes onto the nose and the rear goes light, so
+  //  the car can rotate past its grip a little more the harder you brake: it turns in on the brakes instead of
+  //  pushing on. The slide this makes is caught by the tyres below, as any other)
+  const yawMax = p.slideAllowance * latAvail * (1 + (p.brakeRotation ?? 0) * brk) / Math.max(Math.abs(vf), 3);
   yawTarget = clamp(yawTarget, -yawMax, yawMax);
   // A bike (p.bike) turns by leaning: the steering asks for the lean that makes this turn, the bike rolls toward it (it
   // takes a moment), and the turn it makes is the one its lean holds (g·tan(lean) ÷ speed). Grip limits the lean.
@@ -169,7 +202,8 @@ export function stepCar(car, input, track, dt, human = false) {
   const slipAngle = Math.atan2(vl, Math.max(Math.abs(vf), 1));
   yawTarget += p.stability * slipAngle;
 
-  car.yawRate += (yawTarget - car.yawRate) * (1 - Math.exp(-p.yawResponse * dt));
+  const yawResp = hf > 0 ? p.yawResponse + (H.yawResponse - p.yawResponse) * hf : p.yawResponse; // (heavy at speed: above)
+  car.yawRate += (yawTarget - car.yawRate) * (1 - Math.exp(-yawResp * dt));
   car.h += car.yawRate * dt;
 
   // Velocity in the car's new frame: any sideways part is the slide.
@@ -372,11 +406,17 @@ function gearIndex(speed, box = F1.gearbox) {
   return g;
 }
 
-// For the steering assist (assists.js) on a bike you steer by lean (p.leanSteer): the stick position that makes the
-// turn an AI driver's steering asks for (its `steer`, a share of the bars' lock, × its lock bonus)
+// For the steering assist (assists.js): the stick position, on your car, that makes the turn an AI driver's steering
+// asks for (its `steer`, a share of the AI's lock, × its lock bonus). A car: the same wheel angle on your own lock (it
+// can differ: speed-sensitive steering, your own steerFade). A bike you steer by lean (p.leanSteer): the lean.
 export function leanSteerFor(car, aiSteer) {
   const base = car.spec?.physics ?? CAR, p = base.human ? humanPhysics(base) : base, B = p.bike;
-  if (!B || !p.leanSteer) return aiSteer;
+  if (!B || !p.leanSteer) {
+    if (p === base) return aiSteer;
+    const v = Math.max(Math.abs(car.vf), 0.1), H = p.heavy, hf = H ? clamp((v - H.from) / (H.to - H.from), 0, 1) : 0;
+    const x = clamp((aiSteer * steerLimit(v, base)) / Math.max(steerLimit(v, p), 1e-4), -1, 1);
+    return Math.sign(x) * Math.abs(x) ** (1 / (1 + (H ? H.centre * hf : 0))); // (the stick that, through the soft middle, gives it)
+  }
   const v = Math.max(car.vf, 0.1), yaw = (v * Math.tan(aiSteer * steerLimit(v, base))) / (base.steerBase ?? base.wheelbase);
   const most = Math.min(B.maxLean, Math.atan((p.slideAllowance * lateralGrip(v, 1, 0, p)) / p.g)) * (p.leanMargin ?? 1);
   const x = clamp(Math.atan((yaw * v) / p.g) / Math.max(most, 1e-3), -1, 1);

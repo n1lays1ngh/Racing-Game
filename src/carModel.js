@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { steerLimit, gearbox } from './physics.js';
+import { playerSteerLimit, gearbox } from './physics.js';
 import { bodyFor, rimGeometry, NEW_BODIES } from './carBodies.js';
 import F1 from './cars/f1.js';
 import { TYRES as COMPOUND_SETS } from './tyres.js';
@@ -776,7 +776,10 @@ export function syncCarModel(model, state) {
     if (u.display && u.frame++ % 2 === 0) drawDisplay(u.display, state); // steering-wheel screen, 30 times a second
     // Steering wheel: turns with your steering input (full lock = the model's steeringLock)
     if (u.steeringWheel) {
-      const k = THREE.MathUtils.clamp((state.steer ?? 0) / Math.max(steerLimit(Math.abs(state.vf ?? 0), state.spec?.physics), 1e-3), -1, 1);
+      // (on the driver's own lock, speed-sensitive steering and all, so full stick turns the wheel all the way: a car with
+      //  a steering wheel is yours or a friend's; the AI's cars are the light copies, which have none)
+      const lim = playerSteerLimit(state);
+      const k = THREE.MathUtils.clamp((state.steer ?? 0) / Math.max(lim, 1e-3), -1, 1);
       u.steeringWheel.quaternion.copy(tmpQ.setFromAxisAngle(u.swAxis, k * cfg.steeringLock));
     }
   } else if (u.blurMats) { // the built-in Hypercar and GT3: spoked rims, so like the models: capped spin, blur at speed

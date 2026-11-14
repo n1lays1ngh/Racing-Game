@@ -21,17 +21,18 @@ import { triggerFeedback } from './dualsense.js';
 
 export const PAD = {
   deadzone: 0.08,     // ignore tiny stick movements
-  steerCurve: 1.5,    // 1 = linear; higher = gentler around the centre, full lock at the edge
+  steerCurve: 1.25,   // 1 = linear; higher = gentler around the centre, full lock at the edge (the F1 car's steering is
+                      // speed-sensitive now, physics.js: calm at speed already, so less curve is needed)
   // Triggers: how far you press (0–1) → how much throttle or brake (0–1).
   //   deadzone: pressure ignored at the start (stops a resting finger creeping on the throttle)
   //   full:     pressure that already gives 100% (so you don't have to crush the trigger)
   //   curve:    1 = straight; above 1 = finer control in the first half of the travel (more room
   //             for 20–60%), the last part of the travel does the most; below 1 = more sensitive
   //   max:      most it can ever ask for (0.8 = never more than 80%)
-  throttle: { deadzone: 0.04, full: 0.97, curve: 1.35, max: 1 },
+  throttle: { deadzone: 0.04, full: 0.95, curve: 1.15, max: 1 },
   // The brake is "heavier": a little more travel before it bites and a steeper curve, so it firms up
   // towards the end of the travel like a real brake pedal (real resistance on a DualSense: dualsense.js).
-  brake: { deadzone: 0.07, full: 0.93, curve: 1.8, max: 1 },
+  brake: { deadzone: 0.05, full: 0.92, curve: 1.3, max: 1 },  // (1.8 made half a pull only 25% brake: it felt on / off)
   rumble: 1.3,        // vibration strength: 0 = off, 1 = normal, 2 = very strong
   engineRumble: 0.5,  // the engine's buzz under throttle (part of rumble; 0 = none)
   triggerRumble: true, // Xbox controllers in Chrome/Edge on Windows: rumble inside the triggers too
